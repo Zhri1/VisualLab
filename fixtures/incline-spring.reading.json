@@ -1,0 +1,19 @@
+{
+  "templateId": "incline_spring",
+  "conditions": {
+    "gravityMps2": 10,
+    "inclineAngleDeg": 37,
+    "inclineLengthM": 4,
+    "kineticFrictionCoefficient": 0.5,
+    "initialSpeedMps": 0,
+    "blockMassKg": 1,
+    "springGapM": 1,
+    "springConstantNpm": 400
+  },
+  "facts": {
+    "slidesAfterRelease": true,
+    "losslessTurn": true,
+    "horizontalIsFrictionless": true,
+    "springIsUnattached": true
+  }
+}
