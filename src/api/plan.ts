@@ -112,31 +112,40 @@ export async function handlePlan(request: Request): Promise<Response> {
     return json({ message: '无法解析上传内容，请重新选择图片' }, 400, base);
   }
 
-  const file = form.get('image');
-  if (!(file instanceof Blob)) {
-    return json({ message: '缺少图片字段 image' }, 400, base);
-  }
-  if (file.size === 0) {
-    return json({ message: '图片为空，请重新选择' }, 400, base);
-  }
-  if (file.size > MAX_IMAGE_BYTES) {
-    return json({ message: `图片超过 8 MB，${MAX_EDGE_HINT}` }, 400, base);
-  }
-
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const mime = sniffImageMime(bytes);
-  if (!mime) {
-    return json({ message: '只支持 JPG 或 PNG 图片' }, 400, base);
-  }
-
-  // 文字模式：可选字段 text，作为题面文字的补充一起送给模型
+  // 文字模式：只输文字、不传图时 image 可以缺席（见 HANDOFF-C.md）
   const rawText = form.get('text');
   const text = typeof rawText === 'string' ? rawText.trim().slice(0, 2000) : '';
+
+  const file = form.get('image');
+  let imageBase64: string | undefined;
+  let mime: string | undefined;
+
+  if (file instanceof Blob) {
+    if (file.size === 0) {
+      return json({ message: '图片为空，请重新选择' }, 400, base);
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      return json({ message: `图片超过 8 MB，${MAX_EDGE_HINT}` }, 400, base);
+    }
+
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const sniffed = sniffImageMime(bytes);
+    if (!sniffed) {
+      return json({ message: '只支持 JPG 或 PNG 图片' }, 400, base);
+    }
+
+    imageBase64 = toBase64(bytes);
+    mime = sniffed;
+  }
+
+  if (!imageBase64 && !text) {
+    return json({ message: '请上传题图，或输入题目文字' }, 400, base);
+  }
 
   let vision;
   try {
     vision = await callVisionModel({
-      imageBase64: toBase64(bytes),
+      imageBase64,
       mime,
       text,
       skillText: loadSkillText(),
@@ -160,7 +169,7 @@ export async function handlePlan(request: Request): Promise<Response> {
   const elapsed = Date.now() - startedAt;
 
   console.log(
-    `[plan] ${requestId} ${result.status} ${elapsed}ms model=${vision.model} bytes=${bytes.length}`,
+    `[plan] ${requestId} ${result.status} ${elapsed}ms model=${vision.model} image=${imageBase64 ? 'yes' : 'no'} text=${text.length}`,
   );
 
   return json(result, 200, {

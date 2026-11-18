@@ -133,12 +133,22 @@ export function buildPlan(raw: unknown): PlanResult {
     };
   }
 
+  // 连模板都认不出（图片模糊、不是题图、文字信息不足）→ 让用户重拍或补文字，
+  // 而不是报"超范围"。前端会用 reading: null 展示一张全空的可编辑表单。
+  if (!templateId) {
+    return {
+      status: 'needs_input',
+      reading: null,
+      missingKeys: [],
+      message: '没能识别出题型，请重拍清晰的题图，或补充题目文字',
+      assumptions,
+    };
+  }
+
   if (templateId !== TEMPLATE_ID) {
     return {
       status: 'unsupported',
-      message: templateId
-        ? `${UNSUPPORTED_PREFIX}。模型给出的模板为「${templateId}」，未在登记表中`
-        : `${UNSUPPORTED_PREFIX}。未能从图片中识别出题型`,
+      message: `${UNSUPPORTED_PREFIX}。模型给出的模板为「${templateId}」，未在登记表中`,
     };
   }
 

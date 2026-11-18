@@ -18,10 +18,10 @@ export class VisionError extends Error {
 }
 
 export interface VisionRequest {
-  /** 不带 data: 前缀的 base64 */
-  imageBase64: string;
-  /** image/jpeg 或 image/png */
-  mime: string;
+  /** 不带 data: 前缀的 base64；文字模式下可以没有 */
+  imageBase64?: string;
+  /** image/jpeg 或 image/png；与 imageBase64 同时存在 */
+  mime?: string;
   /** 文字模式下学生补充的题目描述，可为空 */
   text?: string;
   skillText: string;
@@ -70,12 +70,15 @@ async function callOnce(model: string, request: VisionRequest, apiKey: string): 
   const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
   const limit = timeoutMs();
 
-  const userContent: Array<Record<string, unknown>> = [
-    {
+  const userContent: Array<Record<string, unknown>> = [];
+  if (request.imageBase64 && request.mime) {
+    userContent.push({
       type: 'image_url',
       image_url: { url: `data:${request.mime};base64,${request.imageBase64}` },
-    },
-  ];
+    });
+  } else {
+    userContent.push({ type: 'text', text: '本题没有图片，只有下面的文字描述。' });
+  }
   if (request.text) {
     userContent.push({
       type: 'text',
