@@ -1,6 +1,11 @@
 /**
  * 事件时间轴。标记来自 motion.events，点击即跳转。
  * 拖动轨道时暂停播放并实时预览。
+ *
+ * 结构分两层：上面是「按真实时间比例」的刻度轨道，下面是「按顺序」的事件索引。
+ * 主演示题的时间分布很不均匀——1.99 s 之后的三个事件挤在最后 0.16 s 里，
+ * 若把标签径向贴在轨道旁必然互相压叠；拆成刻度 + 索引后，
+ * 位置仍然真实，文字也能各自站住。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Motion } from "../../../types";
@@ -85,12 +90,11 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
         {motion.events.map((ev) => {
           const p = (ev.timeSeconds / duration) * 100;
           const done = time >= ev.timeSeconds - 1e-6;
+          const current = activeEvent?.id === ev.id;
           return (
-            <div
+            <span
               key={ev.id}
-              className={
-                "marker" + (done ? " done" : "") + (activeEvent?.id === ev.id ? " current" : "")
-              }
+              className={"tick" + (done ? " done" : "") + (current ? " current" : "")}
               style={{ left: `${p}%` }}
               title={`${ev.label} · ${ev.timeSeconds.toFixed(2)} s`}
               onPointerDown={(e) => {
@@ -103,23 +107,27 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
         <div className="knob" style={{ left: `${ratio * 100}%` }} />
       </div>
 
-      <div className="marks">
-        {motion.events.map((ev, i) => {
-          const p = (ev.timeSeconds / duration) * 100;
-          const edge = i === 0 ? " edge-start" : p > 88 ? " edge-end" : "";
+      <ol className="event-index" aria-label="关键事件">
+        {motion.events.map((ev) => {
+          const current = activeEvent?.id === ev.id;
+          const passed = time >= ev.timeSeconds - 1e-6;
           return (
-            <div
-              key={ev.id}
-              className={"mark-label" + edge + (activeEvent?.id === ev.id ? " active" : "")}
-              style={{ left: `${p}%`, opacity: time >= ev.timeSeconds - 1e-6 ? 1 : 0.55 }}
-              onClick={() => onSeekEvent(ev.id)}
-            >
-              <div className="k">{ev.label}</div>
-              <div className="v">{ev.timeSeconds.toFixed(2)} s</div>
-            </div>
+            <li key={ev.id}>
+              <button
+                type="button"
+                className={
+                  "event-item" + (current ? " current" : "") + (passed ? " passed" : "")
+                }
+                onClick={() => onSeekEvent(ev.id)}
+                aria-current={current ? "step" : undefined}
+              >
+                <span className="t">{ev.timeSeconds.toFixed(2)} s</span>
+                <span className="n">{ev.label}</span>
+              </button>
+            </li>
           );
         })}
-      </div>
+      </ol>
     </div>
   );
 }
