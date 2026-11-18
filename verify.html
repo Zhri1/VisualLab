@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VisualLab · 数值自检</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    margin: 0; padding: 40px 24px;
+    background: #f6f6f4; color: #111;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px; line-height: 1.6;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 26px; letter-spacing: -.03em; margin: 0 0 6px; }
+  .sub { color: #a3a3a3; font-size: 13px; margin: 0 0 26px; }
+  .summary {
+    display: flex; gap: 10px; align-items: center;
+    padding: 14px 18px; border-radius: 14px; background: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 12px 30px -20px rgba(0,0,0,.2);
+    margin-bottom: 18px; font-size: 14px;
+  }
+  .pill { padding: 3px 10px; border-radius: 999px; font-size: 12px; }
+  .ok { background: #eef6f1; color: #2f6f52; }
+  .bad { background: #fdf3f3; color: #8a4b4b; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 12px 30px -20px rgba(0,0,0,.18); }
+  th { text-align: left; font-weight: 500; font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: #a3a3a3; padding: 12px 16px; border-bottom: 1px solid #f0f0ee; }
+  td { padding: 11px 16px; border-bottom: 1px solid #f5f5f3; font-size: 13.5px; }
+  tr:last-child td { border-bottom: none; }
+  td.num { font-variant-numeric: tabular-nums; color: #6b6b6b; white-space: nowrap; }
+  td.last { text-align: right; }
+  .tag { font-size: 11.5px; padding: 3px 10px; border-radius: 999px; white-space: nowrap; display: inline-block; }
+  .tag.pass { background: #eef6f1; color: #2f6f52; }
+  .tag.fail { background: #fdf3f3; color: #8a4b4b; }
+  .note { margin-top: 22px; font-size: 12.5px; color: #a3a3a3; line-height: 1.75; }
+  code { font-family: ui-monospace, Menlo, monospace; background: #f0f0ee; padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>数值自检</h1>
+  <p class="sub">用与 <code>mockMotionAdapter.ts</code> 相同的解析式重算一遍，对照方案第 3 节。</p>
+  <div class="summary" id="summary">计算中…</div>
+  <table>
+    <thead><tr><th style="width:40%">检查项</th><th style="width:24%">期望</th><th style="width:24%">实际</th><th style="width:12%;text-align:right">结果</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <p class="note">
+    这页只验证数值，不替代 <code>npm run test</code>。它的存在是为了在没法装依赖的环境里也能确认物理口径。
+  </p>
+</div>
+
+<script>
+/* 与 src/adapters/mockMotionAdapter.ts 完全相同的解析式，独立重写一遍做交叉验证 */
+function model(opts) {
+  const {
+    g = 10, deg = 37, L = 4, mu = 0.5, m = 1, gap = 1, k = 400, v0 = 0,
+  } = opts || {};
+  const th = deg * Math.PI / 180;
+  const a1 = g * (Math.sin(th) - mu * Math.cos(th));
+  const t1 = Math.sqrt(2 * L / a1);
+  const v1 = a1 * t1;
+  const t2 = t1 + gap / v1;
+  const omega = Math.sqrt(k / m);
+  const t3 = t2 + Math.PI / (2 * omega);
+  const t4 = t2 + Math.PI / omega;
+  const xMax = v1 / omega;
+  return {
+    a1, t1, v1, t2, t3, t4, xMax, fMax: k * xMax,
+    topX: -L * Math.cos(th), topY: L * Math.sin(th), v0,
+  };
+}
+
+const base = model();
+const k100 = model({ k: 100 });
+const gap2 = model({ gap: 2 });
+
+const rows = [
+  ["斜面加速度 a", "2.0250 m/s²", base.a1.toFixed(4), Math.abs(base.a1 - 2.0250) < 5e-4],
+  ["到达坡底 t₁", "1.9876 s", base.t1.toFixed(4), Math.abs(base.t1 - 1.9876) < 5e-4],
+  ["坡底速率 v₁", "4.0249 m/s", base.v1.toFixed(4), Math.abs(base.v1 - 4.0249) < 5e-4],
+  ["坡顶坐标", "(-3.1945, 2.4073)", `(${base.topX.toFixed(4)}, ${base.topY.toFixed(4)})`,
+    Math.abs(base.topX + 3.1945) < 5e-4 && Math.abs(base.topY - 2.4073) < 5e-4],
+  ["接触弹簧 t₂", "2.2361 s", base.t2.toFixed(4), Math.abs(base.t2 - 2.2361) < 5e-4],
+  ["最大压缩 t₃", "2.3146 s", base.t3.toFixed(4), Math.abs(base.t3 - 2.3146) < 5e-4],
+  ["最大压缩量 x", "0.2012 m", base.xMax.toFixed(4), Math.abs(base.xMax - 0.2012) < 5e-4],
+  ["最大弹力 F", "80.50 N", base.fMax.toFixed(2), Math.abs(base.fMax - 80.50) < 5e-2],
+  ["脱离 t₄", "2.3932 s", base.t4.toFixed(4), Math.abs(base.t4 - 2.3932) < 5e-4],
+  ["脱离速度", "-4.0249 m/s", (-base.v1).toFixed(4), Math.abs(-base.v1 + 4.0249) < 5e-4],
+  ["k→100 时 x", "0.4025 m", k100.xMax.toFixed(4), Math.abs(k100.xMax - 0.4025) < 5e-4],
+  ["k→100 时 t₂", "2.2361 s", k100.t2.toFixed(4), Math.abs(k100.t2 - 2.2361) < 5e-4],
+  ["gap→2 时 t₂", "2.4845 s", gap2.t2.toFixed(4), Math.abs(gap2.t2 - 2.4845) < 5e-4],
+];
+
+let pass = 0;
+document.getElementById("rows").innerHTML = rows.map(([name, want, got, ok]) => {
+  if (ok) pass++;
+  return `<tr>
+    <td>${name}</td>
+    <td class="num">${want}</td>
+    <td class="num">${got}</td>
+    <td class="last"><span class="tag ${ok ? "pass" : "fail"}">${ok ? "通过" : "偏差"}</span></td>
+  </tr>`;
+}).join("");
+
+const allOk = pass === rows.length;
+document.getElementById("summary").innerHTML = allOk
+  ? `<span class="pill ok">${pass}/${rows.length} 通过</span> 全部数值与方案一致。`
+  : `<span class="pill bad">${pass}/${rows.length} 通过</span> 有 ${rows.length - pass} 项对不上，需要检查公式。`;
+</script>
+</body>
+</html>
