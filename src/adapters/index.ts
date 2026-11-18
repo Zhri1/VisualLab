@@ -1,17 +1,11 @@
 /**
- * 动画库出口。UI 只从这里拿，永远不直接 import mock 文件。
- *
- * —— 接入成员 B 时只改这个文件 ——
- *   import { assembleScene, buildMotion } from "../physics";
- * 并删除下面的 mock 引入。
+ * 动画库统一出口，由适配层把 B 的物理结果映射为播放器共享类型。
  */
 import type { MotionLibrary } from "./contract";
-import { mockMotionLibrary } from "./mockMotionAdapter";
+import { physicsMotionLibrary } from "./physicsMotionAdapter";
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const USE_MOCK_PHYSICS = true;
-
-export const motionLibrary: MotionLibrary = mockMotionLibrary;
+export const motionLibrary: MotionLibrary = physicsMotionLibrary;
 
 export { formatErrors } from "./contract";
 export type { AssembleResult, BuildMotionResult, MotionLibrary } from "./contract";
+

@@ -1,23 +1,23 @@
 # 给 B：动画库对接说明
 
-A 的播放器只认两个函数和一个返回结构。你按这份实现，我这边一行 UI 都不用改。
+A 的播放器通过 MotionLibrary 接入 B 的纯计算库，入口为 src/adapters/index.ts。
 
 ## 替换点
 
-`src/adapters/index.ts` 现在是：
+`src/adapters/index.ts` 已接入：
 
 ```ts
-export const motionLibrary: MotionLibrary = mockMotionLibrary;
+import { physicsMotionLibrary } from "./physicsMotionAdapter";
+export const motionLibrary: MotionLibrary = physicsMotionLibrary;
 ```
 
-改成：
+物理层仍通过以下公共入口供其他调用方使用：
 
 ```ts
-import { assembleScene, buildMotion } from "../physics";
-export const motionLibrary: MotionLibrary = { assembleScene, buildMotion };
+import { validateReading, assembleScene, buildMotion } from "../physics";
 ```
 
-签名定义在 `src/adapters/contract.ts`，`Motion` 等类型在 `src/types/index.ts`，都按契约写好了，直接用，不要另起一套。
+播放器签名定义在 `src/adapters/contract.ts`，共享类型在 `src/types/index.ts`。适配层映射字段、错误码与事件 ID，动力学计算由 `src/physics` 完成。适配场景为本地对象，装配时保存一次完整求解结果，随后 buildMotion 只映射播放器数据。修改题设仍重新调用 assembleScene → buildMotion。
 
 ## 坐标系
 
@@ -27,7 +27,7 @@ export const motionLibrary: MotionLibrary = { assembleScene, buildMotion };
 
 **`position` 一律指滑块的前下沿接触点**，不是几何中心——就是贴着支撑面、朝运动方向的那个角。这条是最容易对不上的地方：如果两边定义不同，画面会整体偏半个滑块边长，而数值测试仍然全绿，因为测试只查时间。
 
-这个定义在 `assembleScene` 之后的所有取样里必须一致：斜面上是沿坡方向的先接触点，水平面上是右下角，压缩弹簧时是右边缘中点。
+所有取样沿用 B 的坐标作为绘制参考点。斜面上为前下沿，水平和弹簧段均为右下角且 y = 0。画布自行换算几何中心。springContactX 与接触事件的 position.x 相等，固定端采用 B 为最大压缩留出空间的示意位置，滑块边长沿用 0.3 m。
 
 ## 返回结构
 
@@ -57,7 +57,7 @@ export const motionLibrary: MotionLibrary = { assembleScene, buildMotion };
 
 ## 验收基准
 
-`npm run test` 是 13 条用例，你把库接进来后直接跑，全绿即可。基准值：
+`npm run test` 通过公开入口运行原有 13 条与新增 6 条接入验收。物理层另运行 `node --test "src/physics/*.test.ts"` 的 14 项测试。基准值：
 
 | 量 | 值 |
 |---|---|
@@ -79,3 +79,4 @@ export const motionLibrary: MotionLibrary = { assembleScene, buildMotion };
 方案说水平面光滑，我这边水平段按匀速实现。但契约允许 `kineticFrictionCoefficient` 非零，而它显然只作用于斜面。如果你的模型想让 μ 也作用在水平段（真实题目里有时如此），那和 `horizontalIsFrictionless: true` 这个前提冲突，需要先在契约里改清楚再动代码。
 
 我按「μ 只作用于斜面、水平段匀速」实现。如果理解错了，现在改比后面改便宜。
+
