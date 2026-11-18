@@ -161,7 +161,7 @@ export function buildPlan(raw: unknown): PlanResult {
   }
 
   const fields = Array.isArray(verdict.fields)
-    ? verdict.fields.filter((field): field is string => typeof field === 'string')
+    ? verdict.fields.map((field): string => field)
     : [];
 
   // 3. 题设前提被明确否定 → 超范围，不进计算
