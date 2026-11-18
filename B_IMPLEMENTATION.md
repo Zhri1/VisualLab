@@ -39,6 +39,8 @@ B 负责把题设变成可播放的运动。首个交付是 `incline_spring`。A
 
 ## 审核用例
 
+联调可直接上传 [标准题图](fixtures/incline-spring-gap-1m.png) 和 [间距变式题图](fixtures/incline-spring-gap-2m.png)。两张图只改弹簧原长时接触端的距离。C 对照标准 JSON 核对识别结果，A 将接口返回的 `reading` 直接传入 `assembleScene → buildMotion`。先各上传一次，确认间距分别为 1 m 和 2 m，再在前端把标准题的间距改为 2 m，核对是否与变式得到相同的接触位置和时刻。
+
 | 用例 | 预期 |
 |---|---|
 | 标准读数 | 到坡底约 `1.9876 s`、速率约 `4.0249 m/s`，在 `2.2361 s` 接触弹簧。 |
