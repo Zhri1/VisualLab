@@ -55,9 +55,10 @@ export function getMockScenario(): MockScenario | null {
   return forcedScenario;
 }
 
-function mockPlan(hasImage: boolean, isSample = false): PlanResponse {
-  // 内置示例是兜底路径，不受联调开关影响，永远成功
-  const scenario = isSample ? "ok" : (forcedScenario ?? "ok");
+export function mockPlan(hasImage: boolean, isSample = false): PlanResponse {
+  // 内置示例是兜底路径：不受联调开关影响，也不受「无图即缺项」影响，永远成功
+  if (isSample) return { status: "ok", reading: SAMPLE_READING };
+  const scenario = forcedScenario ?? "ok";
   if (scenario === "needs_input") {
     return {
       status: "needs_input",
