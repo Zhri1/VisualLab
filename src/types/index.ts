@@ -1,0 +1,209 @@
+/**
+ * 与 PROJECT_PLAN_FINAL.md 第 4 节、CONTRACTS.md 对齐的共享类型。
+ * 字段名一律沿用契约原文，不在这里做重命名。
+ */
+
+export type TemplateId = "incline_spring";
+
+/** 题设条件。缺项用 null 表示，保留给用户补齐。 */
+export interface Conditions {
+  gravityMps2: number | null;
+  inclineAngleDeg: number | null;
+  inclineLengthM: number | null;
+  kineticFrictionCoefficient: number | null;
+  initialSpeedMps: number | null;
+  blockMassKg: number | null;
+  springGapM: number | null;
+  springConstantNpm: number | null;
+}
+
+export type FactKey =
+  | "slidesAfterRelease"
+  | "losslessTurn"
+  | "horizontalIsFrictionless"
+  | "springIsUnattached";
+
+export type Facts = Record<FactKey, boolean | null>;
+
+/** AI 识别服务与前端共用的一份数据。 */
+export interface Reading {
+  templateId: TemplateId | string;
+  conditions: Conditions;
+  facts: Facts;
+}
+
+export type ConditionKey = keyof Conditions;
+
+/** 单个条件的展示元数据，核对表按此顺序渲染。 */
+export interface ConditionMeta {
+  key: ConditionKey;
+  label: string;
+  unit: string;
+  /** 精度，用于输入框和展示 */
+  step?: number;
+  /** 简要说明，出现在核对表第二行 */
+  hint?: string;
+}
+
+export const CONDITION_META: ConditionMeta[] = [
+  { key: "gravityMps2", label: "重力加速度 g", unit: "m/s²", step: 0.1, hint: "取 10 便于口算" },
+  { key: "inclineAngleDeg", label: "斜面倾角 θ", unit: "°", step: 1, hint: "0° < θ < 90°" },
+  { key: "inclineLengthM", label: "斜面长度 L", unit: "m", step: 0.1 },
+  { key: "kineticFrictionCoefficient", label: "动摩擦因数 μ", unit: "", step: 0.05, hint: "可为 0" },
+  { key: "initialSpeedMps", label: "初速度 v₀", unit: "m/s", step: 0.1, hint: "首版为静止释放" },
+  { key: "blockMassKg", label: "滑块质量 m", unit: "kg", step: 0.1 },
+  { key: "springGapM", label: "坡底到弹簧距离", unit: "m", step: 0.1, hint: "弹簧原长接触端" },
+  { key: "springConstantNpm", label: "弹簧劲度系数 k", unit: "N/m", step: 10 },
+];
+
+export const FACT_META: { key: FactKey; label: string }[] = [
+  { key: "slidesAfterRelease", label: "释放后下滑" },
+  { key: "losslessTurn", label: "转向无损（保留速率）" },
+  { key: "horizontalIsFrictionless", label: "水平面光滑" },
+  { key: "springIsUnattached", label: "滑块与弹簧不连接" },
+];
+
+/* ---------------- 场景与运动 ---------------- */
+
+export interface Vec2 {
+  x: number;
+  y: number;
+}
+
+/** 米制几何，原点在斜面底端，x 向右、y 向上。 */
+export interface SceneGeometry {
+  inclineTop: Vec2;
+  inclineBottom: Vec2;
+  horizontalEnd: Vec2;
+  /** 弹簧原长时的接触端 */
+  springContactX: number;
+  /** 弹簧固定端 */
+  springAnchorX: number;
+  blockSizeM: number;
+}
+
+export interface Scene {
+  geometry: SceneGeometry;
+  /** 已完成校验、非空的数值条件 */
+  params: ResolvedConditions;
+}
+
+/** 校验通过的数值集合（避免直接散落 null 判断） */
+export interface ResolvedConditions {
+  gravityMps2: number;
+  inclineAngleDeg: number;
+  inclineLengthM: number;
+  kineticFrictionCoefficient: number;
+  initialSpeedMps: number;
+  blockMassKg: number;
+  springGapM: number;
+  springConstantNpm: number;
+}
+
+export type SegmentKind = "incline" | "horizontal" | "spring";
+
+export interface MotionSegment {
+  kind: SegmentKind;
+  startSeconds: number;
+  endSeconds: number;
+  name: string;
+  summary: string;
+  formula: string;
+}
+
+export type EventId =
+  | "release"
+  | "reach_bottom"
+  | "contact_spring"
+  | "max_compression"
+  | "detach_spring";
+
+export interface MotionEvent {
+  id: EventId | string;
+  timeSeconds: number;
+  label: string;
+  /** 与画面同步的一句原理说明 */
+  caption: string;
+  segment: SegmentKind;
+  velocityBefore?: Vec2;
+  velocityAfter?: Vec2;
+  /** 供 AI 联动使用的补充数值 */
+  detail?: string;
+}
+
+export interface MotionSample {
+  /** 滑块前下沿接触点 */
+  position: Vec2;
+  velocity: Vec2;
+  springCompressionM: number;
+}
+
+export interface Motion {
+  geometry: SceneGeometry;
+  durationSeconds: number;
+  segments: MotionSegment[];
+  events: MotionEvent[];
+  sampleAt(timeSeconds: number): MotionSample;
+}
+
+/* ---------------- 错误 ---------------- */
+
+export interface FieldError {
+  code:
+    | "MISSING"
+    | "RANGE"
+    | "NOT_FINITE"
+    | "PRECONDITION_CONFLICT"
+    | "UNSUPPORTED_TEMPLATE";
+  field?: string;
+  message: string;
+}
+
+/* ---------------- 识别接口 ---------------- */
+
+export type PlanResponse =
+  | { status: "ok"; reading: Reading }
+  | {
+      status: "needs_input";
+      reading: Reading | null;
+      missingKeys: string[];
+      message: string;
+    }
+  | { status: "unsupported"; message: string }
+  | { status: "error"; message: string; httpStatus?: number };
+
+/* ---------------- 对话 ---------------- */
+
+export type ChatRole = "user" | "assistant" | "system";
+
+export interface ConditionChange {
+  key: ConditionKey;
+  from: number | null;
+  to: number | null;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: ChatRole;
+  /** 纯文本；assistant 支持极简 Markdown 子集 */
+  text: string;
+  pending?: boolean;
+  error?: boolean;
+  /** 参数修改卡片 */
+  change?: {
+    changes: ConditionChange[];
+    applied: boolean;
+    revisionId: string;
+  };
+  /** AI 回复内嵌的跳转入口 */
+  action?: { type: "seek"; eventId: string; label: string };
+}
+
+export type ChatIntent =
+  | { type: "answer"; text: string; action?: ChatMessage["action"] }
+  | { type: "update_conditions"; changes: Partial<Record<ConditionKey, number>>; text: string }
+  | { type: "seek_event"; event: EventId | string; text?: string }
+  | { type: "play" }
+  | { type: "pause" }
+  | { type: "replay" }
+  | { type: "clarify"; text: string };

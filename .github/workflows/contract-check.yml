@@ -1,0 +1,22 @@
+name: contract-check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 契约自检（不需要 API Key）
+        run: |
+          if [ -f scripts/check-contract.ts ]; then
+            npx --yes tsx scripts/check-contract.ts
+          else
+            echo "跳过：识别接口尚未合入 main"
+          fi
