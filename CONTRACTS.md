@@ -21,7 +21,7 @@ AI 返回结构化 `reading`。样例是 [incline-spring.reading.json](fixtures/
 
 ## 2. 上传接口
 
-浏览器用 `POST /api/animation/plan` 发送 `multipart/form-data`，图片字段为 `image`，支持单张 JPG 或 PNG。
+浏览器用 `POST /api/animation/plan` 发送 `multipart/form-data`，图片字段为 `image`，支持单张 JPG 或 PNG。可选字段 `text` 为文字模式下学生补充的题目描述（≤ 2000 字），提供时与图片一起送给模型，与图中标注冲突时以文字为准。
 
 | HTTP | 响应体 | 页面处理 |
 |---|---|---|
