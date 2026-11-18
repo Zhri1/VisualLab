@@ -32,6 +32,7 @@
 6. 代码注释和协作说明用简体中文；变量名、函数名、文件名用英文。
 7. 一次只做一件能验证的事。不要"顺手重构"别人的模块。
 8. **字段合法性只有一处实现**：`src/physics/reading.ts` 的 `validateReading`（B 维护）。C 的接口层只做模型输出归一化和 HTTP 状态映射，**不要另写一套范围判断**，否则会出现"接口返回 ok、`assembleScene` 却报错"。
+9. **`package.json` 和 `src/types/index.ts` 是冲突高发点**，这两处三个人当面确认，不要单独拍板。共享类型以 `src/types/index.ts` 为准，不要在各自目录里重复定义 `Reading`。
 
 ## 分支
 
