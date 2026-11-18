@@ -1,22 +1,27 @@
 /**
- * 把模型回包校验成契约里的四种状态之一（C · AI 接口）
+ * 模型回包 → 契约里的四种状态（C · AI 接口）
  *
- * 这一层是"模型说什么"和"前端能信什么"之间的闸门：
- * - 数值类型不对、越界、缺项 → needs_input，让用户补，不静默改数；
- * - 模板不在登记表、前提被明确否定、有初速度 → unsupported；
- * - 只有全部通过才返回 ok。
+ * 分工：
+ * - C（这里）：把模型不可信的输出**归一化**成契约形状（字符串数字转数值、"true" 转布尔、缺项置 null），
+ *   再把 B 的判定结果**映射**成 HTTP 契约里的 status 和中文提示。
+ * - B（src/physics/reading.ts）：唯一的字段规则来源，决定哪些值合法、缺什么、是否超范围。
+ *
+ * 这样接口层和动画库不会各有一套规则，也不会出现"接口返回 ok、assembleScene 却报错"。
  */
 
+import { validateReading } from '../physics/reading';
+import type { Reading } from '../physics/reading';
+
 import {
-  FACT_RULES,
-  NUMBER_RULES,
+  CONDITION_KEYS,
+  FACT_KEYS,
+  FACT_LABELS,
   TEMPLATE_ID,
   UNSUPPORTED_PREFIX,
   emptyConditions,
   emptyFacts,
-  type Facts,
-  type Nullable,
-  type Reading,
+  labelOf,
+  type FactKey,
 } from './contract';
 
 export interface PlanOk {
@@ -40,7 +45,11 @@ export interface PlanUnsupported {
 
 export type PlanResult = PlanOk | PlanNeedsInput | PlanUnsupported;
 
-/** 模型可能把数字写成字符串、把布尔写成 "true"，这里统一收口 */
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+}
+
+/** 模型常把数字写成 "4"、把单位写进字符串，这里只做类型归一，不改数值 */
 function toNumber(value: unknown): number | null {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   if (typeof value === 'string') {
@@ -70,20 +79,51 @@ function toStringList(value: unknown): string[] {
     .slice(0, 3);
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+/** 把模型输出整理成完整形状：8 个条件 + 4 个事实，读不到就是 null */
+function normalizeReading(data: Record<string, unknown>): Reading {
+  const rawConditions = asRecord(data.conditions);
+  const rawFacts = asRecord(data.facts);
+
+  const conditions = emptyConditions();
+  for (const key of CONDITION_KEYS) {
+    conditions[key] = toNumber(rawConditions[key]);
+  }
+
+  const facts = emptyFacts();
+  for (const key of FACT_KEYS) {
+    facts[key] = toBoolean(rawFacts[key]);
+  }
+
+  return { templateId: TEMPLATE_ID, conditions, facts };
+}
+
+/** 超范围时补一句人话，而不是只丢一个通用提示 */
+function explainUnsupported(fields: string[]): string {
+  if (fields.includes('initialSpeedMps')) {
+    return '题设中滑块有初速度，首版只支持由静止释放';
+  }
+  const fact = fields.find((key): key is FactKey => key in FACT_LABELS);
+  if (fact) return FACT_LABELS[fact].violated;
+  return '题设与斜面弹簧模板的前提不符';
+}
+
+function describeMissing(code: string, keys: string[]): string {
+  if (keys.length === 0) return '识别结果需要确认，请核对条件表';
+  const labels = keys.map(labelOf).join('、');
+  return code === 'INVALID_READING'
+    ? `以下条件超出合理范围，请核对：${labels}`
+    : `识别到 ${keys.length} 项需要确认：${labels}`;
 }
 
 /**
- * 校验并归一化模型输出。
- * raw 是模型返回的 JSON 对象（已 parse）。
+ * 校验并归一化模型输出。raw 是模型返回的 JSON 对象（已 parse）。
  */
 export function buildPlan(raw: unknown): PlanResult {
   const data = asRecord(raw);
   const assumptions = toStringList(data.assumptions);
   const templateId = typeof data.templateId === 'string' ? data.templateId.trim() : '';
 
-  // 1. 模板判定
+  // 1. 题型：先由模型自报，再由 B 复核
   if (templateId === 'unsupported') {
     const reason =
       typeof data.unsupportedReason === 'string' ? data.unsupportedReason.trim() : '';
@@ -102,77 +142,33 @@ export function buildPlan(raw: unknown): PlanResult {
     };
   }
 
-  const rawConditions = asRecord(data.conditions);
-  const rawFacts = asRecord(data.facts);
+  // 2. 交给 B 判定字段是否合法
+  const reading = normalizeReading(data);
+  const verdict = validateReading(reading);
 
-  // 2. 事实判定：明确否定的前提直接超范围，不进入计算
-  const facts: Nullable<Facts> = emptyFacts();
-  for (const rule of FACT_RULES) {
-    const value = toBoolean(rawFacts[rule.key]);
-    facts[rule.key] = value;
-    if (value === false) {
-      return { status: 'unsupported', message: `${UNSUPPORTED_PREFIX}。${rule.violated}` };
-    }
+  if (verdict.ok) {
+    return { status: 'ok', reading: verdict.reading as Reading, assumptions };
   }
 
-  // 3. 数值判定：缺项、类型错、越界都收敛成"需要用户确认"
-  const conditions = emptyConditions();
-  const missing: string[] = [];
-  const notes: string[] = [];
+  const fields = Array.isArray(verdict.fields)
+    ? verdict.fields.filter((field): field is string => typeof field === 'string')
+    : [];
 
-  for (const rule of NUMBER_RULES) {
-    const value = toNumber(rawConditions[rule.key]);
-    if (value === null) {
-      missing.push(rule.key);
-      continue;
-    }
-    const problem = rule.check(value);
-    if (problem) {
-      missing.push(rule.key);
-      notes.push(`${rule.label}识别为 ${value}${rule.unit === '—' ? '' : rule.unit}，${problem}`);
-      continue;
-    }
-    conditions[rule.key] = value;
-  }
-
-  // 4. 首版只支持由静止释放
-  if (conditions.initialSpeedMps !== null && conditions.initialSpeedMps > 0) {
+  // 3. 题设前提被明确否定 → 超范围，不进计算
+  if (verdict.code === 'UNSUPPORTED') {
     return {
       status: 'unsupported',
-      message: `${UNSUPPORTED_PREFIX}。题设中滑块有 ${conditions.initialSpeedMps} m/s 的初速度，首版只支持由静止释放`,
+      message: `${UNSUPPORTED_PREFIX}。${explainUnsupported(fields)}`,
     };
   }
 
-  // 5. 事实未知同样要用户确认，不能替用户假设"水平面光滑"
-  for (const rule of FACT_RULES) {
-    if (facts[rule.key] === null) missing.push(rule.key);
-  }
-
-  const reading: Reading = { templateId, conditions, facts };
-
-  if (missing.length > 0) {
-    const labels = [
-      ...NUMBER_RULES.filter((rule) => missing.includes(rule.key)).map((rule) => rule.label),
-      ...FACT_RULES.filter((rule) => missing.includes(rule.key)).map((rule) => rule.label),
-    ];
-    const head = notes.length > 0 ? notes.join('；') : `识别到 ${missing.length} 项需要确认`;
-    return {
-      status: 'needs_input',
-      reading,
-      missingKeys: missing,
-      message: `${head}：${labels.join('、')}`,
-      assumptions,
-    };
-  }
-
-  return { status: 'ok', reading, assumptions };
-}
-
-/** 给前端展示用的字段中文名，缺项提示可以复用 */
-export function labelOf(key: string): string {
-  return (
-    NUMBER_RULES.find((rule) => rule.key === key)?.label ??
-    FACT_RULES.find((rule) => rule.key === key)?.label ??
-    key
-  );
+  // 4. 缺项或越界 → 让用户补，保留已识别的字段
+  const missingKeys = fields.filter((key) => key !== 'templateId');
+  return {
+    status: 'needs_input',
+    reading,
+    missingKeys,
+    message: describeMissing(verdict.code, missingKeys),
+    assumptions,
+  };
 }
