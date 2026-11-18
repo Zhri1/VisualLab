@@ -14,4 +14,9 @@ jobs:
         with:
           node-version: '20'
       - name: 契约自检（不需要 API Key）
-        run: npx --yes tsx scripts/check-contract.ts
+        run: |
+          if [ -f scripts/check-contract.ts ]; then
+            npx --yes tsx scripts/check-contract.ts
+          else
+            echo "跳过：识别接口尚未合入 main"
+          fi
