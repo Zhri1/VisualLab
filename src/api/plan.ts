@@ -129,11 +129,16 @@ export async function handlePlan(request: Request): Promise<Response> {
     return json({ message: '只支持 JPG 或 PNG 图片' }, 400, base);
   }
 
+  // 文字模式：可选字段 text，作为题面文字的补充一起送给模型
+  const rawText = form.get('text');
+  const text = typeof rawText === 'string' ? rawText.trim().slice(0, 2000) : '';
+
   let vision;
   try {
     vision = await callVisionModel({
       imageBase64: toBase64(bytes),
       mime,
+      text,
       skillText: loadSkillText(),
     });
   } catch (error) {

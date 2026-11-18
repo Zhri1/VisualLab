@@ -22,6 +22,8 @@ export interface VisionRequest {
   imageBase64: string;
   /** image/jpeg 或 image/png */
   mime: string;
+  /** 文字模式下学生补充的题目描述，可为空 */
+  text?: string;
   skillText: string;
 }
 
@@ -68,6 +70,20 @@ async function callOnce(model: string, request: VisionRequest, apiKey: string): 
   const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
   const limit = timeoutMs();
 
+  const userContent: Array<Record<string, unknown>> = [
+    {
+      type: 'image_url',
+      image_url: { url: `data:${request.mime};base64,${request.imageBase64}` },
+    },
+  ];
+  if (request.text) {
+    userContent.push({
+      type: 'text',
+      text: `学生补充的文字描述（与图片冲突时以文字为准）：\n${request.text}`,
+    });
+  }
+  userContent.push({ type: 'text', text: '按 Skill 输出这一个 JSON 对象，不要任何额外文字。' });
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), limit);
 
@@ -85,16 +101,7 @@ async function callOnce(model: string, request: VisionRequest, apiKey: string): 
         max_tokens: 1200,
         messages: [
           { role: 'system', content: [{ type: 'text', text: request.skillText }] },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image_url',
-                image_url: { url: `data:${request.mime};base64,${request.imageBase64}` },
-              },
-              { type: 'text', text: '按 Skill 输出这一个 JSON 对象，不要任何额外文字。' },
-            ],
-          },
+          { role: 'user', content: userContent },
         ],
       }),
       signal: controller.signal,
