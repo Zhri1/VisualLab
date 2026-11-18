@@ -6,6 +6,10 @@ import { WorkspaceLayout } from "./ui/components/workspace/WorkspaceLayout";
 import { PRODUCT_NAME } from "./config/brand";
 import { useWorkspace } from "./hooks/useWorkspace";
 
+/** 联调条默认隐藏，只有开发环境且 URL 带 ?dev=1 时才显示，避免遮挡演示画面 */
+const SHOW_DEV_BAR =
+  import.meta.env.DEV && new URLSearchParams(window.location.search).get("dev") === "1";
+
 export default function App() {
   const ws = useWorkspace();
 
@@ -48,14 +52,16 @@ export default function App() {
         <WorkspaceLayout ws={ws} />
       )}
 
-      <DevBar
-        hasImage={Boolean(ws.imageFile)}
-        onReload={() => {
-          if (ws.imageFile) void ws.recognize({ file: ws.imageFile });
-          else void ws.recognize({ text: "文字输入", isSample: false });
-        }}
-        onSample={() => ws.loadSample()}
-      />
+      {SHOW_DEV_BAR && (
+        <DevBar
+          hasImage={Boolean(ws.imageFile)}
+          onReload={() => {
+            if (ws.imageFile) void ws.recognize({ file: ws.imageFile });
+            else void ws.recognize({ text: "文字输入", isSample: false });
+          }}
+          onSample={() => ws.loadSample()}
+        />
+      )}
     </div>
   );
 }
