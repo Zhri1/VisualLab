@@ -52,7 +52,7 @@ const cases: Case[] = [
     input: { templateId: 'unsupported', conditions: {}, facts: {}, unsupportedReason: '带电粒子在磁场中做圆周运动' },
     expect: 'unsupported',
   },
-  { name: '空回包', input: {}, expect: 'unsupported' },
+  { name: '空回包（认不出题型）', input: {}, expect: 'needs_input' },
 ];
 
 let failed = 0;
