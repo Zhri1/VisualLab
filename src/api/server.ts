@@ -54,6 +54,10 @@ function toRequest(req: IncomingMessage, port: number): Request {
   const hasBody = method !== 'GET' && method !== 'HEAD';
   const host = req.headers.host ?? `127.0.0.1:${port}`;
 
+  // 经过代理时 req.url 可能是绝对地址（http://host/path），不能再拼一次 host
+  const rawUrl = req.url ?? '/';
+  const target = /^https?:\/\//i.test(rawUrl) ? rawUrl : `http://${host}${rawUrl}`;
+
   const init = {
     method,
     headers,
@@ -61,7 +65,7 @@ function toRequest(req: IncomingMessage, port: number): Request {
     duplex: 'half',
   } as unknown as RequestInit;
 
-  return new Request(`http://${host}${req.url ?? '/'}`, init);
+  return new Request(target, init);
 }
 
 loadEnvFile();
