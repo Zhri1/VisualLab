@@ -1,15 +1,29 @@
 /**
  * 物理示意图渲染。只做「世界坐标 → 屏幕坐标」和绘制，
  * 不含任何物理计算，运动数据全部来自 motion.sampleAt。
+ *
+ * 视觉规则（与 global.css 共用同一套语言）：
+ * · 几何线 1.6px 墨色；尺寸线、引出线、剖面线 1px 淡灰。
+ * · 物理量符号（h、θ、k、v、x、m）一律数学衬线斜体；
+ *   测量数值用系统无衬线表格数字，符号与数值不混排。
+ * · 字号先按世界尺度换算，再夹到 10.5–14px，窗口缩放时排版不失控。
  */
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { Motion, Vec2 } from "../../../types";
 
 const INK = "#1c1c1c";
-const SOFT = "#9a9a95";
+const SOFT = "#8e8e88";
 const HAIR = "#d6d6d1";
 const PAPER = "#fbfbf9";
 const FILL = "#eaeae6";
+
+/* 线宽：几何 / 尺寸线 / 弹簧 */
+const W_EDGE = 1.6;
+const W_HAIR = 1;
+const W_COIL = 1.5;
+
+const MATH = '"Cambria", "Cambria Math", Georgia, "Times New Roman", serif';
+const SANS = '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
 
 interface Props {
   motion: Motion | null;
@@ -20,6 +34,12 @@ interface Transform {
   S: number;
   ox: number;
   oy: number;
+}
+
+/** 一段文字：symbol 用数学斜体，其余用无衬线 */
+interface Seg {
+  t: string;
+  symbol?: boolean;
 }
 
 function buildTransform(
@@ -36,6 +56,65 @@ function buildTransform(
   return { S, ox, oy };
 }
 
+/** 按世界尺度换算字号，再夹到可读区间 */
+function labelPx(S: number, k: number, min = 10.5, max = 14) {
+  return Math.max(min, Math.min(max, S * k));
+}
+
+function fontOf(seg: Seg, px: number, weight = 500) {
+  return seg.symbol
+    ? `italic ${weight} ${px}px ${MATH}`
+    : `${weight} ${px}px ${SANS}`;
+}
+
+/** 混排测量 */
+function measureRich(ctx: CanvasRenderingContext2D, segs: Seg[], px: number) {
+  let w = 0;
+  for (const s of segs) {
+    ctx.font = fontOf(s, px);
+    w += ctx.measureText(s.t).width;
+  }
+  return w;
+}
+
+/** 混排绘制：符号斜体、数值正体，整体按 align 对齐 */
+function drawRich(
+  ctx: CanvasRenderingContext2D,
+  segs: Seg[],
+  x: number,
+  y: number,
+  px: number,
+  align: "left" | "center" | "right" = "center"
+) {
+  const total = measureRich(ctx, segs, px);
+  let cur = align === "center" ? x - total / 2 : align === "right" ? x - total : x;
+  ctx.textAlign = "left";
+  for (const s of segs) {
+    ctx.font = fontOf(s, px);
+    ctx.fillText(s.t, cur, y);
+    cur += ctx.measureText(s.t).width;
+  }
+}
+
+/** 实心箭头，ang 为箭头指向 */
+function arrowHead(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  ang: number,
+  len: number,
+  half: number
+) {
+  const bx = x - len * Math.cos(ang);
+  const by = y - len * Math.sin(ang);
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(bx - half * Math.sin(ang), by + half * Math.cos(ang));
+  ctx.lineTo(bx + half * Math.sin(ang), by - half * Math.cos(ang));
+  ctx.closePath();
+  ctx.fill();
+}
+
 function drawScene(
   ctx: CanvasRenderingContext2D,
   W: number,
@@ -50,40 +129,43 @@ function drawScene(
   ctx.fillStyle = PAPER;
   ctx.fillRect(0, 0, W, H);
 
+  // 边界只留「标注必须占用的白」：高度尺寸线在左、尺寸线在下、
+  // 压缩量标注在弹簧上方，其余一律收紧，让图形填满画布。
   const bounds = {
-    x1: g.inclineTop.x - size * 2.2,
-    x2: g.springAnchorX + size * 1.4,
-    y1: -size * 2.4,
-    y2: Math.max(g.inclineTop.y + size * 2.4, size * 3),
+    x1: g.inclineTop.x - size * 2.15,
+    x2: g.springAnchorX + size * 1.35,
+    y1: -size * 2.05,
+    y2: Math.max(g.inclineTop.y + size * 1.65, size * 2.6),
   };
 
-  const pad = Math.max(18, Math.min(W, H) * 0.075);
+  const pad = Math.max(20, Math.min(W, H) * 0.08);
   const { S, ox, oy } = buildTransform(W, H, bounds, pad);
   const X = (x: number) => ox + x * S;
   const Y = (y: number) => oy - y * S;
 
-  const font = (px: number, weight = 500) =>
-    `${weight} ${Math.max(10, px)}px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif`;
+  const LBL = labelPx(S, 0.18);
 
   /* ---------- 地面 ---------- */
-  const groundLeft = g.inclineTop.x - size * 1.6;
+  const groundLeft = g.inclineTop.x - size * 1.7;
   ctx.strokeStyle = INK;
-  ctx.lineWidth = 1.6;
+  ctx.lineWidth = W_EDGE;
+  ctx.lineCap = "butt";
   ctx.beginPath();
   ctx.moveTo(X(groundLeft), Y(0));
   ctx.lineTo(X(g.springAnchorX), Y(0));
   ctx.stroke();
 
-  // 地面剖面线
+  // 剖面线：按屏幕等距排列，窗口缩放时疏密不变
   ctx.strokeStyle = HAIR;
-  ctx.lineWidth = 1;
-  const hatch = 0.14;
-  for (let x = groundLeft + 0.06; x < g.springAnchorX; x += hatch * 1.6) {
-    ctx.beginPath();
-    ctx.moveTo(X(x), Y(0));
-    ctx.lineTo(X(x - hatch), Y(-hatch * 1.1));
-    ctx.stroke();
+  ctx.lineWidth = W_HAIR;
+  ctx.beginPath();
+  const gx0 = X(groundLeft);
+  const gx1 = X(g.springAnchorX);
+  for (let sx = gx0 + 5; sx < gx1 - 2; sx += 9) {
+    ctx.moveTo(sx, Y(0));
+    ctx.lineTo(sx - 5.5, Y(0) + 6.5);
   }
+  ctx.stroke();
 
   /* ---------- 斜面 ---------- */
   ctx.beginPath();
@@ -94,50 +176,67 @@ function drawScene(
   ctx.fillStyle = FILL;
   ctx.fill();
   ctx.strokeStyle = INK;
-  ctx.lineWidth = 1.6;
+  ctx.lineWidth = W_EDGE;
+  ctx.lineJoin = "miter";
   ctx.stroke();
 
-  /* ---------- 高度标注 ---------- */
-  const hx = g.inclineTop.x - size * 1.15;
-  ctx.strokeStyle = SOFT;
-  ctx.lineWidth = 1;
+  /* ---------- 高度尺寸线 ---------- */
+  const hxW = g.inclineTop.x - size * 1.28;
+  const hLine = X(hxW);
+  const yTop = Y(g.inclineTop.y);
+  const yBot = Y(0);
+
+  ctx.strokeStyle = HAIR;
+  ctx.lineWidth = W_HAIR;
   ctx.beginPath();
-  ctx.moveTo(X(hx), Y(0));
-  ctx.lineTo(X(hx), Y(g.inclineTop.y));
+  ctx.moveTo(X(g.inclineTop.x), yTop);
+  ctx.lineTo(hLine - 4, yTop);
+  ctx.moveTo(X(0), yBot);
+  ctx.lineTo(hLine - 4, yBot);
   ctx.stroke();
-  // 端部短横
-  [0, g.inclineTop.y].forEach((y) => {
-    ctx.beginPath();
-    ctx.moveTo(X(hx - 0.09), Y(y));
-    ctx.lineTo(X(hx + 0.09), Y(y));
-    ctx.stroke();
-  });
+
+  ctx.strokeStyle = SOFT;
+  ctx.beginPath();
+  ctx.moveTo(hLine, yTop);
+  ctx.lineTo(hLine, yBot);
+  ctx.stroke();
+
+  ctx.fillStyle = SOFT;
+  arrowHead(ctx, hLine, yTop, Math.PI / 2, 7, 2.4);
+  arrowHead(ctx, hLine, yBot, -Math.PI / 2, 7, 2.4);
+
   ctx.save();
-  ctx.translate(X(hx - size * 0.55), Y(g.inclineTop.y / 2));
+  ctx.translate(hLine - 11, (yTop + yBot) / 2);
   ctx.rotate(-Math.PI / 2);
-  ctx.fillStyle = "#6b6b66";
-  ctx.font = font(S * 0.19);
-  ctx.textAlign = "center";
+  ctx.fillStyle = SOFT;
   ctx.textBaseline = "middle";
-  ctx.fillText(`h = ${g.inclineTop.y.toFixed(2)} m`, 0, 0);
+  drawRich(
+    ctx,
+    [{ t: "h", symbol: true }, { t: ` = ${g.inclineTop.y.toFixed(2)} m` }],
+    0,
+    0,
+    LBL
+  );
   ctx.restore();
 
   /* ---------- 倾角 ---------- */
   const theta = Math.atan2(g.inclineTop.y, -g.inclineTop.x);
   const arcR = Math.min(0.85, Math.abs(g.inclineTop.x) * 0.42);
   ctx.strokeStyle = SOFT;
-  ctx.lineWidth = 1;
+  ctx.lineWidth = W_HAIR;
   ctx.beginPath();
   ctx.arc(X(0), Y(0), arcR * S, Math.PI, Math.PI + theta, false);
   ctx.stroke();
-  ctx.fillStyle = "#6b6b66";
-  ctx.font = font(S * 0.17);
-  ctx.textAlign = "right";
+
+  const bis = Math.PI + theta / 2;
+  ctx.fillStyle = SOFT;
   ctx.textBaseline = "middle";
-  ctx.fillText(
-    `θ = ${((theta * 180) / Math.PI).toFixed(1)}°`,
-    X(0) - arcR * S * 0.35,
-    Y(arcR * 0.55)
+  drawRich(
+    ctx,
+    [{ t: "θ", symbol: true }, { t: ` = ${((theta * 180) / Math.PI).toFixed(1)}°` }],
+    X(0) + Math.cos(bis) * (arcR * S + 20),
+    Y(0) + Math.sin(bis) * (arcR * S + 20),
+    LBL
   );
 
   /* ---------- 弹簧 ---------- */
@@ -147,17 +246,24 @@ function drawScene(
   const anchorX = g.springAnchorX;
   // 滑块推到弹簧后，接触端被压缩
   const plateX = Math.min(anchorX - 0.02, freeX + comp);
+  const coilH = size * 0.42;
+  const span = anchorX - plateX;
+  const coils = 9;
+  // 压缩阶段整体加重一档，让「正在压缩」这个状态一眼可读
+  const hot = comp > 0.004;
 
+  // 弹簧接触端（压板）
   ctx.strokeStyle = INK;
-  ctx.lineWidth = 1.6;
+  ctx.lineWidth = hot ? W_EDGE + 0.5 : W_EDGE;
   ctx.beginPath();
   ctx.moveTo(X(plateX), Y(0));
   ctx.lineTo(X(plateX), Y(size * 1.5));
   ctx.stroke();
 
-  const coilH = size * 0.42;
-  const span = anchorX - plateX;
-  const coils = 9;
+  // 线圈
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = hot ? W_COIL + 0.4 : W_COIL;
+  ctx.lineJoin = "round";
   ctx.beginPath();
   ctx.moveTo(X(plateX), Y(coilH * 0.5));
   for (let i = 0; i < coils * 2; i++) {
@@ -165,59 +271,69 @@ function drawScene(
     ctx.lineTo(X(plateX + span * t), Y(coilH * 0.5 + (i % 2 === 0 ? coilH : -coilH)));
   }
   ctx.lineTo(X(anchorX), Y(coilH * 0.5));
-  ctx.lineWidth = 1.4;
   ctx.stroke();
 
   // 固定端墙面
   ctx.strokeStyle = INK;
-  ctx.lineWidth = 1.8;
+  ctx.lineWidth = W_EDGE;
   ctx.beginPath();
   ctx.moveTo(X(anchorX), Y(0));
   ctx.lineTo(X(anchorX), Y(coilH + size * 1.1));
   ctx.stroke();
   ctx.strokeStyle = HAIR;
-  ctx.lineWidth = 1;
-  for (let y = coilH * 0.1; y < coilH + size; y += size * 0.34) {
-    ctx.beginPath();
+  ctx.lineWidth = W_HAIR;
+  ctx.beginPath();
+  for (let y = 0.05; y < coilH + size; y += size * 0.3) {
     ctx.moveTo(X(anchorX), Y(y));
-    ctx.lineTo(X(anchorX + 0.16), Y(y + 0.11));
-    ctx.stroke();
+    ctx.lineTo(X(anchorX + 0.15), Y(y + 0.1));
   }
+  ctx.stroke();
 
   // k 标注
-  ctx.fillStyle = "#6b6b66";
-  ctx.font = font(S * 0.17);
-  ctx.textAlign = "center";
+  ctx.fillStyle = SOFT;
   ctx.textBaseline = "bottom";
-  ctx.fillText("k", X((plateX + anchorX) / 2), Y(coilH + size * 0.5));
+  drawRich(ctx, [{ t: "k", symbol: true }], X((plateX + anchorX) / 2), Y(coilH + size * 0.42), LBL);
 
-  /* ---------- 水平距离标注 ---------- */
-  const drawDim = (x1: number, x2: number, label: string) => {
-    const y = -size * 1.55;
-    ctx.strokeStyle = SOFT;
-    ctx.lineWidth = 1;
+  /* ---------- 尺寸线 ---------- */
+  /** 水平尺寸线：引出线 + 双箭头 + 居中标签 */
+  const hDim = (
+    x1w: number,
+    x2w: number,
+    yw: number,
+    segs: Seg[],
+    extendFromWorld: number,
+    labelAbove: boolean
+  ) => {
+    const yy = Y(yw);
+    const xa = X(x1w);
+    const xb = X(x2w);
+    const yFrom = Y(extendFromWorld);
+
+    ctx.strokeStyle = HAIR;
+    ctx.lineWidth = W_HAIR;
     ctx.beginPath();
-    ctx.moveTo(X(x1), Y(y));
-    ctx.lineTo(X(x2), Y(y));
+    ctx.moveTo(xa, yFrom);
+    ctx.lineTo(xa, labelAbove ? yy + 3 : yy - 3);
+    ctx.moveTo(xb, yFrom);
+    ctx.lineTo(xb, labelAbove ? yy + 3 : yy - 3);
     ctx.stroke();
-    [x1, x2].forEach((x) => {
-      ctx.beginPath();
-      ctx.moveTo(X(x), Y(y - 0.07));
-      ctx.lineTo(X(x), Y(y + 0.07));
-      ctx.stroke();
-      // 引出线
-      ctx.beginPath();
-      ctx.moveTo(X(x), Y(y));
-      ctx.lineTo(X(x), Y(-0.02));
-      ctx.stroke();
-    });
-    ctx.fillStyle = "#6b6b66";
-    ctx.font = font(S * 0.165);
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    ctx.fillText(label, X((x1 + x2) / 2), Y(y) + 6);
+
+    ctx.strokeStyle = SOFT;
+    ctx.beginPath();
+    ctx.moveTo(xa, yy);
+    ctx.lineTo(xb, yy);
+    ctx.stroke();
+
+    ctx.fillStyle = SOFT;
+    arrowHead(ctx, xa, yy, Math.PI, 6.5, 2.2);
+    arrowHead(ctx, xb, yy, 0, 6.5, 2.2);
+
+    ctx.fillStyle = SOFT;
+    ctx.textBaseline = labelAbove ? "bottom" : "top";
+    drawRich(ctx, segs, (xa + xb) / 2, labelAbove ? yy - 6 : yy + 6, LBL);
   };
-  drawDim(0, freeX, `${freeX.toFixed(2)} m`);
+
+  hDim(0, freeX, -size * 1.5, [{ t: `${freeX.toFixed(2)} m` }], 0, false);
 
   /* ---------- 滑块 ---------- */
   const half = size / 2;
@@ -226,8 +342,7 @@ function drawScene(
     ctx.translate(X(cx), Y(cy));
     ctx.rotate(rotation);
     const s = half * S;
-    const r = Math.min(s, Math.max(3, s * 0.22));
-    // 手绘圆角矩形，避免依赖 Canvas2D 的 roundRect（旧 WebView 可能缺失）
+    const r = Math.min(s, Math.max(3, s * 0.2));
     ctx.beginPath();
     ctx.moveTo(-s + r, -s);
     ctx.lineTo(s - r, -s);
@@ -240,19 +355,20 @@ function drawScene(
     ctx.arcTo(-s, -s, -s + r, -s, r);
     ctx.closePath();
     if (ghost) {
-      ctx.setLineDash([5, 4]);
-      ctx.strokeStyle = "#c6c6c0";
-      ctx.lineWidth = 1.3;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = "#cbcbc5";
+      ctx.lineWidth = 1.2;
       ctx.stroke();
       ctx.setLineDash([]);
     } else {
       ctx.fillStyle = INK;
       ctx.fill();
       ctx.fillStyle = "#ffffff";
-      ctx.font = `italic 600 ${Math.max(11, s * 1.05)}px Cambria, Georgia, serif`;
+      ctx.font = `italic 500 ${Math.max(10, s * 0.86)}px ${MATH}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("m", 0, s * 0.04);
+      // 视觉居中：斜体 m 的字面重心略偏上，下移半像素
+      ctx.fillText("m", 0, s * 0.06);
     }
     ctx.restore();
   };
@@ -305,37 +421,45 @@ function drawScene(
     const bx = ax + ux * lenWorld;
     const by = ay + uy * lenWorld;
 
-    ctx.strokeStyle = "#4a4a46";
-    ctx.lineWidth = 1.5;
+    const p0x = X(ax);
+    const p0y = Y(ay);
+    const p1x = X(bx);
+    const p1y = Y(by);
+
+    ctx.strokeStyle = "#3a3a36";
+    ctx.lineWidth = W_EDGE;
+    ctx.lineCap = "butt";
     ctx.beginPath();
-    ctx.moveTo(X(ax), Y(ay));
-    ctx.lineTo(X(bx), Y(by));
+    ctx.moveTo(p0x, p0y);
+    ctx.lineTo(p1x, p1y);
     ctx.stroke();
 
-    const ang = Math.atan2(Y(by) - Y(ay), X(bx) - X(ax));
-    const head = Math.max(6, S * 0.07);
-    ctx.beginPath();
-    ctx.moveTo(X(bx), Y(by));
-    ctx.lineTo(X(bx) - head * Math.cos(ang - 0.42), Y(by) - head * Math.sin(ang - 0.42));
-    ctx.moveTo(X(bx), Y(by));
-    ctx.lineTo(X(bx) - head * Math.cos(ang + 0.42), Y(by) - head * Math.sin(ang + 0.42));
-    ctx.stroke();
+    const ang = Math.atan2(p1y - p0y, p1x - p0x);
+    ctx.fillStyle = "#3a3a36";
+    arrowHead(ctx, p1x, p1y, ang, Math.max(7, S * 0.08), Math.max(3.2, S * 0.035));
 
-    // v 标签
-    ctx.fillStyle = "#4a4a46";
-    ctx.font = font(S * 0.16, 600);
-    ctx.textAlign = "center";
+    // v 标签：沿箭头方向外移，避开箭头本体
+    ctx.fillStyle = "#3a3a36";
     ctx.textBaseline = "bottom";
-    ctx.fillText("v", X(bx + ux * 0.12) + (uy !== 0 ? 8 : 0), Y(by + uy * 0.12) - 4);
+    drawRich(
+      ctx,
+      [{ t: "v", symbol: true }],
+      p1x + ux * 13,
+      p1y + uy * 13 - 3,
+      LBL + 1
+    );
   }
 
-  /* ---------- 压缩量标注 ---------- */
+  /* ---------- 压缩量 ---------- */
   if (comp > 0.012) {
-    ctx.fillStyle = "#4a4a46";
-    ctx.font = font(S * 0.16);
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    ctx.fillText(`x = ${comp.toFixed(3)} m`, X(freeX + comp / 2), Y(-size * 0.7));
+    hDim(
+      freeX,
+      freeX + comp,
+      coilH + size * 0.92,
+      [{ t: "x", symbol: true }, { t: ` = ${comp.toFixed(3)} m` }],
+      coilH + size * 0.55,
+      true
+    );
   }
 }
 
@@ -343,6 +467,22 @@ export function PhysicsCanvas({ motion, time }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<number | null>(null);
   const sizeRef = useRef({ w: 0, h: 0 });
+  // 重绘需要的状态单独存一份，resize 时也能按最新状态补画
+  const motionRef = useRef<Motion | null>(null);
+  const timeRef = useRef(0);
+  motionRef.current = motion;
+  timeRef.current = time;
+
+  const paint = useCallback(() => {
+    const canvas = canvasRef.current;
+    const m = motionRef.current;
+    if (!canvas || !m) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const { w, h } = sizeRef.current;
+    if (w === 0 || h === 0) return;
+    drawScene(ctx, w, h, m, timeRef.current);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -360,26 +500,23 @@ export function PhysicsCanvas({ motion, time }: Props) {
     };
 
     resize();
-    const ro = new ResizeObserver(resize);
+    // 首帧先画一次：ResizeObserver 调整位图后不会自己触发重绘
+    paint();
+    const ro = new ResizeObserver(() => {
+      resize();
+      paint();
+    });
     ro.observe(canvas);
     return () => ro.disconnect();
-  }, []);
+  }, [paint]);
 
   useEffect(() => {
     if (frameRef.current) cancelAnimationFrame(frameRef.current);
-    frameRef.current = requestAnimationFrame(() => {
-      const canvas = canvasRef.current;
-      if (!canvas || !motion) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      const { w, h } = sizeRef.current;
-      if (w === 0 || h === 0) return;
-      drawScene(ctx, w, h, motion, time);
-    });
+    frameRef.current = requestAnimationFrame(() => paint());
     return () => {
       if (frameRef.current) cancelAnimationFrame(frameRef.current);
     };
-  }, [motion, time]);
+  }, [motion, time, paint]);
 
   return <canvas ref={canvasRef} aria-label="物理运动示意动画" role="img" />;
 }
