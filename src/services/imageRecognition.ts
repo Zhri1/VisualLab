@@ -56,8 +56,17 @@ export function getMockScenario(): MockScenario | null {
 }
 
 export function mockPlan(hasImage: boolean, isSample = false): PlanResponse {
-  // 内置示例是兜底路径：不受联调开关影响，也不受「无图即缺项」影响，永远成功
-  if (isSample) return { status: "ok", reading: SAMPLE_READING };
+  // 内置示例是兜底路径：不受联调开关影响，也不受「无图即缺项」影响，永远成功。
+  // message/assumptions 与真实服务 ok 回包同一形状（CONTRACTS.md 第 2 节），
+  // 这样演示时的开场白和接真模型时完全一致。
+  if (isSample) {
+    return {
+      status: "ok",
+      reading: SAMPLE_READING,
+      message: "已按 g=10 m/s²、μ=0.5、倾角 37° 计算",
+      assumptions: ["g=10 m/s²", "μ=0.5", "倾角 37°"],
+    };
+  }
   const scenario = forcedScenario ?? "ok";
   if (scenario === "needs_input") {
     return {

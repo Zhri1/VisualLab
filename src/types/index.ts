@@ -162,7 +162,7 @@ export interface FieldError {
 /* ---------------- 识别接口 ---------------- */
 
 export type PlanResponse =
-  | { status: "ok"; reading: Reading }
+  | { status: "ok"; reading: Reading; message?: string; assumptions?: string[] }
   | {
       status: "needs_input";
       reading: Reading | null;
