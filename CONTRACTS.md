@@ -48,3 +48,26 @@ AI 返回结构化 `reading`。样例是 [incline-spring.reading.json](fixtures/
 用户点击「应用条件」后在浏览器依次调用 `assembleScene` 和 `buildMotion`。暂停、重播和跳转只改变播放器时间。画面、字幕和下一关键点共用 `events` 与同一时间轴。
 
 把样例中的 `springGapM` 从 1 改为 2，弹簧接触位置应右移 1 m，首次接触时刻从约 2.2361 s 变为 2.4845 s。
+
+## 4. 播放器适配入口
+
+播放器从 `src/adapters/index.ts` 取得 `motionLibrary`，共享类型沿用 `src/types/index.ts`。适配层复用 `src/physics` 的校验和计算，纯计算公共导出保持可供服务端使用。
+
+| 纯计算结果 | 播放器结果 |
+|---|---|
+| 段 `id` | `kind`，保留 incline、horizontal、spring |
+| turn、spring_contact、spring_detach | reach_bottom、contact_spring、detach_spring |
+| beforeVelocity、afterVelocity | velocityBefore、velocityAfter，分量映射为 x、y |
+| explanation | caption 和 detail，数值随求解结果更新 |
+| xM、yM、vxMps、vyMps | position 和 velocity 的 x、y |
+| NEEDS_INPUT | MISSING |
+| INCONSISTENT_CONDITIONS | PRECONDITION_CONFLICT |
+| UNSUPPORTED | 题型字段映射为 UNSUPPORTED_TEMPLATE，其他前提映射为 PRECONDITION_CONFLICT |
+| INVALID_READING | 非有限数字映射为 NOT_FINITE，其他格式或范围错误映射为 RANGE |
+
+错误保留原字段名。转向事件归水平段，接触事件归弹簧段。水平与弹簧取样的 position.y 均为 0，画布自行计算滑块中心。弹簧接触事件的 position.x 等于 springContactX，固定端使用物理库预留最大压缩空间的示意位置，blockSizeM 为 0.3。μ 只用于斜面。
+
+适配场景为本地对象，装配时保存一次求解结果以确定绘制几何，buildMotion 映射播放器字段。用户改值后重新装配场景。超出区间的时间取最近端点，播放器适配层将 NaN 时间按释放时刻处理。
+
+验收执行 `npm run test`（含真实公开入口的 19 项用例）、`node --test "src/physics/*.test.ts"`（14 项）和 `npm run build`。构建配置启用 TypeScript 扩展名导入，开发依赖补齐 Node 测试类型。Vitest 排除物理层原生 Node 测试文件，继续使用默认规则发现其余测试。
+
