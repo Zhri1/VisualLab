@@ -120,11 +120,14 @@ export function useWorkspace() {
       if (res.status === "ok") {
         setPhase("workspace");
         applyReading(res.reading);
+        // 服务端在 ok 回包里给一句假设摘要（CONTRACTS.md 第 2 节）；
+        // 没有就退回通用开场白，离线 mock 与真实服务的表现保持一致。
+        const summary = res.message?.trim() || "已识别题目";
         setMessages([
           {
             id: uid(),
             role: "assistant",
-            text: "已识别题目。可以直接提问，也可以让我修改条件，比如「把劲度系数改成 100 N/m」。",
+            text: `${summary}。可以直接提问，也可以让我修改条件，比如「把劲度系数改成 100 N/m」。`,
           },
         ]);
         return res;

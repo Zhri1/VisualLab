@@ -85,7 +85,12 @@ function mockPlan(hasImage: boolean, isSample = false): PlanResponse {
       message: "已识别出主要条件，但坡底到弹簧的距离需要你确认",
     };
   }
-  return { status: "ok", reading: SAMPLE_READING };
+  return {
+    status: "ok",
+    reading: SAMPLE_READING,
+    message: "已按 g=10 m/s²、μ=0.5、倾角 37° 计算",
+    assumptions: ["g=10 m/s²", "μ=0.5", "倾角 37°"],
+  };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -116,7 +121,12 @@ export async function requestPlan(input: {
     const body = await res.json().catch(() => ({}));
 
     if (res.ok && body?.status === "ok" && body.reading) {
-      return { status: "ok", reading: body.reading as Reading };
+      return {
+        status: "ok",
+        reading: body.reading as Reading,
+        message: typeof body.message === "string" ? body.message : undefined,
+        assumptions: Array.isArray(body.assumptions) ? (body.assumptions as string[]) : undefined,
+      };
     }
     if (res.ok && body?.status === "needs_input") {
       return {

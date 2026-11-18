@@ -64,8 +64,10 @@ for (const testCase of cases) {
     !testCase.missing ||
     (result.status === 'needs_input' &&
       testCase.missing.every((key) => result.missingKeys.includes(key)));
+  const okMessage =
+    result.status !== 'ok' || (typeof result.message === 'string' && result.message.length > 0);
 
-  if (okStatus && okMissing) {
+  if (okStatus && okMissing && okMessage) {
     console.log(`✓ ${testCase.name} → ${result.status}`);
   } else {
     failed += 1;

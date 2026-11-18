@@ -27,6 +27,8 @@ import {
 export interface PlanOk {
   status: 'ok';
   reading: Reading;
+  /** 一句话摘要这次计算采用的假设，直接展示在对话框里 */
+  message: string;
   assumptions: string[];
 }
 
@@ -115,6 +117,12 @@ function describeMissing(code: string, keys: string[]): string {
     : `识别到 ${keys.length} 项需要确认：${labels}`;
 }
 
+/** ok 回包的一句话摘要：CONTRACTS.md 第 2 节要求三种 200 都带 message */
+function describeOk(assumptions: string[]): string {
+  if (assumptions.length === 0) return '已按题面条件识别完成';
+  return `已按 ${assumptions.join('；')} 计算`;
+}
+
 /**
  * 校验并归一化模型输出。raw 是模型返回的 JSON 对象（已 parse）。
  */
@@ -157,7 +165,12 @@ export function buildPlan(raw: unknown): PlanResult {
   const verdict = validateReading(reading);
 
   if (verdict.ok) {
-    return { status: 'ok', reading: verdict.reading as Reading, assumptions };
+    return {
+      status: 'ok',
+      reading: verdict.reading as Reading,
+      message: describeOk(assumptions),
+      assumptions,
+    };
   }
 
   const fields = Array.isArray(verdict.fields)
