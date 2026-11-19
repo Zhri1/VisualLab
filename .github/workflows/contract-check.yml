@@ -1,3 +1,6 @@
+# 完整 PR / push 验证：类型、单元测试、物理库、契约自检、构建。
+# 注意：浏览器走查（npm run test:ui）依赖本机 Edge/Chromium 的 CDP 端口和 vite preview，
+# 不进 CI，只在本地按 ACCEPTANCE.md 手动执行。
 name: contract-check
 
 on:
@@ -12,7 +15,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
+          cache: npm
+      - name: 安装依赖
+        run: npm ci
+      - name: 类型检查
+        run: npm run typecheck
+      - name: 单元测试（vitest）
+        run: npm test
+      - name: 物理库测试（node:test）
+        run: npm run test:physics
       - name: 契约自检（不需要 API Key）
         run: |
           if [ -f scripts/check-contract.ts ]; then
@@ -20,3 +32,5 @@ jobs:
           else
             echo "跳过：识别接口尚未合入 main"
           fi
+      - name: 构建
+        run: npm run build

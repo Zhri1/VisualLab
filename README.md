@@ -26,3 +26,16 @@ VisualLab 是面向高中力学的学习工具，参加 2026 Qoder 高校创造�
 - **C · AI 接口与部署**负责题图识别、模板说明、接口校验和 Qoder Sites 公网访问。
 
 提交版以公网未预置题图可播放、改值重算以及缺项和超范围反馈为验收条件。
+
+## 本地验证
+
+```bash
+npm ci
+npm run typecheck                 # tsc --noEmit，0 错误
+npm test                          # vitest 46 条
+npm run test:physics              # node --test 物理库 14 条
+npx --yes tsx scripts/check-contract.ts   # 契约自检 8 例
+npm run build
+```
+
+浏览器真机走查需要先起预览服务和一个带远程调试端口的 Edge/Chromium（`npm run preview` → 4173，`--remote-debugging-port=9222`），再跑 `npm run test:ui`，共 22 条断言。截图与报告默认写到 `artifacts/ui`。这条不是 CI 步骤，只在本机执行；逐条说明见 [ACCEPTANCE.md](ACCEPTANCE.md) 第 0 节。

@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# 浏览器走查的截图与报告输出目录
+artifacts/
 .env
 .env.*
 !.env.example

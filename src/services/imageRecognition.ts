@@ -44,6 +44,12 @@ export const SAMPLE_READING_MISSING: Reading = {
   conditions: { ...SAMPLE_READING.conditions, springGapM: null },
 };
 
+/**
+ * 与 SAMPLE_READING 对应的三条假设（g、μ、倾角）。
+ * ok 与 needs_input 回包共用同一份文案，缺项时胶囊里展示的条目不会和成功路径漂移。
+ */
+const SAMPLE_ASSUMPTIONS = ["g=10 m/s²", "μ=0.5", "倾角 37°"];
+
 export type MockScenario = "ok" | "needs_input" | "unsupported" | "error";
 
 /** 联调时强制切换回包类型，方便走查四种页面状态 */
@@ -55,15 +61,27 @@ export function getMockScenario(): MockScenario | null {
   return forcedScenario;
 }
 
-function mockPlan(hasImage: boolean, isSample = false): PlanResponse {
-  // 内置示例是兜底路径，不受联调开关影响，永远成功
-  const scenario = isSample ? "ok" : (forcedScenario ?? "ok");
+export function mockPlan(hasImage: boolean, isSample = false): PlanResponse {
+  // 内置示例是兜底路径：不受联调开关影响，也不受「无图即缺项」影响，永远成功。
+  // message/assumptions 与真实服务 ok 回包同一形状（CONTRACTS.md 第 2 节），
+  // 这样演示时的开场白和接真模型时完全一致。
+  if (isSample) {
+    return {
+      status: "ok",
+      reading: SAMPLE_READING,
+      message: "已按 g=10 m/s²、μ=0.5、倾角 37° 计算",
+      assumptions: [...SAMPLE_ASSUMPTIONS],
+    };
+  }
+  const scenario = forcedScenario ?? "ok";
   if (scenario === "needs_input") {
     return {
       status: "needs_input",
       reading: SAMPLE_READING_MISSING,
       missingKeys: ["springGapM"],
       message: "请确认弹簧接触端与斜面底端的距离",
+      // 缺项回包与 ok 同形状：已识别的部分照样带假设，页面复用它渲染胶囊
+      assumptions: [...SAMPLE_ASSUMPTIONS],
     };
   }
   if (scenario === "unsupported") {
@@ -83,13 +101,15 @@ function mockPlan(hasImage: boolean, isSample = false): PlanResponse {
       reading: SAMPLE_READING_MISSING,
       missingKeys: ["springGapM"],
       message: "已识别出主要条件，但坡底到弹簧的距离需要你确认",
+      // 两条 needs_input 支路都要带假设条目，否则离线走查时胶囊会凭空消失
+      assumptions: [...SAMPLE_ASSUMPTIONS],
     };
   }
   return {
     status: "ok",
     reading: SAMPLE_READING,
     message: "已按 g=10 m/s²、μ=0.5、倾角 37° 计算",
-    assumptions: ["g=10 m/s²", "μ=0.5", "倾角 37°"],
+    assumptions: [...SAMPLE_ASSUMPTIONS],
   };
 }
 
@@ -134,6 +154,8 @@ export async function requestPlan(input: {
         reading: (body.reading ?? null) as Reading | null,
         missingKeys: (body.missingKeys ?? []) as string[],
         message: body.message ?? "请补全识别条件",
+        // 与 ok 一致地透传假设条目；非数组视为旧服务，按「没有假设」处理
+        assumptions: Array.isArray(body.assumptions) ? (body.assumptions as string[]) : undefined,
       };
     }
     if (res.ok && body?.status === "unsupported") {

@@ -2,7 +2,7 @@
  * 单条消息。支持极简 Markdown 子集（段落、**粗体**、`代码`、$公式$）
  * 与内嵌操作入口，不引入第三方解析库。
  */
-import { ArrowRight, CornerDownRight } from "lucide-react";
+import { ArrowRight, ChevronRight, CornerDownRight, Sparkles } from "lucide-react";
 import type { ChatMessage as ChatMessageType } from "../../../types";
 import { ParameterChangeCard } from "./ParameterChangeCard";
 import { CONDITION_META } from "../../../types";
@@ -48,6 +48,24 @@ function renderText(text: string) {
   ));
 }
 
+/** 假设胶囊：用原生 details 收起条目，键盘可达、无需额外状态 */
+function AssumptionChip({ items }: { items: string[] }) {
+  return (
+    <details className="assumption">
+      <summary>
+        <Sparkles size={12} strokeWidth={1.8} />
+        <span>假设 {items.length} 条</span>
+        <ChevronRight className="chev" size={12} strokeWidth={2} />
+      </summary>
+      <ul className="assumption-list">
+        {items.map((t, i) => (
+          <li key={i}>{t}</li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 export function ChatMessageRow({ message, onUndo, onSeekEvent }: Props) {
   if (message.role === "user") {
     return (
@@ -85,6 +103,7 @@ export function ChatMessageRow({ message, onUndo, onSeekEvent }: Props) {
         ) : (
           <>
             {message.text ? renderText(message.text) : null}
+            {message.assumptions?.length ? <AssumptionChip items={message.assumptions} /> : null}
             {message.action?.type === "seek" && (
               <div className="msg-action">
                 <button onClick={() => onSeekEvent(message.action!.eventId)}>
