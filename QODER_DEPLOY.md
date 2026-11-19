@@ -1,5 +1,9 @@
 # Qoder Sites 部署指令（给 Qoder Agent）
 
+> **执行状态（2026-11-20）**：已用 Qoder CLI 完成站点创建、静态发布与公开访问，线上地址：
+> **<https://visuallab-physics-ecumfnqswpu.qoder.zone>**（HTTP 200、无登录墙）。
+> 云函数因发布账号的 `backend_sites` 配额为 `0` 暂未上线；`functions/` 代码已就绪。实际卡点、解决路径与开通后的一条命令，见 `ACCEPTANCE.md` 附录「Qoder Sites 迁移记录」。本文件保留为完整迁移说明与排错参考。
+
 > 用途：本项目原部署在 WorkBuddy Sites，不符合「2026 Qoder 高校创造力大赛」作品链接要求。
 > 大赛硬性要求：作品链接必须是 **Qoder Sites** 发布、且设为**公开访问**的地址（`https://<id>.qoder.zone`），评委点开即用、无需登录；不接受本地压缩包或其他托管平台。
 >
