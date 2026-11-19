@@ -1,6 +1,8 @@
 # 验收清单 · A
 
-对照 PROJECT_PLAN_FINAL.md 第 7 节。全部检查项已通过，无待判定项；第 2 节与第 4 节最后一行由 C 在公网用真实模型实测。
+对照 PROJECT_PLAN_FINAL.md 第 7 节。功能与数值检查项已全部通过，无待判定项；第 2 节与第 4 节最后一行由 C 用真实模型实测。
+
+> **部署平台迁移（2026-11-19）**：大赛要求作品链接必须是 **Qoder Sites** 的公开访问地址（`https://xxx.qoder.zone`），原则上不接受本地文件/其他托管平台。此前部署在 WorkBuddy Sites（`*.apps.workbuddy.host`）不符合参赛要求，需重新发布到 Qoder Sites 并设为公开访问。下方所有识别实测数据与结论保持不变，仅公网链接待替换为 `qoder.zone` 地址。迁移步骤见本文件末尾「附：Qoder Sites 迁移清单」。
 
 ## 0. 工程验证
 
@@ -48,7 +50,11 @@
 
 ## 2. 真实上传 ✅
 
-公网站点：<https://wbapp-tm3ozhpna47stakp5egt9i.apps.workbuddy.host/?sharecode=ITSMMGMUVE>
+公网站点（旧，不符合大赛要求，仅作历史记录）：<https://wbapp-tm3ozhpna47stakp5egt9i.apps.workbuddy.host/?sharecode=ITSMMGMUVE>
+
+**目标站点（Qoder Sites，待部署后填入）**：`https://________.qoder.zone`
+
+正式提交时以 Qoder Sites 链接为准。必须是**个人版 Qoder 账号**发布的**公开访问**站点（组织账号无法设 public，会报 `sites_invalid_access_mode`，评委看到登录墙）。
 
 分享码必须带上；首次打开会写入 cookie，之后同一浏览器直接刷新即可。服务端与前端同域部署，生产构建已关闭 Mock（`.env.production` 设 `VITE_USE_MOCK_API=false`），页面直接请求 `/api/animation/plan`，不经 CORS，也不经 vite 代理。
 
@@ -97,3 +103,37 @@
 1. B 的 `src/physics` 已落地，`npm test` 与 `npm run test:physics` 均全绿；后续改动照此回归。
 2. C 的接口已上线并与前端同域部署，`VITE_USE_MOCK_API=false` 已写进 `.env.production`；`vite.config.ts` 的代理只在本地 `npm run dev` 时使用，公网不走。
 3. 三人一起做公网验收：第 2 节与第 4 节最后一行已由 C 用真实模型和公网地址实测通过，建议 A、B 各自用手机再走一遍确认端到端体验。
+4. **部署平台需从 WorkBuddy Sites 迁移到 Qoder Sites**（大赛硬性要求，见下方迁移清单）。这一步依赖 Qoder 账号与个人版权限，需在 Qoder 环境内完成。
+
+---
+
+## 附：Qoder Sites 迁移清单（C · 部署）
+
+### 目标
+
+把现有「单进程 Node 服务（前端静态 + 识别接口）」改造成 Qoder Sites 的形态：**静态前端 + 云函数后端**，发布为公开访问的 `https://<id>.qoder.zone` 链接。
+
+### 平台事实（来自同届参赛选手公开实战记录）
+
+1. Qoder Sites 支持「静态站点 + 云函数（`site-functions/`）+ Secrets」，云函数核心可与本地 Node 共用一份代码。
+2. 发布链路：`prepare_site` → `publish_site` → `get_publish_status`，确认 `published: true` 后把访问范围设为 `public`。
+3. **公开访问只有个人版账号支持**；组织账号设 public 会被服务端拒绝（`sites_invalid_access_mode`）。
+4. 发布要求 static 产物，而非完整 Node 工程。
+
+### 迁移步骤
+
+| # | 事项 | 现状与改法 | 负责 |
+|---|---|---|---|
+| 1 | 账号 | 换**个人版** Qoder 账号登录，确认有 Sites 发布权限 | C |
+| 2 | 静态前端 | `npm run build` 产出 `dist/`，作为静态站点上传 | C |
+| 3 | 识别接口 | 把 `handlePlan`（`src/api/plan.ts`，吃 Request 吐 Response）注册为云函数入口，如 `site-functions/plan.mjs` | C |
+| 4 | Skill 文案 | `loadSkillText()` 目前读本地 `skills/vision-reading.v1.md`；云函数里改为把该文件内容内联或随函数打包 | C |
+| 5 | 密钥 | `DASHSCOPE_API_KEY` 写入 Qoder Sites **Secrets**，不进前端、不进仓库 | C |
+| 6 | 前端地址 | 云函数路由若非同源 `/api/animation/plan`，用 `VITE_API_BASE` 指向云函数网关（如 `/functions/v1`）；若保持同源则无需改 | C + A |
+| 7 | 发布 | `prepare_site` → `publish_site` → `get_publish_status` → 设 `public` | C |
+| 8 | 验链接 | 用**全新无 Cookie 浏览器**打开 `qoder.zone` 链接：文档 200、无登录墙、上传题图能识别 | C |
+| 9 | 回填 | 把公开链接填回本文件第 50 行，并把文首迁移提示改为已完成 | C |
+
+### 回滚说明
+
+若云函数因运行时限制无法调用百炼，可退回「纯静态 + BYOK」（用户在页面填自己的 API Key，密钥只存浏览器本地）——但这样评委开箱即用体验会打折，仅在无其他方案时采用。
