@@ -932,6 +932,62 @@ textarea {
   color: #7d4040;
 }
 
+/* 假设胶囊 */
+.assumption {
+  margin-top: 8px;
+  max-width: 100%;
+}
+.assumption > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-secondary);
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  background: var(--paper);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.assumption > summary::-webkit-details-marker {
+  display: none;
+}
+.assumption > summary:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-secondary);
+}
+.assumption[open] > summary {
+  border-color: var(--border-strong);
+}
+.assumption .chev {
+  transition: transform 0.16s ease;
+}
+.assumption[open] .chev {
+  transform: rotate(90deg);
+}
+.assumption-list {
+  margin: 6px 0 0;
+  padding: 8px 10px 9px 24px;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-md);
+  background: var(--surface-secondary);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  max-height: 180px;
+  overflow: auto;
+}
+.assumption-list li {
+  margin: 0 0 3px;
+}
+.assumption-list li:last-child {
+  margin-bottom: 0;
+}
+
 .msg-action {
   margin-top: 9px;
 }

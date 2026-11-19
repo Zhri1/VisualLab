@@ -4,16 +4,35 @@
 
 ## 0. 工程验证
 
-| 检查项 | 状态 |
-|---|---|
-| `npm run typecheck` | ✅ 通过（修复 `useWorkspace.ts` 中 `input.file` 在 setState 回调内失去类型收窄导致的 TS2345） |
-| `npm run build` | ✅ 通过 |
-| 数值自检（`verify.html`） | ✅ 13/13，与方案第 3 节逐位一致 |
-| `npm run test` | ✅ 13/13 通过（vitest 2.1.9，332 ms） |
+| 检查项 | 命令 | 期望 | 状态 |
+|---|---|---|---|
+| 类型检查 | `npm run typecheck` | 0 错误 | ✅ 通过 |
+| 前端与契约单测 | `npm test` | vitest **46** 条通过（3 个文件） | ✅ 通过 |
+| 物理库测试 | `npm run test:physics` | `node --test` **14** 条通过 | ✅ 通过 |
+| 契约自检 | `node node_modules/vite-node/vite-node.mjs scripts/check-contract.ts` | **9** 个用例通过（离线，不联网） | ✅ 通过 |
+| 构建 | `npm run build` | 通过 | ✅ 通过 |
+| 数值自检（`verify.html`） | 浏览器打开 | 13/13，与方案第 3 节逐位一致 | ✅ |
+| 浏览器走查 | `npm run test:ui` | **22** 条断言全绿 | ✅ 手动，见下 |
+
+单测拆分：`src/api/__tests__/validate.test.ts` 12 条、`src/services/__tests__/imageRecognition.test.ts` 15 条、`src/adapters/__tests__/acceptance.test.ts` 19 条，合计 46 条。
+
+上述命令都可以用 node 直连本地依赖执行，避免 PowerShell 执行策略拦 `npm.ps1`，也避免 `npx` 联网：`node node_modules/typescript/bin/tsc --noEmit`、`node node_modules/vitest/vitest.mjs run`、`node --test src/physics/motion.test.ts src/physics/scene.test.ts`、`node node_modules/vite-node/vite-node.mjs scripts/check-contract.ts`、`node node_modules/vite/bin/vite.js build`。
+
+### 浏览器走查 `npm run test:ui`
+
+不是 CI 步骤。它需要一个真实的 Chromium 内核浏览器，CI 容器里没有，所以只在本地跑：
+
+1. `npm run build && npm run preview`（默认 4173，可用 `UI_URL` 或第二个参数换地址）；
+2. 用 `--remote-debugging-port=9222` 启动 Edge 或 Chromium，留一个标签页（可用 `CDP_URL` 换地址）；
+3. `npm run test:ui`，或 `node scripts/cdp-verify.mjs [截图目录] [页面 URL]`。
+
+端口被占用时换成任意一对空闲端口即可，例如 `vite preview --port 4174` + `--remote-debugging-port=9224`，再 `CDP_URL=http://127.0.0.1:9224 node scripts/cdp-verify.mjs artifacts/ui-final http://127.0.0.1:4174/`。
+
+默认把截图和 `report.txt` 写到 `artifacts/ui`（已 gitignore）。22 条断言覆盖：首页渲染与入口、1440 无横向溢出、进入工作台与画布尺寸、正文条数与时间轴事件、假设胶囊展开、播放推进、430 窄屏无溢出与画布收缩、文字提交走缺项提示、缺项工作台的假设胶囊（同样带「3 条」并可展开出 `g=10` 首条）、控制台无错误。
 
 ## 1. 固定目标题
 
-`npm run test` 覆盖全部数值，同时可作为 B 的对齐基准。
+`npm test` 里的 `src/adapters/__tests__/acceptance.test.ts` 与 `npm run test:physics` 共同覆盖全部数值，同时可作为 B 的对齐基准。
 
 | 检查项 | 期望 | 状态 |
 |---|---|---|
@@ -66,6 +85,6 @@
 
 ## 6. 待办（依赖他人）
 
-1. B 的 `src/physics` 落地后，替换 `src/adapters/index.ts` 的导出，跑 `npm run test` 看是否全绿。
+1. B 的 `src/physics` 已落地，`npm test` 与 `npm run test:physics` 均全绿；后续改动照此回归。
 2. C 的接口上线后置 `VITE_USE_MOCK_API=false`，去掉 `vite.config.ts` 里的代理或改指向公网地址。
 3. 三人一起做公网验收，补第 2 节与第 4 节最后一行。

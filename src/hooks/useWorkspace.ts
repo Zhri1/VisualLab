@@ -120,14 +120,19 @@ export function useWorkspace() {
       if (res.status === "ok") {
         setPhase("workspace");
         applyReading(res.reading);
-        // 服务端在 ok 回包里给一句假设摘要（CONTRACTS.md 第 2 节）；
-        // 没有就退回通用开场白，离线 mock 与真实服务的表现保持一致。
-        const summary = res.message?.trim() || "已识别题目";
+        // 假设不写在正文里重复：有假设时正文只报条数，条目交给对话胶囊；
+        // 没有假设就退回回包 message（或通用开场白），离线 mock 与真实服务保持一致。
+        const assumptions = res.assumptions ?? [];
+        const summary =
+          assumptions.length > 0
+            ? `已识别题目，按以下 ${assumptions.length} 条假设计算`
+            : res.message?.trim() || "已识别题目";
         setMessages([
           {
             id: uid(),
             role: "assistant",
             text: `${summary}。可以直接提问，也可以让我修改条件，比如「把劲度系数改成 100 N/m」。`,
+            assumptions,
           },
         ]);
         return res;
@@ -163,7 +168,10 @@ export function useWorkspace() {
         const hint =
           res.message || (res.reading ? "还有条件需要补齐，补全后即可生成动画。" : "没能识别出全部信息，请补齐条件。");
         setNotice({ kind: "info", text: hint });
-        setMessages([{ id: uid(), role: "assistant", text: hint }]);
+        // 缺项助手消息也挂 assumptions：页面复用同一套假设胶囊，不必区分 ok/needs_input
+        setMessages([
+          { id: uid(), role: "assistant", text: hint, assumptions: res.assumptions ?? [] },
+        ]);
         return res;
       }
 

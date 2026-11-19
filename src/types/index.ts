@@ -168,6 +168,11 @@ export type PlanResponse =
       reading: Reading | null;
       missingKeys: string[];
       message: string;
+      /**
+       * 与 ok 同形状的假设条目（0–3 条）。
+       * 可选：兼容尚未透传该字段的旧服务，缺省时前端按「无假设」处理。
+       */
+      assumptions?: string[];
     }
   | { status: "unsupported"; message: string }
   | { status: "error"; message: string; httpStatus?: number };
@@ -197,6 +202,8 @@ export interface ChatMessage {
   };
   /** AI 回复内嵌的跳转入口 */
   action?: { type: "seek"; eventId: string; label: string };
+  /** AI 这次计算采用的假设条目，来自识别回包 */
+  assumptions?: string[];
 }
 
 export type ChatIntent =
