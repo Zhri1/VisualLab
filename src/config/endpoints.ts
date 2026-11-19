@@ -7,8 +7,15 @@
  */
 export const API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/+$/, "");
 
+/**
+ * 识别接口路径。
+ * - 本地 Node 服务 / vite 代理：`/api/animation/plan`（默认）
+ * - Qoder Sites 云函数：`/functions/v1/app`（由 `.env.production` 指定）
+ */
+export const PLAN_PATH = `/${(import.meta.env.VITE_PLAN_PATH ?? "/api/animation/plan").replace(/^\/+/, "")}`;
+
 /** 识别接口完整路径（契约 2 节） */
-export const PLAN_ENDPOINT = `${API_BASE}/api/animation/plan`;
+export const PLAN_ENDPOINT = `${API_BASE}${PLAN_PATH}`;
 
 /** Mock 识别的人工延时范围，用于走查加载态 */
 export const MOCK_LATENCY_MS: [number, number] = [720, 1100];

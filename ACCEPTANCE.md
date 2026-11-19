@@ -2,7 +2,9 @@
 
 对照 PROJECT_PLAN_FINAL.md 第 7 节。功能与数值检查项已全部通过，无待判定项；第 2 节与第 4 节最后一行由 C 用真实模型实测。
 
-> **部署平台迁移（2026-11-19）**：大赛要求作品链接必须是 **Qoder Sites** 的公开访问地址（`https://xxx.qoder.zone`），原则上不接受本地文件/其他托管平台。此前部署在 WorkBuddy Sites（`*.apps.workbuddy.host`）不符合参赛要求，需重新发布到 Qoder Sites 并设为公开访问。下方所有识别实测数据与结论保持不变，仅公网链接待替换为 `qoder.zone` 地址。迁移步骤见本文件末尾「附：Qoder Sites 迁移清单」。
+> **部署平台迁移（2026-11-20，已完成）**：作品已发布到 **Qoder Sites** 并设为公开访问：<https://visuallab-physics-ecumfnqswpu.qoder.zone>（实测 HTTP 200、`text/html`、无登录墙）。此前 WorkBuddy Sites 链接已作废。
+>
+> 当前线上为**纯静态版**：页面、动画、内置示例可用；**识图接口尚未上线**——发布账号的 `backend_sites` 配额为 `0`（`used: 0, limit: 0`），Qoder Sites 云函数无法分配。云函数代码（`functions/index.ts` + `functions/handler.ts` + 内联 Skill）已就绪，开通后端配额后重新 `prepare_site` 即可切换为完整版。详见文末「附：Qoder Sites 迁移清单」。
 
 ## 0. 工程验证
 
@@ -50,13 +52,19 @@
 
 ## 2. 真实上传 ✅
 
-公网站点（旧，不符合大赛要求，仅作历史记录）：<https://wbapp-tm3ozhpna47stakp5egt9i.apps.workbuddy.host/?sharecode=ITSMMGMUVE>
+**公网站点（Qoder Sites，已公开访问）**：<https://visuallab-physics-ecumfnqswpu.qoder.zone>
 
-**目标站点（Qoder Sites，待部署后填入）**：`https://________.qoder.zone`
+- 平台：Qoder Sites，个人版账号 `nick6837354573`
+- projectId `01a1f4aa-fd83-7e8c-ba8d-8ba7d20aa62c`，siteId `01a1f4aa-fd87-77f6-8522-2d0f4129702e`
+- 访问策略：`public`（`auth_integration_status: not_required`，评委无需登录）
+- 发布 actionId `e13f6b29-5d78-4c40-9a32-8b7e1d4c6f03`，发布操作 `succeeded / committed`
+- 无 Cookie 实测：HTTP 200、`text/html`、57 KB、无登录墙
 
-正式提交时以 Qoder Sites 链接为准。必须是**个人版 Qoder 账号**发布的**公开访问**站点（组织账号无法设 public，会报 `sites_invalid_access_mode`，评委看到登录墙）。
+旧 WorkBuddy 链接（已作废，仅作历史记录）：<https://wbapp-tm3ozhpna47stakp5egt9i.apps.workbuddy.host/?sharecode=ITSMMGMUVE>
 
-分享码必须带上；首次打开会写入 cookie，之后同一浏览器直接刷新即可。服务端与前端同域部署，生产构建已关闭 Mock（`.env.production` 设 `VITE_USE_MOCK_API=false`），页面直接请求 `/api/animation/plan`，不经 CORS，也不经 vite 代理。
+**当前版本边界**：线上是纯静态构建，`/functions/v1/app` 返回 409（云函数未分配）。识图能力需等 `backend_sites` 配额开通后，用同一 projectId 重新 `prepare_site`（带 `functionDirectory: "functions"` 与 `secretNames: ["DASHSCOPE_API_KEY"]`）再发布。
+
+Qoder Sites 站点直接公开访问，不需要分享码或 cookie。生产构建已关闭 Mock（`.env.production` 设 `VITE_USE_MOCK_API=false`），接口路径由 `VITE_PLAN_PATH=/functions/v1/app` 指向同源云函数（本地 `npm run dev` 仍走 `/api/animation/plan` 代理）。
 
 | 检查项 | 期望 | 实测 |
 |---|---|---|
@@ -101,39 +109,63 @@
 ## 6. 待办（依赖他人）
 
 1. B 的 `src/physics` 已落地，`npm test` 与 `npm run test:physics` 均全绿；后续改动照此回归。
-2. C 的接口已上线并与前端同域部署，`VITE_USE_MOCK_API=false` 已写进 `.env.production`；`vite.config.ts` 的代理只在本地 `npm run dev` 时使用，公网不走。
-3. 三人一起做公网验收：第 2 节与第 4 节最后一行已由 C 用真实模型和公网地址实测通过，建议 A、B 各自用手机再走一遍确认端到端体验。
-4. **部署平台需从 WorkBuddy Sites 迁移到 Qoder Sites**（大赛硬性要求，见下方迁移清单）。这一步依赖 Qoder 账号与个人版权限，需在 Qoder 环境内完成。
+2. C 的接口代码已就绪：本地 Node 版（`src/api/server.ts`）可跑通，Qoder Sites 云函数版（`functions/`）已写好并通过 `prepare_site` 打包校验。生产构建 `VITE_USE_MOCK_API=false`、`VITE_PLAN_PATH=/functions/v1/app`。
+3. **剩余唯一卡点**：Qoder 账号 `nick6837354573` 的 `backend_sites` 配额为 `0`，云函数无法分配（`sites_quota_exceeded`）。需要开通后端配额或换有配额的账号，详见下方。
+4. 识图上线后，三人用无 Cookie 浏览器重做公网验收（上传两张题图，确认 `springGapM=1/2`）。
 
 ---
 
-## 附：Qoder Sites 迁移清单（C · 部署）
+## 附：Qoder Sites 迁移记录（C · 部署）
 
-### 目标
+### 已完成
 
-把现有「单进程 Node 服务（前端静态 + 识别接口）」改造成 Qoder Sites 的形态：**静态前端 + 云函数后端**，发布为公开访问的 `https://<id>.qoder.zone` 链接。
+| # | 事项 | 结果 |
+|---|---|---|
+| 1 | 登录 Qoder | ✅ 个人版账号 `nick6837354573`，设备码授权 |
+| 2 | 创建站点 | ✅ projectId `01a1f4aa-fd83-7e8c-ba8d-8ba7d20aa62c`，siteId `01a1f4aa-fd87-77f6-8522-2d0f4129702e` |
+| 3 | 静态构建 | ✅ `dist/`（`VITE_USE_MOCK_API=false`，`VITE_PLAN_PATH=/functions/v1/app`） |
+| 4 | 云函数代码 | ✅ `functions/index.ts`（`Deno.serve`）+ `functions/handler.ts`（自包含校验/归一化/百炼调用）+ `functions/skill.ts`（内联 Skill，脚本生成） |
+| 5 | 静态发布 | ✅ `prepare_site` → `publish_site`，`published: true / committed` |
+| 6 | 公开访问 | ✅ `update_access_policy` → `public`（`confirmPublic: true`） |
+| 7 | 公网验证 | ✅ `https://visuallab-physics-ecumfnqswpu.qoder.zone` HTTP 200、`text/html`、57 KB、无登录墙 |
 
-### 平台事实（来自同届参赛选手公开实战记录）
+### 卡点：后端站点配额为 0
 
-1. Qoder Sites 支持「静态站点 + 云函数（`site-functions/`）+ Secrets」，云函数核心可与本地 Node 共用一份代码。
-2. 发布链路：`prepare_site` → `publish_site` → `get_publish_status`，确认 `published: true` 后把访问范围设为 `public`。
-3. **公开访问只有个人版账号支持**；组织账号设 public 会被服务端拒绝（`sites_invalid_access_mode`）。
-4. 发布要求 static 产物，而非完整 Node 工程。
+```json
+{"error":"sites_quota_exceeded","details":{"resource":"backend_sites","used":0,"limit":0,"hint":"Backend site quota exceeded: used 0, limit 0."}}
+```
 
-### 迁移步骤
+`prepare_site`（带 `functionDirectory`）和 `ensure_backend`（`capabilities: ["functions"]`）都返回同一错误。这不是用超了，是账号没有该能力，纯静态站点不受影响。
 
-| # | 事项 | 现状与改法 | 负责 |
-|---|---|---|---|
-| 1 | 账号 | 换**个人版** Qoder 账号登录，确认有 Sites 发布权限 | C |
-| 2 | 静态前端 | `npm run build` 产出 `dist/`，作为静态站点上传 | C |
-| 3 | 识别接口 | 把 `handlePlan`（`src/api/plan.ts`，吃 Request 吐 Response）注册为云函数入口，如 `site-functions/plan.mjs` | C |
-| 4 | Skill 文案 | `loadSkillText()` 目前读本地 `skills/vision-reading.v1.md`；云函数里改为把该文件内容内联或随函数打包 | C |
-| 5 | 密钥 | `DASHSCOPE_API_KEY` 写入 Qoder Sites **Secrets**，不进前端、不进仓库 | C |
-| 6 | 前端地址 | 云函数路由若非同源 `/api/animation/plan`，用 `VITE_API_BASE` 指向云函数网关（如 `/functions/v1`）；若保持同源则无需改 | C + A |
-| 7 | 发布 | `prepare_site` → `publish_site` → `get_publish_status` → 设 `public` | C |
-| 8 | 验链接 | 用**全新无 Cookie 浏览器**打开 `qoder.zone` 链接：文档 200、无登录墙、上传题图能识别 | C |
-| 9 | 回填 | 把公开链接填回本文件第 50 行，并把文首迁移提示改为已完成 | C |
+### 解决路径（按优先级）
 
-### 回滚说明
+1. **开通后端配额**：登录 <https://qoder.cn/pricing>，确认是否可用高校/比赛权益升级到含 Sites 后端的版本；开通后 `backend_sites` 的 `limit` 应大于 0。
+2. **换有配额的账号**：团队里若有 Pro 账号，用它登录后执行同样流程；站点归属该账号，作品链接不变（域名按 slug 分配）。
+3. **临时兜底（BYOK）**：百炼接口已验证支持浏览器跨域（`access-control-allow-origin: *`），可让用户在页面填自己的 Key 直连。缺点：评委开箱即用体验打折，不建议作为提交版本。
 
-若云函数因运行时限制无法调用百炼，可退回「纯静态 + BYOK」（用户在页面填自己的 API Key，密钥只存浏览器本地）——但这样评委开箱即用体验会打折，仅在无其他方案时采用。
+### 配额开通后的一条命令
+
+```bash
+export QODER_SESSION_ID=<会话ID> QODER_SESSION_TYPE=cli
+
+# 1) 重新准备完整版（带云函数；不要传 spa:true，会报 sites_invalid_request）
+sites prepare_site --input '{"actionId":"<新UUID>","projectRoot":"<项目绝对路径>","webDirectory":"dist","functionDirectory":"functions","secretNames":["DASHSCOPE_API_KEY"],"projectId":"01a1f4aa-fd83-7e8c-ba8d-8ba7d20aa62c"}'
+
+# 2) 等 readiness=ready、canPublish=true
+sites get_publish_status --input '{"actionId":"<新UUID>"}'
+
+# 3) 到 Site Settings 填 DASHSCOPE_API_KEY 的值（CLI 不支持输入密钥值）
+
+# 4) 发布
+sites publish_site --input '{"actionId":"<新UUID>"}'
+```
+
+发布后用无 Cookie 浏览器打开链接，上传 `fixtures/incline-spring-gap-1m.png` 与 `gap-2m.png`，确认 `springGapM` 分别为 1 与 2。
+
+### 平台经验（避免重复踩坑）
+
+- `sites` 命令需要会话上下文：必须设 `QODER_SESSION_ID` + `QODER_SESSION_TYPE=cli`，且会话的项目根与 `projectRoot` 一致。
+- `spa: true` 在当前 CLI 版本会触发 `sites_invalid_request`；纯静态用默认值即可。
+- 新建站点用 `slug`，更新站点用 `projectId`，两者不要同时传。
+- CLI 主机 `secretValueInput: false`，密钥值只能在 Sites Settings 网页填。
+- 公开访问设置需要 `accessRef`（先 `get_site_access` 取）+ `requestId` + `confirmPublic: true`。
