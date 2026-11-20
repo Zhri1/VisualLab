@@ -1,0 +1,13 @@
+{
+  "templateId": "horizontal_spring",
+  "conditions": {
+    "initialSpeedMps": 2,
+    "blockMassKg": 1,
+    "springGapM": 1,
+    "springConstantNpm": 100
+  },
+  "facts": {
+    "horizontalIsFrictionless": true,
+    "springIsUnattached": true
+  }
+}
