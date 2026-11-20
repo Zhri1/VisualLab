@@ -1,5 +1,9 @@
-import { assembleScene as assemblePhysicsScene, buildMotion as buildPhysicsMotion, validateReading } from "../physics";
-import type { Motion as PhysicsMotion, PhysicsFailure } from "../physics";
+// 播放器当前只绘制首题几何，新增模板先通过统一纯物理入口接入。
+import { assembleScene as assemblePhysicsScene } from "../physics/scene";
+import { buildMotion as buildPhysicsMotion } from "../physics/motion";
+import { validateReading } from "../physics/reading";
+import type { Motion as PhysicsMotion } from "../physics/motion";
+import type { PhysicsFailure } from "../physics/reading";
 import type { FieldError, Motion, MotionEvent, Reading, Scene, SceneGeometry } from "../types";
 import type { AssembleResult, BuildMotionResult, MotionLibrary } from "./contract";
 

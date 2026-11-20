@@ -1,0 +1,13 @@
+{
+  "templateId": "table_edge_projectile",
+  "conditions": {
+    "gravityMps2": 10,
+    "initialSpeedMps": 6,
+    "kineticFrictionCoefficient": 0.2,
+    "tableHeightM": 1.25,
+    "distanceToEdgeM": 5
+  },
+  "facts": {
+    "airResistanceIsNegligible": true
+  }
+}

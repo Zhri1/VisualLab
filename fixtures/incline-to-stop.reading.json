@@ -1,0 +1,15 @@
+{
+  "templateId": "incline_to_stop",
+  "conditions": {
+    "gravityMps2": 10,
+    "inclineAngleDeg": 30,
+    "inclineLengthM": 4,
+    "kineticFrictionCoefficient": 0,
+    "initialSpeedMps": 0,
+    "horizontalKineticFrictionCoefficient": 0.25
+  },
+  "facts": {
+    "slidesAfterRelease": true,
+    "losslessTurn": true
+  }
+}

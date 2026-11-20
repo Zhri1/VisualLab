@@ -1,0 +1,12 @@
+{
+  "templateId": "projectile_motion",
+  "conditions": {
+    "gravityMps2": 10,
+    "initialVxMps": 4,
+    "initialVyMps": 10,
+    "initialHeightM": 0
+  },
+  "facts": {
+    "airResistanceIsNegligible": true
+  }
+}

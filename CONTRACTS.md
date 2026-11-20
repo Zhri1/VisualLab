@@ -74,3 +74,59 @@ AI 返回结构化 `reading`。样例是 [incline-spring.reading.json](fixtures/
 适配场景为本地对象，装配时保存一次求解结果以确定绘制几何，buildMotion 映射播放器字段。用户改值后重新装配场景。超出区间的时间取最近端点，播放器适配层将 NaN 时间按释放时刻处理。
 
 验收执行 `npm run test`（含真实公开入口的 19 项用例）、`node --test "src/physics/*.test.ts"`（14 项）和 `npm run build`。构建配置启用 TypeScript 扩展名导入，开发依赖补齐 Node 测试类型。Vitest 排除物理层原生 Node 测试文件，继续使用默认规则发现其余测试。
+
+## 5. 批量模型第一阶段契约
+
+本节登记纯物理模板。首题的字段、数值及播放器调用路径继续兼容。新增 Reading 使用 templateId 判别条件和事实，几何也携带 templateId。统一入口仍为 src/physics/index.ts 的 validateReading → assembleScene → buildMotion，成功形状分别为 { ok: true, reading/scene/motion }，失败为 { ok: false, code, message, fields }。
+
+数值均为 SI，倾角用度。下列数值均须有限，缺字段或 null 返回 NEEDS_INPUT 及原字段名。事实取 true、false 或 null，必要事实为 null 时提示补齐，false 时返回 UNSUPPORTED。类型或范围错误返回 INVALID_READING，静止下滑与非正加速度冲突返回 INCONSISTENT_CONDITIONS。新增字段不接受字符串数字，由识图层负责归一化。额外字段不参与计算。
+
+### 5.1 模板字段
+
+| templateId | conditions（括号内为范围） | 必须为真的 facts |
+|---|---|---|
+| horizontal_spring | initialSpeedMps（>0）、blockMassKg（>0）、springGapM（>0）、springConstantNpm（>0） | horizontalIsFrictionless、springIsUnattached |
+| incline_to_stop | gravityMps2（>0）、inclineAngleDeg（0–90，不含端点）、inclineLengthM（>0）、kineticFrictionCoefficient（≥0，仅斜面）、initialSpeedMps（=0）、horizontalKineticFrictionCoefficient（>0） | slidesAfterRelease、losslessTurn |
+| table_edge_projectile | gravityMps2（>0）、initialSpeedMps（>0，朝右侧桌沿）、kineticFrictionCoefficient（≥0，仅桌面）、tableHeightM（>0）、distanceToEdgeM（>0） | airResistanceIsNegligible |
+| projectile_motion | gravityMps2（>0）、initialVxMps（任意有限数）、initialVyMps（任意有限数）、initialHeightM（≥0） | airResistanceIsNegligible |
+
+horizontal_spring 的水平面光滑，至第一次脱离结束。incline_to_stop 的水平摩擦须为正，零摩擦无法在有限时间停下，按 UNSUPPORTED 提示；非零正初速也超出该模板。table_edge_projectile 以停止或首次落地结束。projectile_motion 的坐标起点横坐标为 0，竖直向上为正，以首次接触 y=0 的地面结束。
+
+### 5.2 阶段、事件和几何
+
+| 模板 | geometry 的字段（点均为 {xM,yM}） | segments 的 id | events 的 id |
+|---|---|---|---|
+| horizontal_spring | templateId、horizontal:{start,end}、spring:{contact,anchor} | horizontal、spring | release、spring_contact、max_compression、spring_detach |
+| incline_to_stop | templateId、incline:{start,end}、horizontal:{start,end} | incline、horizontal | release、turn、stop |
+| table_edge_projectile | templateId、table:{start,edge}、ground:{start,end} | table，可接 projectile | release，随后 stop 或 table_edge、land |
+| projectile_motion | templateId、start、ground:{start,end} | projectile（零时长边界允许空数组） | release，可选 apex，land |
+
+首题运行时 scene.templateId 和 geometry.templateId 为 incline_spring，保留所有原字段。旧调用方手工构造的首题 Scene 可省略判别字段。新增 Scene 包含 templateId、已验证 reading 和 geometry，并保存一次求解的 motion 供 buildMotion 返回；题设变更后重新 assembleScene，沿用第 4 节的本地场景约定。Motion 包含上述 geometry、durationSeconds、segments、events、sampleAt，样本仍为 {xM,yM,vxMps,vyMps,springCompressionM}。事件带 timeSeconds、label、explanation，turn 带 beforeVelocity 和 afterVelocity。弹簧固定端为示意位置，须在最大压缩点右侧。
+
+各段 startSeconds/endSeconds 首尾相接，位置连续，事件取样采用阶段后的状态。所有时间均从 release 开始，重合事件按 release、终止事件排序。有限越界时间夹至端点，NaN 视为起点，正负无穷分别夹至终点和起点。停止后速度为零。落地后以接触地面瞬间的入射速度结束，位置 y=0，随后取样保持该状态，不模拟碰撞。弹簧脱离时压缩量恰为 0、水平速度向左。只有严格处于飞行开始与落地之间的最高点才生成 apex。地面静止、水平或向下起始时，释放即落地，总时长为 0，终点速度取初速度。
+
+桌面以停止距离 v₀²/(2μg) 与距桌沿距离比较。停止距离小于或等于桌沿距离时生成 stop，恰在边沿也无平抛段；浮点比较容差为 16×Number.EPSILON×两距离较大值，仅用于判定相等。μ=0 时始终以正速离桌。飞行段从桌沿继承位置和水平速度，竖直初速度为 0。
+
+### 5.3 独立验收基准
+
+| 模板/变式 | 输入 | 手算预期 |
+|---|---|---|
+| horizontal_spring | m=1、v₀=2、gap=1、k=100 | 接触 0.5 s，ω=10，最大压缩 0.2 m，最大压缩 0.6570796327 s，脱离 0.8141592654 s、vx=−2 |
+| incline_to_stop | g=10、θ=30°、L=4、斜面 μ=0、水平 μ=0.25 | a=5，坡底 t=√1.6≈1.2649110641 s、v=√40≈6.3245553203 m/s，水平距离 40/5=8 m，总时长≈3.7947331922 s |
+| table_edge_projectile | g=10、μ=0.2、v₀=6、h=1.25、距边沿5 | 1 s 离桌、vx=4，飞行√(2h/g)=0.5 s，距桌沿2 m落地，总时长1.5 s |
+| 同上，距边沿10 | 其他相同 | 3 s 停在起点右侧9 m，无 table_edge/land |
+| 同上，距边沿9 | 其他相同 | 3 s 恰停边沿，无飞行段 |
+| projectile_motion 自由落体 | g=10、h=5、vx=0、vy=0 | 1 s 落地 |
+| 同上，平抛 | h=1.25、vx=4、vy=0 | 0.5 s 落地、x=2 m |
+| 同上，竖直上抛 | h=0、vx=0、vy=10 | 1 s 达5 m最高点、2 s 落地 |
+| 同上，斜抛 | h=0、vx=4、vy=10 | 1 s 最高点、2 s 落地、x=8 m |
+
+上表坡底速度的精确手算是 6.3245553203 m/s，展示四位小数为 6.3246。样例见 fixtures/horizontal-spring.reading.json、incline-to-stop.reading.json、table-edge-projectile.reading.json、projectile-motion.reading.json。
+
+### 5.4 本批兼容与后续接入
+
+- 首题继续由原 reading.ts、scene.ts、motion.ts 的兼容接口供既有调用方使用，统一 index.ts 按模板分派。原 Reading、Scene、Motion 的首题类型保留别名，新增类型不强迫首题 UI 消费新几何。
+- 播放器后续需同步 src/types/index.ts、src/adapters/physicsMotionAdapter.ts、条件表、画布几何和对话字段。当前适配器继续明确走首题路径，新增模板本批通过纯物理入口验收。
+- 识图 API 后续需同步 src/api/contract.ts、validate.ts 和 skills/vision-reading.v1.md 的模板登记、字段归一化及样例。其读取 reading.ts 的首题兼容校验暂保留。
+- Qoder functions/handler.ts 仍有独立物理字段校验，后续须同步模板、字段和缺项规则，并统一复用规则。functions/skill.ts 及构建读图说明也需同步。本批不发布线上模型。
+- 本地批次测试执行 node --test "src/physics/*.test.ts"。现有 npm run test:physics 显式列出两份旧测试，新增用例须用上述通配命令执行；后续工程集成时可同步脚本。旧 npm run test 和 npm run build 仍须通过。
