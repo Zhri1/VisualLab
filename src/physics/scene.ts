@@ -7,7 +7,9 @@ export type Point = {
 };
 
 export type Scene = {
+  templateId?: "incline_spring";
   geometry: {
+    templateId?: "incline_spring";
     incline: { start: Point; end: Point };
     spring: { contact: Point };
   };
@@ -55,7 +57,9 @@ export function assembleScene(input: unknown): { ok: true; scene: Scene } | Phys
   return {
     ok: true,
     scene: {
+      templateId: "incline_spring",
       geometry: {
+        templateId: "incline_spring",
         incline: { start: { xM: -inclineLengthM * cos, yM: inclineLengthM * sin }, end: { xM: 0, yM: 0 } },
         spring: { contact: { xM: springGapM, yM: 0 } },
       },

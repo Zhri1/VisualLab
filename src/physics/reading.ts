@@ -42,7 +42,7 @@ export type PhysicsFailure = {
   ok: false;
   code: "NEEDS_INPUT" | "UNSUPPORTED" | "INVALID_READING" | "INCONSISTENT_CONDITIONS";
   message: string;
-  fields: ReadingField[];
+  fields: string[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,5 +1,6 @@
 import type { PhysicsFailure } from "./reading.ts";
 import type { Point, Scene } from "./scene.ts";
+import { springMetrics, springState } from "./kinematics.ts";
 
 type Velocity = {
   vxMps: number;
@@ -29,6 +30,7 @@ export type MotionEvent = EventText & (
 
 export type Motion = {
   geometry: {
+    templateId?: "incline_spring";
     incline: { start: Point; end: Point };
     horizontal: { start: Point; end: Point };
     spring: { contact: Point; anchor: Point };
@@ -64,11 +66,9 @@ export function buildMotion(scene: Scene): { ok: true; motion: Motion } | Physic
     };
   }
 
-  const angularFrequency = Math.sqrt(constantNpm) / Math.sqrt(blockMassKg);
-  const quarterPeriod = (Math.PI / 2) / angularFrequency;
+  const { angularFrequency, quarterPeriod, maxCompressionM } = springMetrics(turnSpeed, blockMassKg, constantNpm);
   const maxCompressionSeconds = contactSeconds + quarterPeriod;
   const durationSeconds = contactSeconds + 2 * quarterPeriod;
-  const maxCompressionM = turnSpeed / angularFrequency;
   const maxForceN = constantNpm * maxCompressionM;
   const maxCompressionXM = springGapM + maxCompressionM;
   // 题面没有给原长。固定端在最大压缩位置以右保留一段绘制空间。
@@ -131,7 +131,7 @@ export function buildMotion(scene: Scene): { ok: true; motion: Motion } | Physic
   ];
 
   function sampleAt(timeSeconds: number): MotionSample {
-    const time = Math.max(0, Math.min(durationSeconds, timeSeconds));
+    const time = Number.isNaN(timeSeconds) ? 0 : Math.max(0, Math.min(durationSeconds, timeSeconds));
     if (time === 0) {
       return { ...inclineStart, vxMps: 0, vyMps: 0, springCompressionM: 0 };
     }
@@ -156,15 +156,13 @@ export function buildMotion(scene: Scene): { ok: true; motion: Motion } | Physic
     if (time === durationSeconds) {
       return sampleHorizontal(springGapM, -turnSpeed);
     }
-    const phase = Math.min(Math.PI, (time - contactSeconds) * angularFrequency);
-    const compressionM = maxCompressionM * Math.sin(phase);
-    return sampleHorizontal(springGapM + compressionM, turnSpeed * Math.cos(phase), compressionM);
+    return springState(springGapM, turnSpeed, angularFrequency, maxCompressionM, time - contactSeconds);
   }
 
   return {
     ok: true,
     motion: {
-      geometry: { incline: { start: inclineStart, end: inclineEnd }, horizontal: { start: inclineEnd, end: anchor }, spring: { contact, anchor } },
+      geometry: { templateId: "incline_spring", incline: { start: inclineStart, end: inclineEnd }, horizontal: { start: inclineEnd, end: anchor }, spring: { contact, anchor } },
       durationSeconds,
       segments,
       events,

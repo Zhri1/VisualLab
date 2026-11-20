@@ -101,7 +101,7 @@ horizontal_spring 的水平面光滑，至第一次脱离结束。incline_to_sto
 | table_edge_projectile | templateId、table:{start,edge}、ground:{start,end} | table，可接 projectile | release，随后 stop 或 table_edge、land |
 | projectile_motion | templateId、start、ground:{start,end} | projectile（零时长边界允许空数组） | release，可选 apex，land |
 
-首题运行时 scene.templateId 和 geometry.templateId 为 incline_spring，保留所有原字段。旧调用方手工构造的首题 Scene 可省略判别字段。新增 Scene 包含 templateId、已验证 reading 和 geometry；Motion 包含上述 geometry、durationSeconds、segments、events、sampleAt，样本仍为 {xM,yM,vxMps,vyMps,springCompressionM}。事件带 timeSeconds、label、explanation，turn 带 beforeVelocity 和 afterVelocity。弹簧固定端为示意位置，须在最大压缩点右侧。
+首题运行时 scene.templateId 和 geometry.templateId 为 incline_spring，保留所有原字段。旧调用方手工构造的首题 Scene 可省略判别字段。新增 Scene 包含 templateId、已验证 reading 和 geometry，并保存一次求解的 motion 供 buildMotion 返回；题设变更后重新 assembleScene，沿用第 4 节的本地场景约定。Motion 包含上述 geometry、durationSeconds、segments、events、sampleAt，样本仍为 {xM,yM,vxMps,vyMps,springCompressionM}。事件带 timeSeconds、label、explanation，turn 带 beforeVelocity 和 afterVelocity。弹簧固定端为示意位置，须在最大压缩点右侧。
 
 各段 startSeconds/endSeconds 首尾相接，位置连续，事件取样采用阶段后的状态。所有时间均从 release 开始，重合事件按 release、终止事件排序。有限越界时间夹至端点，NaN 视为起点，正负无穷分别夹至终点和起点。停止后速度为零。落地后以接触地面瞬间的入射速度结束，位置 y=0，随后取样保持该状态，不模拟碰撞。弹簧脱离时压缩量恰为 0、水平速度向左。只有严格处于飞行开始与落地之间的最高点才生成 apex。地面静止、水平或向下起始时，释放即落地，总时长为 0，终点速度取初速度。
 
