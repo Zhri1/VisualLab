@@ -1,5 +1,7 @@
 # 首版接口契约
 
+动态组合的接口见 [运动阶段组合契约](STAGE_COMPOSITION.md)。
+
 首版模板为 `incline_spring`。主演示题、物理前提和验收数值见 [参赛最终方案](PROJECT_PLAN_FINAL.md)。
 
 ## 1. 识别数据 `Reading`
