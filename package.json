@@ -14,6 +14,7 @@
     "key:inject": "node scripts/inline-key.mjs inject",
     "key:restore": "node scripts/inline-key.mjs restore",
     "key:status": "node scripts/inline-key.mjs status",
+    "verify:live": "node scripts/verify-live.mjs",
     "test:physics": "node --test src/physics/motion.test.ts src/physics/scene.test.ts",
     "test:ui": "node scripts/cdp-verify.mjs"
   },
