@@ -4,13 +4,44 @@
  *
  * 运行：npm run test
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import fixture from "../../../fixtures/incline-spring.reading.json";
 import { SAMPLE_READING, mockPlan, setMockScenario } from "../imageRecognition";
 
 // 强制场景是模块级状态，每条用例后复位，避免污染其他用例
 afterEach(() => {
   setMockScenario(null);
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
+
+it.each(["offline", "409"])("生产模式接口%s时内置示例仍可独立打开", async (scenario) => {
+  vi.stubEnv("VITE_USE_MOCK_API", "false");
+  const fetch = scenario === "offline"
+    ? vi.fn().mockRejectedValue(new TypeError("接口不可用"))
+    : vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: "接口未启用" }), { status: 409 }));
+  vi.stubGlobal("fetch", fetch);
+  vi.resetModules();
+  const { requestPlan } = await import("../imageRecognition");
+  const result = await requestPlan({ isSample: true });
+  expect(result.status).toBe("ok");
+  if (result.status === "ok") expect(result.reading).toEqual(fixture);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("生产模式真实上传仍发送图片到原识别接口", async () => {
+  vi.stubEnv("VITE_USE_MOCK_API", "false");
+  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: "ok", reading: fixture })));
+  vi.stubGlobal("fetch", fetch);
+  vi.resetModules();
+  const { requestPlan, ENDPOINT } = await import("../imageRecognition");
+  const file = new File(["synthetic"], "question.png", { type: "image/png" });
+  const result = await requestPlan({ file });
+  expect(result.status).toBe("ok");
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(fetch).toHaveBeenCalledWith(ENDPOINT, expect.objectContaining({ method: "POST", body: expect.any(FormData) }));
+  const form = fetch.mock.calls[0][1].body as FormData;
+  expect(form.get("image")).toBe(file);
 });
 
 describe("mockPlan", () => {

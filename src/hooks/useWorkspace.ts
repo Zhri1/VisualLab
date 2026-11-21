@@ -6,12 +6,14 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { formatErrors, motionLibrary } from "../adapters";
 import { mockChatService } from "../services/chatService";
 import { requestPlan } from "../services/imageRecognition";
+import { segmentAt } from "../ui/components/workspace/playback";
 import type {
   ChatMessage,
   ConditionChange,
   Conditions,
   FieldError,
   Motion,
+  MotionSegment,
   Reading,
 } from "../types";
 
@@ -38,6 +40,9 @@ export function useWorkspace() {
 
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [autoPauseEvents, setAutoPauseEvents] = useState(false);
+  const [segmentPlayback, setSegmentPlayback] = useState<MotionSegment | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRecognizing, setIsRecognizing] = useState(false);
@@ -85,12 +90,14 @@ export function useWorkspace() {
       setReading(r);
       setAppliedReading(r);
       setMotion(res.motion);
+      setSegmentPlayback(null);
+      if (segmentPlayback) setIsPlaying(false);
       setMissingKeys([]);
       if (!opts?.keepTime) setCurrentTime(0);
       if (!opts?.silent) setNotice(null);
       return { ok: true as const, motion: res.motion };
     },
-    [compute]
+    [compute, segmentPlayback]
   );
 
   /* ---------------- 识别 ---------------- */
@@ -198,6 +205,7 @@ export function useWorkspace() {
   );
 
   const restartHome = useCallback(() => {
+    setSegmentPlayback(null);
     setPhase("home");
     setMotion(null);
     setReading(null);
@@ -219,9 +227,13 @@ export function useWorkspace() {
   const seek = useCallback(
     (t: number) => {
       if (!motion) return;
-      setCurrentTime(Math.min(Math.max(t, 0), motion.durationSeconds));
+      const time = Math.min(Math.max(t, 0), motion.durationSeconds);
+      if (segmentPlayback && (time < segmentPlayback.startSeconds || time > segmentPlayback.endSeconds)) {
+        setSegmentPlayback(null);
+      }
+      setCurrentTime(time);
     },
-    [motion]
+    [motion, segmentPlayback]
   );
 
   const seekEvent = useCallback(
@@ -229,31 +241,51 @@ export function useWorkspace() {
       if (!motion) return false;
       const ev = motion.events.find((e) => e.id === eventId);
       if (!ev) return false;
-      setCurrentTime(ev.timeSeconds);
+      seek(ev.timeSeconds);
       setIsPlaying(false);
       return true;
     },
-    [motion]
+    [motion, seek]
   );
 
   const nextEvent = useCallback(() => {
     if (!motion) return;
     const next = motion.events.find((e) => e.timeSeconds > currentTime + 1e-4);
-    setCurrentTime(next ? next.timeSeconds : motion.durationSeconds);
+    seek(next ? next.timeSeconds : motion.durationSeconds);
     setIsPlaying(false);
-  }, [motion, currentTime]);
+  }, [motion, currentTime, seek]);
 
   const togglePlay = useCallback(() => {
     if (!motion) return;
-    if (currentTime >= motion.durationSeconds - 1e-4) setCurrentTime(0);
+    if (segmentPlayback) {
+      if (!isPlaying && (currentTime < segmentPlayback.startSeconds || currentTime >= segmentPlayback.endSeconds)) {
+        setCurrentTime(segmentPlayback.startSeconds);
+      }
+    } else if (currentTime >= motion.durationSeconds - 1e-4) setCurrentTime(0);
     setIsPlaying((p) => !p);
-  }, [motion, currentTime]);
+  }, [motion, currentTime, isPlaying, segmentPlayback]);
 
   const replay = useCallback(() => {
     if (!motion) return;
+    setSegmentPlayback(null);
     setCurrentTime(0);
     setIsPlaying(true);
   }, [motion]);
+
+  const slowCurrentSegment = useCallback(() => {
+    if (!motion) return;
+    const segment = segmentAt(motion.segments, currentTime);
+    if (!segment) return;
+    setSegmentPlayback(segment);
+    setPlaybackRate(0.25);
+    setCurrentTime(segment.startSeconds);
+    setIsPlaying(true);
+  }, [motion, currentTime]);
+
+  const exitSegmentPlayback = useCallback(() => {
+    setSegmentPlayback(null);
+    setPlaybackRate(1);
+  }, []);
 
   /* ---------------- 对话 ---------------- */
 
@@ -304,7 +336,7 @@ export function useWorkspace() {
 
       if (intent.type === "play") {
         dropPending();
-        setIsPlaying(true);
+        if (!isPlaying) togglePlay();
         pushMessage({ id: uid(), role: "assistant", text: "已开始播放。" });
         return;
       }
@@ -378,7 +410,7 @@ export function useWorkspace() {
         text: intent.text + "动画与时间轴已同步更新。",
       });
     },
-    [applyReading, isChatLoading, motion, pushMessage, reading, replay, seekEvent]
+    [applyReading, isChatLoading, motion, pushMessage, reading, replay, seekEvent, isPlaying, togglePlay]
   );
 
   /** 撤销某次参数修改：回到该次修改前的 conditions */
@@ -447,6 +479,9 @@ export function useWorkspace() {
       motion,
       currentTime,
       isPlaying,
+      playbackRate,
+      autoPauseEvents,
+      segmentPlayback,
       messages,
       isRecognizing,
       isChatLoading,
@@ -469,12 +504,16 @@ export function useWorkspace() {
       applyConditions,
       setNotice,
       setCurrentTime,
+      setPlaybackRate,
+      setAutoPauseEvents,
+      slowCurrentSegment,
+      exitSegmentPlayback,
     }),
     [
-      phase, reading, appliedReading, motion, currentTime, isPlaying, messages,
+      phase, reading, appliedReading, motion, currentTime, isPlaying, playbackRate, autoPauseEvents, segmentPlayback, messages,
       isRecognizing, isChatLoading, imageUrl, imageFile, notice, missingKeys,
       recognize, loadSample, restartHome, seek, seekEvent, nextEvent, togglePlay,
-      replay, sendChat, undoChange, applyConditions,
+      replay, sendChat, undoChange, applyConditions, slowCurrentSegment, exitSegmentPlayback,
     ]
   );
 }
