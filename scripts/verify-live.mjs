@@ -21,7 +21,7 @@
  *   node scripts/verify-live.mjs
  *   SITE_HOST=xxx.qoder.zone node scripts/verify-live.mjs
  *
- * 想用真实浏览器跑同一组用例：打开 `https://<站点>/acceptance/`。
+ * 想用真实浏览器跑同一组用例：打开 `https://<站点>/acceptance/index.html`。
  */
 import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";

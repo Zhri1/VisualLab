@@ -46,7 +46,7 @@
 > 2. **水平段摩擦被丢弃** —— 旧模板只有「光滑 / 不光滑」两态，之前直接取弹簧段的 `frictionless`，水平段自己写的 μ 被无视。现在模型给了非零 μ 就如实标成有摩擦，交给 `validateReading` 判超范围。
 > 3. **超范围被降级成追问** —— `validateReading` 返回 `UNSUPPORTED`（前提冲突）时，桥仍然拼成 `needs_input`，用户被追问一个补不出来的值。现在原样透传成 `unsupported`。这和第 1 条是同一类错误：**状态只能往「更保守」的方向错，不能把「做不到」说成「再给我一个数」**。
 >
-> **真实浏览器验收**：网关要求请求来源必须是站点自身，且会拦无头浏览器。与其绕过，不如把验收页放进站点 —— 打开 <https://visuallab-physics-ecumfnqswpu.qoder.zone/acceptance/> 点「开始验收」，页面在你自己的浏览器里同源跑完上面四条用例，结果可一键复制。
+> **真实浏览器验收**：网关要求请求来源必须是站点自身，且会拦无头浏览器。与其绕过，不如把验收页放进站点 —— 打开 <https://visuallab-physics-ecumfnqswpu.qoder.zone/acceptance/index.html> 点「开始验收」，页面在你自己的浏览器里同源跑完上面四条用例，结果可一键复制。
 
 >
 > **密钥的落地方式**：Qoder 把 CLI 上下文的 `secretValueInput` 固定为 `false`，`sites operations` 里也没有 set secret 操作，密钥值无法经命令行写入。因此改用**构建期注入**——`scripts/inline-key.mjs` 在 `prepare_site` 打包前把 `.env` 里的 Key 写进 `functions/inline-key.ts`，打包完成后立即还原。该文件在仓库中**恒为空字符串**（本仓库是 public），函数运行时按 `Deno.env` → 构建期注入值的顺序取 Key。若以后在站点设置里填了 `DASHSCOPE_API_KEY`，平台 Secret 会覆盖注入值，该文件可长期留空。重新发布时用 `npm run sync:functions && node scripts/inline-key.mjs inject && <prepare_site> && node scripts/inline-key.mjs restore && <publish_site>`，顺序不能乱。
@@ -158,7 +158,7 @@ Qoder Sites 站点直接公开访问，不需要分享码或 cookie。生产构�
 1. B 的 `src/physics` 已落地，`npm test` 与 `npm run test:physics` 均全绿；后续改动照此回归。
 2. C 的接口已全部上线：云函数 `functions/` 与前端在同一次发布里，`/functions/v1/app` 公网可用，`npm run verify:live` 4/4 通过。
 3. **A 的前端接入 `stage_plan`**（唯一剩余项）：当前线上回包是 `legacy`（旧 `Reading`），A 按 `stages[].kind` 分支渲染后，把云函数的 `API_CONTRACT_MODE` 设成 `stage_plan` 即可整体切换，两端不用同时改代码。
-4. 三人在**真实浏览器**里跑一遍公网验收：<https://visuallab-physics-ecumfnqswpu.qoder.zone/acceptance/>，点「开始验收」，四条用例应全绿。
+4. 三人在**真实浏览器**里跑一遍公网验收：<https://visuallab-physics-ecumfnqswpu.qoder.zone/acceptance/index.html>，点「开始验收」，四条用例应全绿。
 
 ---
 
