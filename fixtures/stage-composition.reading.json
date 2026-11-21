@@ -1,0 +1,23 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "massKg": null,
+  "initial": { "speedMps": 0 },
+  "stages": [
+    {
+      "kind": "incline_slide",
+      "lengthM": 3.6,
+      "angleDeg": 30,
+      "kineticFrictionCoefficient": 0,
+      "slidesAfterRelease": true
+    },
+    { "kind": "lossless_turn", "lossless": true },
+    {
+      "kind": "horizontal_slide",
+      "kineticFrictionCoefficient": 0.2,
+      "end": { "kind": "distance", "distanceM": 5 }
+    },
+    { "kind": "projectile", "dropHeightM": 1.25 }
+  ]
+}
