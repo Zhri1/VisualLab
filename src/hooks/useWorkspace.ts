@@ -91,13 +91,13 @@ export function useWorkspace() {
       setAppliedReading(r);
       setMotion(res.motion);
       setSegmentPlayback(null);
-      setIsPlaying(false);
+      if (segmentPlayback) setIsPlaying(false);
       setMissingKeys([]);
-      setCurrentTime((time) => opts?.keepTime ? Math.min(time, res.motion.durationSeconds) : 0);
+      if (!opts?.keepTime) setCurrentTime(0);
       if (!opts?.silent) setNotice(null);
       return { ok: true as const, motion: res.motion };
     },
-    [compute]
+    [compute, segmentPlayback]
   );
 
   /* ---------------- 识别 ---------------- */
@@ -257,11 +257,11 @@ export function useWorkspace() {
 
   const togglePlay = useCallback(() => {
     if (!motion) return;
-    if (!isPlaying) {
-      if (segmentPlayback && (currentTime < segmentPlayback.startSeconds || currentTime >= segmentPlayback.endSeconds)) {
+    if (segmentPlayback) {
+      if (!isPlaying && (currentTime < segmentPlayback.startSeconds || currentTime >= segmentPlayback.endSeconds)) {
         setCurrentTime(segmentPlayback.startSeconds);
-      } else if (currentTime >= motion.durationSeconds) setCurrentTime(0);
-    }
+      }
+    } else if (currentTime >= motion.durationSeconds - 1e-4) setCurrentTime(0);
     setIsPlaying((p) => !p);
   }, [motion, currentTime, isPlaying, segmentPlayback]);
 

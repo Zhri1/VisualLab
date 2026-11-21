@@ -38,12 +38,13 @@
   white-space: nowrap;
   border: 0;
 }
+.playback-auxiliary { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--hair); }
 .playback-options {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 4px 12px;
-  margin-top: 8px;
+  margin-top: 0;
   color: var(--text-secondary);
   font-size: 12px;
 }

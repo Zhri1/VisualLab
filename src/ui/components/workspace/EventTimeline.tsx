@@ -37,7 +37,6 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
   );
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    (e.currentTarget as HTMLElement).focus({ preventScroll: true });
     onScrubStart();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     setDragging(true);
@@ -61,20 +60,13 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof Element && e.target.closest("input, textarea, select, [contenteditable='true'], [role='dialog']")) return;
-      let targetTime: number;
-      if (e.key === "ArrowRight") targetTime = Math.min(duration, time + 0.05);
-      else if (e.key === "ArrowLeft") targetTime = Math.max(0, time - 0.05);
-      else if (e.target === trackRef.current && e.key === "Home") targetTime = 0;
-      else if (e.target === trackRef.current && e.key === "End") targetTime = duration;
-      else return;
-      e.preventDefault();
-      onScrubStart();
-      onSeek(targetTime);
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+      if (e.key === "ArrowRight") onSeek(Math.min(duration, time + 0.05));
+      if (e.key === "ArrowLeft") onSeek(Math.max(0, time - 0.05));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [duration, onSeek, onScrubStart, time]);
+  }, [duration, onSeek, time]);
 
   const activeEvent = [...motion.events].reverse().find((e) => e.timeSeconds <= time + 1e-6);
 
@@ -91,9 +83,8 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
         tabIndex={0}
         aria-label="播放进度"
         aria-valuemin={0}
-        aria-valuemax={duration}
-        aria-valuenow={time}
-        aria-valuetext={`${time.toFixed(2)} 秒，共 ${duration.toFixed(2)} 秒`}
+        aria-valuemax={Math.round(duration * 100) / 100}
+        aria-valuenow={Math.round(time * 100) / 100}
       >
         <div className="track-fill" style={{ width: `${ratio * 100}%` }} />
         {motion.events.map((ev) => {

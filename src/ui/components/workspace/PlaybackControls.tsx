@@ -73,29 +73,6 @@ export function PlaybackControls({
         </div>
       </div>
 
-      <div className="playback-options">
-        <label className="rate-control">
-          播放倍率
-          <select value={playbackRate} onChange={(event) => onRateChange(Number(event.target.value))}>
-            {[0.25, 0.5, 1, 2].map((rate) => <option key={rate} value={rate}>{rate}×</option>)}
-          </select>
-        </label>
-        <button
-          type="button"
-          className="segment-control"
-          aria-pressed={Boolean(segmentName)}
-          onClick={segmentName ? onExitSegment : onSlowSegment}
-        >
-          {segmentName ? "退出本段" : "慢放本段"}
-        </button>
-        <label className="auto-pause-control">
-          <input type="checkbox" checked={autoPauseEvents} onChange={(event) => onAutoPauseChange(event.target.checked)} />
-          关键点自动暂停
-        </label>
-      </div>
-      <p className="playback-mode" role="status">
-        {segmentName ? `本段慢放 · ${segmentName} · 段末停止` : "全程播放"}
-      </p>
       <EventTimeline
         motion={motion}
         time={time}
@@ -103,6 +80,31 @@ export function PlaybackControls({
         onSeekEvent={onSeekEvent}
         onScrubStart={onScrubStart}
       />
+      <div className="playback-auxiliary" aria-label="辅助播放选项">
+        <div className="playback-options">
+          <label className="rate-control">
+            播放倍率
+            <select value={playbackRate} onChange={(event) => onRateChange(Number(event.target.value))}>
+              {[0.25, 0.5, 1, 2].map((rate) => <option key={rate} value={rate}>{rate}×</option>)}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="segment-control"
+            aria-pressed={Boolean(segmentName)}
+            onClick={segmentName ? onExitSegment : onSlowSegment}
+          >
+            {segmentName ? "退出本段" : "慢放本段"}
+          </button>
+          <label className="auto-pause-control">
+            <input type="checkbox" checked={autoPauseEvents} onChange={(event) => onAutoPauseChange(event.target.checked)} />
+            关键点自动暂停
+          </label>
+        </div>
+        <p className="playback-mode" role="status">
+          {segmentName ? `本段慢放 · ${segmentName} · 段末停止` : "全程播放"}
+        </p>
+      </div>
     </div>
   );
 }

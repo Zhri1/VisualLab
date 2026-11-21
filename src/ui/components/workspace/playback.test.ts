@@ -1,8 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { advancePlayback, formatSpeed, segmentAt } from "./playback";
 import type { MotionSegment } from "../../../types";
+import fixture from "../../../../fixtures/incline-spring.reading.json";
+import { motionLibrary } from "../../../adapters";
 
 describe("播放时间推进", () => {
+  it("真实题设的自动暂停保留原始事件时间和最大压缩零速度", () => {
+    const scene = motionLibrary.assembleScene(fixture);
+    expect(scene.ok).toBe(true);
+    if (!scene.ok) throw new Error("标准题装配失败");
+    const built = motionLibrary.buildMotion(scene.scene);
+    if (!built.ok) throw new Error(built.message);
+    const motion = built.motion;
+    for (const event of motion.events.slice(1)) {
+      const next = advancePlayback(event.timeSeconds - 0.001, 0.01, 1, motion.durationSeconds, motion.events);
+      expect(next.time).toBe(event.timeSeconds);
+      expect(next.pause).toBe(true);
+      if (event.id === "max_compression") expect(motion.sampleAt(next.time).velocity.x).toBe(0);
+    }
+  });
   it.each([
     [0.25, 0.375],
     [1, 0.75],

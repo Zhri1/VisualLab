@@ -430,7 +430,7 @@ function drawScene(
   const vy = sample.velocity.y;
   const speed = Math.hypot(vx, vy);
   const speedText = formatSpeed(speed);
-  if (speed > 0.005) {
+  if (speed > 0.08) {
     // 用全程最大速率做归一，箭头长度才在同一尺度上可比
     const vRef = Math.max(
       1e-6,

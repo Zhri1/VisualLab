@@ -13,8 +13,17 @@ await new Promise((resolve) => ws.addEventListener("open", resolve, { once: true
 let seq = 0;
 const pending = new Map();
 const errors = [];
+let blockedApiRequests = 0;
 ws.addEventListener("message", ({ data }) => {
   const message = JSON.parse(data);
+  if (message.method === "Fetch.requestPaused") {
+    blockedApiRequests++;
+    void send("Fetch.fulfillRequest", {
+      requestId: message.params.requestId, responseCode: 409,
+      responseHeaders: [{ name: "Content-Type", value: "application/json" }],
+      body: Buffer.from(JSON.stringify({ message: "测试：识别接口未启用" })).toString("base64"),
+    });
+  }
   if (message.method === "Runtime.exceptionThrown") errors.push(message.params.exceptionDetails.text);
   if (message.method === "Runtime.consoleAPICalled" && message.params.type === "error") errors.push(message.params.args.map((arg) => arg.value ?? arg.description).join(" "));
   const waiter = pending.get(message.id);
@@ -34,7 +43,8 @@ const evaluate = async (expression) => {
   return response.result.value;
 };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const time = () => evaluate('Number(document.querySelector(".track").getAttribute("aria-valuenow"))');
+// 旧时间轴的 ARIA 数值保留两位显示精度；用原有进度填充比例核对精确物理时间。
+const time = () => evaluate('parseFloat(document.querySelector(".track-fill").style.width) / 100 * 2.393162693419792');
 const click = async (selector) => { await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`); await sleep(100); };
 const eventClick = async (index) => { await evaluate(`document.querySelectorAll(".event-item")[${index}].click()`); await sleep(100); };
 const report = [];
@@ -53,6 +63,8 @@ async function key(key, code = key) {
 }
 await send("Page.enable");
 await send("Runtime.enable");
+// 模拟生产识别接口返回409，内置示例须完全绕过该接口。
+await send("Fetch.enable", { patterns: [{ urlPattern: "*functions/v1/app*" }, { urlPattern: "*api/animation/plan*" }] });
 await send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
 await send("Page.navigate", { url: base });
 await sleep(1500);
@@ -61,6 +73,8 @@ await sleep(1500);
 check("默认1倍速、关键点暂停关闭", await evaluate('document.querySelector(".rate-control select").value === "1" && !document.querySelector(".auto-pause-control input").checked'));
 check("释放静止速度为0", (await evaluate('document.querySelector("#player-speed").textContent')).includes("大小 0 米每秒"));
 check("图例来自已应用条件", (await evaluate('document.querySelector(".scene-legend").textContent')).includes("0.50"));
+check("生产接口设为409时内置示例仍打开，且未请求接口", blockedApiRequests === 0 && await evaluate('!!document.querySelector("canvas")'));
+check("旧播放行、滑轨、事件列表之后才出现辅助选项", await evaluate('document.querySelector(".timeline").nextElementSibling?.classList.contains("playback-auxiliary") && document.querySelector(".transport-row").nextElementSibling?.classList.contains("timeline")'));
 await eventClick(1);
 check("转向时读数4.02，速度取自物理样本", (await evaluate('document.querySelector("#player-speed").textContent')).includes("4.02"));
 await eventClick(3);
@@ -72,7 +86,7 @@ await key("Home");
 check("原生倍率控件支持键盘且不移动时间轴", await evaluate('document.querySelector(".rate-control select").value === "0.25"') && await time() === beforeSelect);
 await evaluate('document.querySelector(".track").focus()');
 await key("ArrowLeft");
-check("时间轴键盘左键定位并更新速度", Math.abs(await time() - (beforeSelect - 0.05)) < 1e-10);
+check("时间轴保留原有左键定位行为", Math.abs(await time() - (beforeSelect - 0.05)) < 0.000005);
 await eventClick(2);
 await click(".segment-control");
 check("本段从弹簧起点慢放，倍率0.25", await evaluate('document.querySelector(".playback-mode").textContent.includes("压缩与反弹") && document.querySelector(".rate-control select").value === "0.25"'));
@@ -86,11 +100,11 @@ await click(".auto-pause-control input");
 await click('button[aria-label="播放"]');
 await sleep(2300);
 const firstPause = await time();
-check("首次实际经过坡底事件时精确暂停", Math.abs(firstPause - 1.987629387324713) < 1e-12, String(firstPause));
+check("首次实际经过坡底事件时暂停", Math.abs(firstPause - 1.987629387324713) < 0.000005, String(firstPause));
 await click('button[aria-label="播放"]');
 await sleep(500);
 const secondPause = await time();
-check("继续播放可到下一事件，不滞留原事件", Math.abs(secondPause - 2.2360830607403024) < 1e-12, String(secondPause));
+check("继续播放可到下一事件，不滞留原事件", Math.abs(secondPause - 2.2360830607403024) < 0.000005, String(secondPause));
 await click(".auto-pause-control input");
 await click(".segment-control");
 await eventClick(0);
