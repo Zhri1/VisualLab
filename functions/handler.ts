@@ -13,6 +13,8 @@
 
 import { SKILL_TEXT } from "./skill.ts";
 import { INLINE_API_KEY } from "./inline-key.ts";
+import { applyLegacyContract, outputContractFromEnv } from "./legacyBridge.ts";
+import type { ClientResult } from "./legacyBridge.ts";
 import { validateStagePlan } from "./stagePlan.ts";
 import { buildStagePlanResult } from "./stageStatus.ts";
 import { STAGE_HTTP_STATUS, isStagePlan } from "./stageTypes.ts";
@@ -350,6 +352,23 @@ function buildPlanResponse(raw: unknown): PlanResponse {
   return buildPlan(data);
 }
 
+/**
+ * 判断回包是否来自阶段计划路径（同 src/api/plan.ts）。
+ *
+ * `unsupported` 与 `needs_input + reading:null` 两支与旧模板形状重叠，
+ * 但兼容桥对它们原样返回，判错不影响结果。
+ */
+function isStagePlanResult(result: PlanResponse): result is StagePlanResult {
+  if (result.status === "invalid_reading") return true;
+  if (!("reading" in result)) return false;
+  const reading = result.reading;
+  return (
+    reading !== null &&
+    typeof reading === "object" &&
+    (reading as Record<string, unknown>).kind === "stage_plan"
+  );
+}
+
 /* ============================ 百炼视觉模型（同 src/api/dashscope.ts） ============================ */
 
 type VisionFailure = "timeout" | "upstream" | "parse";
@@ -597,7 +616,13 @@ export async function handler(request: Request): Promise<Response> {
     });
   }
 
-  const result = buildPlanResponse(vision.raw);
+  // 内部统一按 stage_plan 校验，对外形状由 API_CONTRACT_MODE 决定：
+  // 默认 legacy（A 的前端尚未接入），设成 stage_plan 才吐新契约。
+  const internal = buildPlanResponse(vision.raw);
+  const result: ClientResult =
+    isStagePlanResult(internal) && outputContractFromEnv(env("API_CONTRACT_MODE")) === "legacy"
+      ? applyLegacyContract(internal, validateReading, UNSUPPORTED_PREFIX)
+      : (internal as ClientResult);
   const elapsed = Date.now() - startedAt;
 
   // 契约第 2 节：ok / needs_input / unsupported 都是 200，只有 invalid_reading 是 502
