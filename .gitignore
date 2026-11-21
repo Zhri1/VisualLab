@@ -12,3 +12,6 @@ artifacts/
 
 # vitest 沙箱临时目录
 .tmp/
+
+# Qoder Sites 发布临时文件
+.sites-*
