@@ -101,9 +101,29 @@ describe("共享阶段计划校验", () => {
   });
 
   it("标量和分量互斥，错误定位初态整块", () => {
-    expect(validateStagePlan({ ...complete, initial: { speedMps: 0, vxMps: 0, vyMps: 0 } })).toMatchObject({
+    const result = validateStagePlan({ ...complete, initial: { speedMps: 0, vxMps: 0, vyMps: 0 } });
+    expect(result).toMatchObject({
       ok: false, code: "INCONSISTENT_CONDITIONS", fieldErrors: [{ path: "/initial", code: "PRECONDITION_CONFLICT" }],
     });
+    if (!result.ok) expect(result.reading?.initial).toEqual({ speedMps: 0, vxMps: 0, vyMps: 0 });
+  });
+
+  it("局部kind未知不吞掉其他阶段缺项与非有限错误", () => {
+    const input = structuredClone(complete);
+    delete (input.stages[1] as Record<string, unknown>).kind;
+    delete (input.stages[2].end as Record<string, unknown>).distanceM;
+    input.stages[3].dropHeightM = Infinity;
+    const result = validateStagePlan(input);
+    expect(result).toMatchObject({
+      ok: false, code: "INCONSISTENT_CONDITIONS",
+      missingKeys: ["/stages/1/kind", "/stages/2/end/distanceM"],
+      fieldErrors: [{ path: "/stages/3/dropHeightM", code: "NOT_FINITE" }],
+    });
+    if (result.ok) throw new Error("应提示修正");
+    expect(result.reading?.stages[0]).toEqual(complete.stages[0]);
+    expect(result.reading?.stages[1].kind).toBeNull();
+    expect(result.reading?.stages[2].end).toEqual({ kind: "distance", distanceM: null });
+    expect(result.reading?.stages[3].dropHeightM).toBeNull();
   });
 
   it("独立抛体需要分量并允许符号", () => {
