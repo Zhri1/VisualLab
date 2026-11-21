@@ -10,17 +10,19 @@ import {
   type Conditions,
   type FactKey,
   type FieldError,
-  type Reading,
+  type WorkspaceReading,
+  isStageReading,
 } from "../../../types";
+import { StagePlanEditor } from "./StagePlanEditor";
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  reading: Reading | null;
+  reading: WorkspaceReading | null;
   imageUrl: string | null;
   missingKeys: string[];
   fieldErrors: FieldError[];
-  onApply: (next: Reading) => boolean;
+  onApply: (next: WorkspaceReading) => boolean;
 }
 
 export function OriginalProblemViewer({
@@ -32,7 +34,7 @@ export function OriginalProblemViewer({
   fieldErrors,
   onApply,
 }: Props) {
-  const [draft, setDraft] = useState<Reading | null>(reading);
+  const [draft, setDraft] = useState<WorkspaceReading | null>(reading);
   const [localErrors, setLocalErrors] = useState<FieldError[]>([]);
 
   useEffect(() => {
@@ -54,7 +56,8 @@ export function OriginalProblemViewer({
   const errorsByField = useMemo(() => {
     const map = new Map<string, string>();
     [...fieldErrors, ...localErrors].forEach((e) => {
-      if (e.field && !map.has(e.field)) map.set(e.field, e.message);
+      const key = e.path ?? e.field;
+      if (key && !map.has(key)) map.set(key, e.message);
     });
     return map;
   }, [fieldErrors, localErrors]);
@@ -62,7 +65,7 @@ export function OriginalProblemViewer({
   if (!open) return null;
 
   const setNum = (key: keyof Conditions, raw: string) => {
-    if (!draft) return;
+    if (!draft || isStageReading(draft)) return;
     const trimmed = raw.trim();
     const value = trimmed === "" ? null : Number(trimmed);
     setDraft({
@@ -75,7 +78,7 @@ export function OriginalProblemViewer({
   };
 
   const setFact = (key: FactKey, value: boolean | null) => {
-    if (!draft) return;
+    if (!draft || isStageReading(draft)) return;
     setDraft({ ...draft, facts: { ...draft.facts, [key]: value } });
   };
 
@@ -99,10 +102,12 @@ export function OriginalProblemViewer({
     }
   };
 
-  const missingCount = CONDITION_META.filter((m) => {
-    const v = reading?.conditions?.[m.key];
-    return v === null || v === undefined;
-  }).length;
+  const missingCount = isStageReading(reading)
+    ? missingKeys.length
+    : CONDITION_META.filter((m) => {
+        const v = reading?.conditions?.[m.key];
+        return v === null || v === undefined;
+      }).length;
 
   return (
     <div className="drawer-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -140,6 +145,15 @@ export function OriginalProblemViewer({
             </div>
           )}
 
+          {isStageReading(draft) ? (
+            <StagePlanEditor
+              draft={draft}
+              onChange={setDraft}
+              missingKeys={missingKeys}
+              fieldErrors={[...fieldErrors, ...localErrors]}
+            />
+          ) : (
+            <>
           <p className="section-label">物理前提</p>
           <div className="fact-row">
             {FACT_META.map((f) => {
@@ -193,6 +207,8 @@ export function OriginalProblemViewer({
               })}
             </tbody>
           </table>
+            </>
+          )}
         </div>
 
         <div className="drawer-foot">

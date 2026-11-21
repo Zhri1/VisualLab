@@ -221,7 +221,9 @@ function compute(plan: ResolvedStagePlan): StageMotion | StagePlanFailure {
     sampleAt(timeSeconds) {
       const t = Number.isNaN(timeSeconds) ? 0 : Math.min(time, Math.max(0, timeSeconds));
       // 同刻的最后一个事件状态优先，确保转向、接触和零时长终止可精确停靠。
-      for (let i = events.length - 1; i >= 0; i--) if (events[i].timeSeconds === t) return { ...eventStates[i] };
+      // 十进制事件时刻（如 1.2 s）与浮点计算结果可能相差 1 ulp；
+      // 仅吸收这一误差，1e-7 s 的转向前采样仍严格保持事件前状态。
+      for (let i = events.length - 1; i >= 0; i--) if (Math.abs(events[i].timeSeconds - t) <= 1e-9) return { ...eventStates[i] };
       const active = runs.find((item) => t >= item.start && t < item.end);
       return active ? active.run.sampleAt(t - active.start) : { ...final };
     },

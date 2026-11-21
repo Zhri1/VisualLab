@@ -7,5 +7,5 @@ import { physicsMotionLibrary } from "./physicsMotionAdapter";
 export const motionLibrary: MotionLibrary = physicsMotionLibrary;
 
 export { formatErrors } from "./contract";
-export type { AssembleResult, BuildMotionResult, MotionLibrary } from "./contract";
+export type { AdaptedScene, AssembleResult, BuildMotionResult, MotionLibrary } from "./contract";
 

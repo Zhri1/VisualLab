@@ -1,11 +1,14 @@
 import { assembleScene as assemblePhysicsScene, buildMotion as buildPhysicsMotion, validateReading } from "../physics";
-import type { Motion as PhysicsMotion, PhysicsFailure } from "../physics";
-import type { FieldError, Motion, MotionEvent, Reading, Scene, SceneGeometry } from "../types";
-import type { AssembleResult, BuildMotionResult, MotionLibrary } from "./contract";
+import type { Motion as PhysicsMotion, PhysicsFailure, StageScene } from "../physics";
+import { isStageReading, type FieldError, type Motion, type MotionEvent, type Reading, type Scene, type SceneGeometry, type WorkspaceReading } from "../types";
+import type { AdaptedScene, AssembleResult, BuildMotionResult, MotionLibrary } from "./contract";
+import { adaptStageMotion, stageFailureErrors } from "./stageMotionAdapter";
 
 // 场景为本地对象，装配时保留一次求解结果，供下一步构建播放器数据。
 const physicsMotion = Symbol("physicsMotion");
-type AdaptedScene = Scene & { [physicsMotion]: PhysicsMotion };
+type LegacyAdaptedScene = Scene & { [physicsMotion]: PhysicsMotion };
+const isStageScene = (scene: AdaptedScene): scene is StageScene =>
+  "kind" in scene && scene.kind === "stage_scene";
 
 const segmentText = {
   incline: {
@@ -64,14 +67,20 @@ function mapGeometry(motion: PhysicsMotion): SceneGeometry {
   };
 }
 
-export function assembleScene(reading: Reading): AssembleResult {
+export function assembleScene(reading: WorkspaceReading): AssembleResult {
+  if (isStageReading(reading)) {
+    const assembled = assemblePhysicsScene(reading);
+    if (!assembled.ok) return { ok: false, errors: stageFailureErrors(assembled) };
+    return { ok: true, scene: assembled.scene };
+  }
+
   const assembled = assemblePhysicsScene(reading);
   if (!assembled.ok) return { ok: false, errors: fieldErrors(assembled, reading) };
   const built = buildPhysicsMotion(assembled.scene);
   if (!built.ok) return { ok: false, errors: fieldErrors(built, reading) };
   const validation = validateReading(reading);
   if (!validation.ok) return { ok: false, errors: fieldErrors(validation, reading) };
-  const scene: AdaptedScene = {
+  const scene: LegacyAdaptedScene = {
     geometry: mapGeometry(built.motion),
     params: validation.reading.conditions,
     [physicsMotion]: built.motion,
@@ -79,7 +88,12 @@ export function assembleScene(reading: Reading): AssembleResult {
   return { ok: true, scene };
 }
 
-export function buildMotion(scene: Scene): BuildMotionResult {
+export function buildMotion(scene: AdaptedScene): BuildMotionResult {
+  if (isStageScene(scene)) {
+    const built = buildPhysicsMotion(scene);
+    return { ok: true, motion: adaptStageMotion(built.motion, scene.reading) };
+  }
+
   // 兼容调用方按共享 Scene 类型构造的对象，仍由纯计算层校验与求解。
   if (!(physicsMotion in scene)) {
     const assembled = assembleScene({
@@ -90,7 +104,7 @@ export function buildMotion(scene: Scene): BuildMotionResult {
     if (!assembled.ok) return { ok: false, code: assembled.errors[0].code, message: assembled.errors.map((error) => error.message).join("；") };
     return buildMotion(assembled.scene);
   }
-  const source = (scene as AdaptedScene)[physicsMotion];
+  const source = (scene as LegacyAdaptedScene)[physicsMotion];
   const events: MotionEvent[] = source.events.map((event) => ({
     ...eventMapping[event.id],
     timeSeconds: event.timeSeconds,

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Image as ImageIcon } from "lucide-react";
 import type { Workspace } from "../../../hooks/useWorkspace";
+import { isStageReading } from "../../../types";
 import { ChatPanel } from "../chat/ChatPanel";
 import { PhysicsCanvas } from "./PhysicsCanvas";
 import { PhysicsExplanation } from "./PhysicsExplanation";
@@ -21,6 +22,21 @@ export function WorkspaceLayout({ ws }: Props) {
   const clockTimeRef = useRef(currentTime);
   clockTimeRef.current = currentTime;
   const activeSegment = motion ? segmentAt(motion.segments, currentTime) : undefined;
+  const stagePlan = isStageReading(ws.appliedReading) ? ws.appliedReading : null;
+  const legacyReading = ws.appliedReading && !isStageReading(ws.appliedReading) ? ws.appliedReading : null;
+  const stageLabels = {
+    incline_slide: "斜面",
+    lossless_turn: "转向",
+    horizontal_slide: "水平",
+    spring_contact: "弹簧",
+    projectile: "抛体",
+  } as const;
+  const title = stagePlan
+    ? stagePlan.stages.map((stage) => stageLabels[stage.kind as keyof typeof stageLabels] ?? "未知阶段").join(" · ")
+    : "斜面滑块与弹簧";
+  const subtitle = stagePlan
+    ? `共 ${stagePlan.stages.length} 个有序阶段，按实际事件播放；修改条件后重新装配。`
+    : "滑块自斜面顶端由静止下滑，经光滑水平面压缩弹簧并反弹。";
   const explanationTimes = useMemo(() => motion ? [
     ...motion.events.map((event) => event.timeSeconds),
     ...motion.segments.map((segment) => (segment.startSeconds + segment.endSeconds) / 2),
@@ -91,10 +107,8 @@ export function WorkspaceLayout({ ws }: Props) {
 
           <div className="player-head">
             <div style={{ minWidth: 0 }}>
-              <h1 className="player-title">斜面滑块与弹簧</h1>
-              <p className="player-sub">
-                滑块自斜面顶端由静止下滑，经光滑水平面压缩弹簧并反弹。
-              </p>
+              <h1 className="player-title">{title}</h1>
+              <p className="player-sub">{subtitle}</p>
             </div>
             <button className="ghost-button" onClick={() => setViewerOpen(true)}>
               <ImageIcon size={14} strokeWidth={1.8} />
@@ -104,12 +118,27 @@ export function WorkspaceLayout({ ws }: Props) {
 
           {motion && (
             <ul className="scene-legend" aria-label="路段与动摩擦因数">
-              <li aria-current={activeSegment?.kind === "incline" ? "step" : undefined}>
-                <b>AB</b> 斜面 <span>μ = {ws.appliedReading?.conditions.kineticFrictionCoefficient?.toFixed(2)}</span>
-              </li>
-              <li aria-current={activeSegment?.kind !== "incline" ? "step" : undefined}>
-                <b>BC</b> 水平面 <span>μ = 0</span>
-              </li>
+              {stagePlan ? motion.segments.map((segment) => {
+                const stage = segment.stageIndex == null ? null : stagePlan.stages[segment.stageIndex];
+                const friction = stage && "kineticFrictionCoefficient" in stage && typeof stage.kineticFrictionCoefficient === "number"
+                  ? stage.kineticFrictionCoefficient
+                  : null;
+                return (
+                  <li key={`${segment.stageIndex}-${segment.kind}`} aria-current={activeSegment === segment ? "step" : undefined}>
+                    <b>{String((segment.stageIndex ?? 0) + 1).padStart(2, "0")}</b> {segment.name}
+                    {friction != null && <span>μ = {friction.toFixed(2)}</span>}
+                  </li>
+                );
+              }) : (
+                <>
+                  <li aria-current={activeSegment?.kind === "incline" ? "step" : undefined}>
+                    <b>AB</b> 斜面 <span>μ = {legacyReading?.conditions.kineticFrictionCoefficient?.toFixed(2)}</span>
+                  </li>
+                  <li aria-current={activeSegment?.kind !== "incline" ? "step" : undefined}>
+                    <b>BC</b> 水平面 <span>μ = 0</span>
+                  </li>
+                </>
+              )}
             </ul>
           )}
           <div className="canvas-frame">

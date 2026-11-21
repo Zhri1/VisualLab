@@ -3,6 +3,9 @@
  * 字段名一律沿用契约原文，不在这里做重命名。
  */
 
+import type { EndReason, StageGeometry } from "../physics/stageMotion";
+import type { ResolvedStagePlan, StageKind, StagePlanDraft } from "../physics/stagePlan";
+
 export type TemplateId = "incline_spring";
 
 /** 题设条件。缺项用 null 表示，保留给用户补齐。 */
@@ -30,6 +33,12 @@ export interface Reading {
   templateId: TemplateId | string;
   conditions: Conditions;
   facts: Facts;
+}
+
+/** 工作台同时保留旧模板与新阶段计划；类型守卫后才读取各自字段。 */
+export type WorkspaceReading = Reading | StagePlanDraft;
+export function isStageReading(reading: WorkspaceReading | null | undefined): reading is StagePlanDraft {
+  return reading != null && "kind" in reading && reading.kind === "stage_plan";
 }
 
 export type ConditionKey = keyof Conditions;
@@ -100,10 +109,13 @@ export interface ResolvedConditions {
   springConstantNpm: number;
 }
 
-export type SegmentKind = "incline" | "horizontal" | "spring";
+export type SegmentKind = "incline" | "horizontal" | "spring" | "projectile";
 
 export interface MotionSegment {
   kind: SegmentKind;
+  /** 新阶段计划中的原始零基下标；旧模板缺省。 */
+  stageIndex?: number;
+  stageKind?: StageKind;
   startSeconds: number;
   endSeconds: number;
   name: string;
@@ -120,6 +132,10 @@ export type EventId =
 
 export interface MotionEvent {
   id: EventId | string;
+  /** 新计划保留原事件 kind 与执行顺序，避免同刻事件靠数组猜测。 */
+  eventKind?: string;
+  stageIndex?: number;
+  order?: number;
   timeSeconds: number;
   label: string;
   /** 与画面同步的一句原理说明 */
@@ -139,34 +155,38 @@ export interface MotionSample {
 }
 
 export interface Motion {
+  /** 旧模板几何继续保留；新计划另带完整 StageGeometry 供专用画布使用。 */
   geometry: SceneGeometry;
+  stageGeometry?: StageGeometry;
+  /** 当前有效原计划；提前停止时仍能识别 plannedEnd 是题设桌沿。 */
+  stagePlan?: ResolvedStagePlan;
   durationSeconds: number;
   segments: MotionSegment[];
   events: MotionEvent[];
+  endReason?: EndReason;
+  termination?: { reason: EndReason; eventId: string; stageIndex: number };
   sampleAt(timeSeconds: number): MotionSample;
 }
 
 /* ---------------- 错误 ---------------- */
 
 export interface FieldError {
-  code:
-    | "MISSING"
-    | "RANGE"
-    | "NOT_FINITE"
-    | "PRECONDITION_CONFLICT"
-    | "UNSUPPORTED_TEMPLATE";
+  code: string;
+  /** 旧模板使用裸字段名；阶段计划使用 reading 根部的 JSON Pointer。 */
   field?: string;
+  path?: string;
   message: string;
 }
 
 /* ---------------- 识别接口 ---------------- */
 
 export type PlanResponse =
-  | { status: "ok"; reading: Reading; message?: string; assumptions?: string[] }
+  | { status: "ok"; reading: WorkspaceReading; message?: string; assumptions?: string[] }
   | {
       status: "needs_input";
-      reading: Reading | null;
+      reading: WorkspaceReading | null;
       missingKeys: string[];
+      fieldErrors?: FieldError[];
       message: string;
       /**
        * 与 ok 同形状的假设条目（0–3 条）。

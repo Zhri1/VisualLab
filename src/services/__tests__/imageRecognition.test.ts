@@ -6,7 +6,10 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import fixture from "../../../fixtures/incline-spring.reading.json";
+import stageFixture from "../../../fixtures/stage-composition.reading.json";
+import type { StagePlanDraft } from "../../physics/stagePlan";
 import { SAMPLE_READING, mockPlan, setMockScenario } from "../imageRecognition";
+import { isStageReading } from "../../types";
 
 // 强制场景是模块级状态，每条用例后复位，避免污染其他用例
 afterEach(() => {
@@ -48,7 +51,7 @@ describe("mockPlan", () => {
   it("内置示例一定返回 ok，且弹簧间距为 1 m", () => {
     const r = mockPlan(false, true);
     expect(r.status).toBe("ok");
-    if (r.status !== "ok") return;
+    if (r.status !== "ok" || isStageReading(r.reading)) return;
     expect(r.reading.conditions.springGapM).toBe(1);
   });
 
@@ -122,7 +125,8 @@ describe("mockPlan 的回包形状", () => {
     expect(Array.isArray(r.missingKeys)).toBe(true);
     expect(r.missingKeys).toContain("springGapM");
     expect(r.reading).not.toBeNull();
-    expect(r.reading?.conditions.springGapM).toBeNull();
+    if (!r.reading || isStageReading(r.reading)) throw new Error("应为旧模板缺项样例");
+    expect(r.reading.conditions.springGapM).toBeNull();
   });
 
   it("强制 needs_input 支路也带 assumptions，且 message 保持原文", () => {
@@ -204,5 +208,48 @@ describe("mockPlan 的回包形状", () => {
     for (const [status, message] of seen) {
       expect(message.length, `${status} 的 message 不能为空`).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("stage_plan 服务适配", () => {
+  const stagePlan = stageFixture as StagePlanDraft;
+
+  it("真实截断指令只提交 command + 完整 currentPlan", async () => {
+    vi.stubEnv("VITE_USE_MOCK_API", "false");
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      status: "ok", intent: { type: "truncate_stages", throughStageIndex: 0 },
+    })));
+    vi.stubGlobal("fetch", fetch);
+    vi.resetModules();
+    const { requestStageCommand, ENDPOINT } = await import("../imageRecognition");
+    const result = await requestStageCommand("只看斜面", stagePlan);
+    expect(result).toEqual({ status: "ok", intent: { type: "truncate_stages", throughStageIndex: 0 } });
+    expect(fetch).toHaveBeenCalledWith(ENDPOINT, expect.objectContaining({ method: "POST", body: expect.any(FormData) }));
+    const form = fetch.mock.calls[0][1].body as FormData;
+    expect(form.get("command")).toBe("只看斜面");
+    expect(form.get("currentPlan")).toBe(JSON.stringify(stagePlan));
+    expect(form.get("text")).toBeNull();
+    expect(form.get("image")).toBeNull();
+  });
+
+  it("离线 mock 也走同一截断意图", async () => {
+    vi.stubEnv("VITE_USE_MOCK_API", "true");
+    vi.resetModules();
+    const { requestStageCommand } = await import("../imageRecognition");
+    const result = await requestStageCommand("只看斜面", stagePlan);
+    expect(result).toEqual({ status: "ok", intent: { type: "truncate_stages", throughStageIndex: 0 } });
+  });
+
+  it("needs_input 透传阶段 fieldErrors", async () => {
+    vi.stubEnv("VITE_USE_MOCK_API", "false");
+    const fieldErrors = [{ path: "/stages/3/dropHeightM", code: "NOT_FINITE", message: "数值须为有限数" }];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      status: "needs_input", reading: stagePlan, missingKeys: [], fieldErrors, message: "请修正",
+    }))));
+    vi.resetModules();
+    const { requestPlan } = await import("../imageRecognition");
+    const result = await requestPlan({ text: "测试" });
+    expect(result.status).toBe("needs_input");
+    if (result.status === "needs_input") expect(result.fieldErrors).toEqual(fieldErrors);
   });
 });

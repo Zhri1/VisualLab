@@ -15,7 +15,7 @@ export function advancePlayback(
 }
 
 export function segmentAt(segments: readonly MotionSegment[], time: number): MotionSegment | undefined {
-  return segments.find((segment) => time < segment.endSeconds) ?? segments[segments.length - 1];
+  return segments.find((segment) => time < segment.endSeconds - 1e-9) ?? segments[segments.length - 1];
 }
 
 export function formatSpeed(speed: number): string {

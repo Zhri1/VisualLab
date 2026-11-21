@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { Motion, Vec2 } from "../../../types";
 import { formatSpeed } from "./playback";
+import { StagePhysicsCanvas } from "./StagePhysicsCanvas";
 
 const INK = "#1c1c1c";
 const SOFT = "#8e8e88";
@@ -511,7 +512,14 @@ function drawScene(
   drawRich(ctx, speedLabel, labelX, labelY, speedLabelPx);
 }
 
-export function PhysicsCanvas({ motion, time, isPlaying = false }: Props) {
+export function PhysicsCanvas(props: Props) {
+  if (props.motion?.stageGeometry) {
+    return <StagePhysicsCanvas motion={props.motion} time={props.time} isPlaying={props.isPlaying} />;
+  }
+  return <LegacyPhysicsCanvas {...props} />;
+}
+
+function LegacyPhysicsCanvas({ motion, time, isPlaying = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<number | null>(null);
   const sizeRef = useRef({ w: 0, h: 0 });

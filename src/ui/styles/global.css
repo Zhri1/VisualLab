@@ -1347,6 +1347,45 @@ textarea {
   min-width: 32px;
 }
 
+.stage-editor-card {
+  margin: 0 0 12px;
+  padding: 8px 12px 4px;
+  border: 1px solid var(--hair);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.stage-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 4px 8px;
+  border-bottom: 1px solid var(--hair);
+}
+.stage-number {
+  flex: none;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-secondary);
+}
+.stage-select {
+  min-width: 132px;
+  max-width: 190px;
+  padding: 6px 26px 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+.stage-select.invalid {
+  border-color: #d9b8b8;
+  background: #fdfafa;
+}
+.stage-plan-editor .cond-table {
+  margin-bottom: 0;
+}
+
 .fact-row {
   display: flex;
   flex-wrap: wrap;
