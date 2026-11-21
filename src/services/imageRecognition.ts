@@ -125,11 +125,12 @@ export async function requestPlan(input: {
   /** 内置示例：跳过所有模拟失败 */
   isSample?: boolean;
 }): Promise<PlanResponse> {
+  // 内置示例在生产和离线环境都直接使用本地标准题。
+  if (input.isSample) return mockPlan(Boolean(input.file), true);
   if (USE_MOCK_API) {
     const [lo, hi] = MOCK_LATENCY_MS;
-    const factor = input.isSample ? 0.35 : 1;
-    await sleep((lo + Math.random() * (hi - lo)) * factor);
-    return mockPlan(Boolean(input.file), input.isSample);
+    await sleep(lo + Math.random() * (hi - lo));
+    return mockPlan(Boolean(input.file));
   }
 
   const form = new FormData();

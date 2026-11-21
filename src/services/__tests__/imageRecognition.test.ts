@@ -4,13 +4,27 @@
  *
  * 运行：npm run test
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import fixture from "../../../fixtures/incline-spring.reading.json";
 import { SAMPLE_READING, mockPlan, setMockScenario } from "../imageRecognition";
 
 // 强制场景是模块级状态，每条用例后复位，避免污染其他用例
 afterEach(() => {
   setMockScenario(null);
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
+
+it("生产模式内置示例仍使用本地题设，无需模型服务", async () => {
+  vi.stubEnv("VITE_USE_MOCK_API", "false");
+  const fetch = vi.fn();
+  vi.stubGlobal("fetch", fetch);
+  vi.resetModules();
+  const { requestPlan } = await import("../imageRecognition");
+  const result = await requestPlan({ isSample: true });
+  expect(result.status).toBe("ok");
+  if (result.status === "ok") expect(result.reading).toEqual(fixture);
+  expect(fetch).not.toHaveBeenCalled();
 });
 
 describe("mockPlan", () => {
