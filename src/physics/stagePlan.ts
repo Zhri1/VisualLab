@@ -91,26 +91,10 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
     else if (typeof stage.kind !== "string") issue("/stages/" + i + "/kind", "TYPE", "阶段种类应为字符串。");
     else if (!stageKinds.includes(stage.kind)) issue("/stages/" + i + "/kind", "UNSUPPORTED", "未登记的阶段模块。");
   }
-  // 局部阶段种类未知时，保留其余可识别的计划结构供核对表补齐。
-  if (!damaged && missingKeys.some((path) => /^\/stages\/\d+\/kind$/.test(path))
-    && input.kind === "stage_plan" && input.schemaVersion === 1
-    && input.stages.some((stage) => record(stage) && typeof stage.kind === "string" && stageKinds.includes(stage.kind))) {
-    const sourceInitial = record(input.initial) ? input.initial : {};
-    const scalar = "speedMps" in sourceInitial || !("vxMps" in sourceInitial || "vyMps" in sourceInitial);
-    const valueOrNull = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) ? value : null;
-    draft = {
-      kind: "stage_plan", schemaVersion: 1,
-      initial: scalar ? { speedMps: valueOrNull(sourceInitial.speedMps) } : { vxMps: valueOrNull(sourceInitial.vxMps), vyMps: valueOrNull(sourceInitial.vyMps) },
-      stages: input.stages.map((stage) => {
-        const known = stage as Record<string, unknown>;
-        return { ...known, kind: known.kind ?? null, ...(record(known.end) ? { end: { ...known.end } } : {}) };
-      }),
-    };
-    if ("gravityMps2" in input) draft.gravityMps2 = valueOrNull(input.gravityMps2);
-    if ("massKg" in input) draft.massKg = valueOrNull(input.massKg);
-  }
-  if (damaged || unsupported || missingKeys.length) return result();
-  const stages = input.stages as Array<Record<string, unknown> & { kind: StageKind }>;
+  // 仅整体结构未知时提前返回；局部kind缺失不吞掉其他已知阶段的问题。
+  if (damaged || unsupported || missingKeys.some((path) => !/^\/stages\/\d+\/kind$/.test(path))) return result();
+  const stages = input.stages as Array<Record<string, unknown> & { kind?: StageKind | null }>;
+  if (!stages.some((stage) => stage.kind != null)) return result();
   const firstKind = stages[0].kind;
   if (input.initial != null && !record(input.initial)) {
     issue("/initial", "TYPE", "初态应为对象。");
@@ -119,14 +103,14 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
   const initial = input.initial ?? {};
   const hasSpeed = Object.prototype.hasOwnProperty.call(initial, "speedMps");
   const hasComponents = "vxMps" in initial || "vyMps" in initial;
-  if ((hasSpeed && hasComponents) || (firstKind === "projectile" ? hasSpeed : hasComponents)) {
+  if ((hasSpeed && hasComponents) || (firstKind != null && (firstKind === "projectile" ? hasSpeed : hasComponents))) {
     issue("/initial", "PRECONDITION_CONFLICT", "初态标量与分量互斥，请按第一段选择速度形式。");
   }
   const normalizedInitial: Record<string, number | null> = {};
   draft = {
     kind: "stage_plan", schemaVersion: 1,
     initial: normalizedInitial as StagePlanDraft["initial"],
-    stages: stages.map((stage) => ({ ...stage, ...(record(stage.end) ? { end: { ...stage.end } } : {}) })),
+    stages: stages.map((stage) => ({ ...stage, kind: stage.kind ?? null, ...(record(stage.end) ? { end: { ...stage.end } } : {}) })),
   };
   function numberField(source: Record<string, unknown>, target: Record<string, unknown>, key: string, path: string, rule: (value: number) => boolean, required = true) {
     const value = source[key];
@@ -149,14 +133,20 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
     else if (stage[key] === false) issue(path, "UNSUPPORTED", "题面明确不满足该阶段的适用前提。");
     else if (stage[key] !== true) issue(path, "TYPE", "前提事实须为布尔值或 null。");
   }
-  const initialKeys = firstKind === "projectile" ? ["vxMps", "vyMps"] : ["speedMps"];
+  const componentInitial = firstKind === "projectile" || (firstKind == null && hasComponents && !hasSpeed);
+  const initialKeys = componentInitial ? ["vxMps", "vyMps"] : ["speedMps"];
   for (const key of initialKeys) numberField(initial, normalizedInitial, key, "/initial/" + key, key === "speedMps" ? nonnegative : finite);
+  // 初态形状冲突时也保留另一种形状的已知值，便于用户选择正确形式。
+  for (const key of ["speedMps", "vxMps", "vyMps"]) {
+    if (!initialKeys.includes(key) && key in initial) numberField(initial, normalizedInitial, key, "/initial/" + key, key === "speedMps" ? nonnegative : finite, false);
+  }
   const needsGravity = stages.some((stage) => stage.kind === "incline_slide" || stage.kind === "projectile"
     || (stage.kind === "horizontal_slide" && typeof stage.kineticFrictionCoefficient === "number" && stage.kineticFrictionCoefficient > 0));
   const needsMass = stages.some((stage) => stage.kind === "spring_contact");
   numberField(input, draft, "gravityMps2", "/gravityMps2", positive, needsGravity);
   numberField(input, draft, "massKg", "/massKg", positive, needsMass);
   for (const [i, source] of stages.entries()) {
+    if (source.kind == null) continue;
     const stage = draft.stages[i];
     const path = "/stages/" + i;
     for (const [key, rule] of Object.entries(numericRules[source.kind])) numberField(source, stage, key, path + "/" + key, rule);
@@ -182,6 +172,7 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
     }
     const previous = stages[i - 1]?.kind;
     const permitted = i === 0 ? source.kind !== "lossless_turn"
+      : previous == null ? true
       : previous === "incline_slide" ? source.kind === "lossless_turn"
       : previous === "lossless_turn" ? source.kind === "horizontal_slide" || source.kind === "spring_contact"
       : previous === "horizontal_slide" ? source.kind === "spring_contact" || source.kind === "projectile"
