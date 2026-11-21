@@ -31,21 +31,41 @@ B 从 `src/physics/index.ts` 导出纯函数 `validateStagePlan(input: unknown)`
 ```ts
 type FieldError = { path: string; code: string; message: string };
 
+type StagePlanDraft = {
+  kind: "stage_plan";
+  schemaVersion: 1;
+  gravityMps2?: number | null;
+  massKg?: number | null;
+  initial: { speedMps: number | null } | { vxMps: number | null; vyMps: number | null };
+  stages: Array<Record<string, unknown>>;
+};
+
 type StagePlanValidation =
   | { ok: true; reading: ResolvedStagePlan }
   | {
       ok: false;
       code: "NEEDS_INPUT" | "INVALID_READING" | "INCONSISTENT_CONDITIONS" | "UNSUPPORTED";
       message: string;
+      reading: StagePlanDraft | null;
       missingKeys: string[];
       fieldErrors: FieldError[];
     };
 ```
 
+Node 服务与 Qoder 云函数识别新题时使用同一张映射表。
+
+| 校验结果 | HTTP | 回包 `status` | 回包内容 |
+|---|---|---|---|
+| `ok: true` | 200 | `ok` | 返回已校验的 `reading`。 |
+| `NEEDS_INPUT` | 200 | `needs_input` | 返回部分 `reading`、`missingKeys`、`fieldErrors` 和 `message`。 |
+| `INCONSISTENT_CONDITIONS` | 200 | `needs_input` | 返回部分 `reading`、`missingKeys`、`fieldErrors` 和 `message`，提示修正已定位的条件。 |
+| `UNSUPPORTED` | 200 | `unsupported` | 返回 `message`，说明不支持的模块或接续前提。 |
+| `INVALID_READING` | 502 | — | 模型回包结构损坏时重试识别一次。重试仍无效，返回包含 `message` 的服务错误。 |
+
 - 新阶段计划统一使用以 `reading` 为根的零基 JSON Pointer。`/stages/2/end/distanceM` 表示第 3 段的距离，`/stages/2/end` 表示整块结束条件缺失，界面高亮整块。播放器同时兼容旧模板的裸字段名。
 - `missingKeys` 只收录待补条件。超出范围、非有限值或可修正的物理前提冲突分别用 `fieldErrors` 返回，代码例如 `RANGE`、`NOT_FINITE`、`PRECONDITION_CONFLICT`。同一路径有字段错误时通过 `fieldErrors` 定位。非有限数传输时转为 `null` 并带错误原因。
-- 新题的 `needs_input` 回包包含 `reading`、`missingKeys`、`fieldErrors` 和 `message`。部分 `reading` 保留已识别的阶段 `kind`、结束条件 `end.kind` 和已知值，未知必填值用 `null`。题意模糊到无法确认计划结构时可用 `reading: null` 并提示重拍或补充。两种问题列表都可为空。
-- `ok` 的 `reading` 经过结构和可校验前提的检查。明确缺少支持模块或接续规则的题意映射为 `unsupported`。实际先发生哪个运动事件由物理库计算。
+- 对两种 `needs_input` 回包，后端直接透传校验函数返回的 `reading`。部分计划保留已识别的阶段 `kind`、结束条件 `end.kind` 和已知值，未知必填值用 `null`。题意模糊到无法确认计划结构时用 `reading: null`，提示重拍或补充。两种问题列表都可为空。
+- 可识别并能定位的非法题设归入 `INCONSISTENT_CONDITIONS`。`INVALID_READING` 用于模型回复的结构无法解析或归一化为阶段计划。实际先发生哪个运动事件由物理库计算。
 
 所有已知数值须有限。斜长、指定距离和劲度系数大于零，斜面倾角在 0° 与 90° 之间，动摩擦因数和落差可为零。标量初速应为非负值，弹簧压缩需正向入射。抛体初速度的两个分量可以带符号。同一个 `initial` 同时提交标量和分量时，错误定位到 `/initial`。
 
