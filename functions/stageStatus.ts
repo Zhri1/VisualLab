@@ -106,16 +106,31 @@ export function httpStatusOf(result: StagePlanResult): number {
 export type StagePlanValidator = (input: unknown) => StagePlanValidation;
 
 /**
- * 阶段计划的统一入口：剥保留字段 → 调校验 → 映射状态。
+ * 阶段计划的统一入口：识别超范围 → 剥保留字段 → 调校验 → 映射状态。
  *
  * Node 的 `src/api/validate.ts` 与 Qoder 云函数都应调用本函数，
  * 只在参数里传入各自的 `validateStagePlan` 实现，避免两端各写一套映射。
+ *
+ * 注意：`unsupportedReason` 是模型表达「整题不属于支持范围」的唯一方式
+ * （见 skills/vision-reading.v2.md 第 6 节：`stages: []` + 非空 reason）。
+ * 它不属于 reading，但必须在剥离**之前**消费，否则空 stages 会被校验器
+ * 判成「缺 /stages」，把超范围题错误地降级成 needs_input。
  */
 export function buildStagePlanResult(
   input: Record<string, unknown>,
   validate: StagePlanValidator,
   assumptions: string[],
 ): StagePlanResult {
+  const unsupportedReason =
+    typeof input.unsupportedReason === 'string' ? input.unsupportedReason.trim() : '';
+  if (unsupportedReason) {
+    return {
+      status: 'unsupported',
+      message: unsupportedReason,
+      assumptions,
+    };
+  }
+
   const plain = stripReservedFields(input);
   const validation = validate(plain);
   return toStagePlanResult(validation, { assumptions });

@@ -168,3 +168,61 @@ describe('buildStagePlanResult（两端共用入口）', () => {
     expect(result.assumptions).toEqual(['题面未给 g']);
   });
 });
+
+describe('buildStagePlanResult · 整题超范围', () => {
+  /**
+   * 回归：2026-11-21 公网复验发现电磁场题返回 needs_input 而非 unsupported。
+   * 原因是 unsupportedReason 被 stripReservedFields 剥掉后直接丢弃，
+   * 空 stages 于是被校验器判成「缺 /stages」。
+   */
+  const ELECTROMAGNETISM = {
+    kind: 'stage_plan',
+    schemaVersion: 1,
+    gravityMps2: null,
+    initial: { speedMps: null },
+    stages: [],
+    unsupportedReason: '带电粒子在匀强磁场中做圆周运动，不属于斜面弹簧模型',
+  };
+
+  it('unsupportedReason 非空时直接判 unsupported，不进入结构校验', () => {
+    let called = false;
+    const result = buildStagePlanResult(ELECTROMAGNETISM, () => {
+      called = true;
+      return { ok: false, code: 'NEEDS_INPUT', message: '不该走到这里', reading: null, missingKeys: [], fieldErrors: [] };
+    }, []);
+
+    expect(result.status).toBe('unsupported');
+    expect(called).toBe(false);
+  });
+
+  it('超范围原因原样作为 message 返回', () => {
+    const result = buildStagePlanResult(ELECTROMAGNETISM, () => {
+      throw new Error('不该调用校验器');
+    }, ['g=10']);
+
+    expect(result.status).toBe('unsupported');
+    if (result.status !== 'unsupported') return;
+    expect(result.message).toContain('匀强磁场');
+    expect(result.assumptions).toEqual(['g=10']);
+  });
+
+  it('unsupportedReason 为空字符串时仍走正常校验', () => {
+    const result = buildStagePlanResult(
+      { ...ELECTROMAGNETISM, unsupportedReason: '   ' },
+      () => ({ ok: false, code: 'NEEDS_INPUT', message: '缺阶段', reading: null, missingKeys: ['/stages'], fieldErrors: [] }),
+      [],
+    );
+
+    expect(result.status).toBe('needs_input');
+  });
+
+  it('unsupportedReason 不参与 reading 校验（正常题不受影响）', () => {
+    const result = buildStagePlanResult(
+      { ...DRAFT, unsupportedReason: '' },
+      () => ({ ok: true, reading: DRAFT }),
+      [],
+    );
+
+    expect(result.status).toBe('ok');
+  });
+});
