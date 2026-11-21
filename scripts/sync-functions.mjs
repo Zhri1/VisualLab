@@ -21,6 +21,7 @@ const FILES = [
   { from: "src/physics/stagePlan.ts", to: "functions/stagePlan.ts" },
   { from: "src/api/stageTypes.ts", to: "functions/stageTypes.ts" },
   { from: "src/api/stageStatus.ts", to: "functions/stageStatus.ts" },
+  { from: "src/api/legacyBridge.ts", to: "functions/legacyBridge.ts" },
 ];
 
 /** Deno 要求相对导入带显式扩展名；src 里走 TS 解析，可以省略。 */

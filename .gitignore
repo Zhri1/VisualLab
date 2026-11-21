@@ -9,3 +9,6 @@ artifacts/
 
 # 浏览器调试临时目录
 .cdp*/
+
+# vitest 沙箱临时目录
+.tmp/
