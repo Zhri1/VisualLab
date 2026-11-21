@@ -12,8 +12,18 @@
 > |---|---|---|---|---|
 > | `incline-spring-gap-1m.png` | 200 | 6.1 s | `ok` | `stage_plan` 四段，`horizontal.end.distanceM = 1` |
 > | `incline-spring-gap-2m.png` | 200 | 5.6 s | `ok` | 同上，`distanceM = 2`（非套模板） |
+> | 纯文字·缺水平段距离 | 200 | 4.3 s | `needs_input` | `missingKeys: ["/stages/2/end/distanceM"]` |
+> | 电磁场题 | 200 | 3.2 s | `unsupported` | 「带电粒子在磁场中做圆周运动，属电磁学，超出支持范围」 |
 >
 > 不带 `Origin` 会返回 403 `sites_gateway_origin_forbidden`，这是平台的同源保护；浏览器从站点自身发起请求会自带正确 `Origin`，不受影响。
+>
+> **关于 403 `BOT_DETECTED`**：网关是 Kong 2.8.1，其 bot 检测按 User-Agent 判定。实测 `HeadlessChrome` / `Puppeteer` / `Playwright` / `Selenium` 与空 UA 一律 403，普通浏览器 UA（Chrome/Edge）与 curl 均 200。因此**用无头浏览器或自动化工具复验会被拦，真实浏览器不受影响**；`npm run verify:live` 已显式带普通浏览器 UA。
+>
+> **2026-11-21 23:20 修复记录**（actionId `b556203f`，`published: true`）：
+>
+> 1. 超范围题误判 `needs_input` —— `buildStagePlanResult` 把 `unsupportedReason` 当保留字段剥掉就丢弃，空 `stages` 于是被校验器判成「缺 `/stages`」。现在剥离前先消费该字段，非空直接判 `unsupported`。
+> 2. 内置示例仍请求云函数 —— `requestPlan` 的 `isSample` 只在 `USE_MOCK_API` 分支生效，生产构建下示例照样 `fetch`。现在提到最前面，直接返回本地样例。
+> 3. 403 提示文案改为「平台网关拦截了本次请求，请用普通浏览器窗口打开页面重试」。
 >
 > **密钥的落地方式**：Qoder 把 CLI 上下文的 `secretValueInput` 固定为 `false`，`sites operations` 里也没有 set secret 操作，密钥值无法经命令行写入。因此改用**构建期注入**——`scripts/inline-key.mjs` 在 `prepare_site` 打包前把 `.env` 里的 Key 写进 `functions/inline-key.ts`，打包完成后立即还原。该文件在仓库中**恒为空字符串**（本仓库是 public），函数运行时按 `Deno.env` → 构建期注入值的顺序取 Key。若以后在站点设置里填了 `DASHSCOPE_API_KEY`，平台 Secret 会覆盖注入值，该文件可长期留空。重新发布时用 `npm run sync:functions && node scripts/inline-key.mjs inject && <prepare_site> && node scripts/inline-key.mjs restore && <publish_site>`，顺序不能乱。
 
