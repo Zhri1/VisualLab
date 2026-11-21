@@ -68,6 +68,7 @@ test("拒绝识别结构、类型或数值范围错误", () => {
     const result = assembleScene(input);
     assert.ok(!result.ok);
     assert.equal(result.code, "INVALID_READING");
+    assert.ok("fields" in result);
     assert.deepEqual(result.fields, fields);
   }
 });
