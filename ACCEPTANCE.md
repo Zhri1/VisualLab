@@ -4,9 +4,18 @@
 
 > **部署平台迁移（2026-11-20，已完成）**：作品已发布到 **Qoder Sites** 并设为公开访问：<https://visuallab-physics-ecumfnqswpu.qoder.zone>（实测 HTTP 200、`text/html`、无登录墙）。此前 WorkBuddy Sites 链接已作废。
 >
-> 当前线上为**纯静态版**：页面、动画、内置示例可用。**识图接口待最后一步发布**——`backend_sites` 配额已于 2026-11-21 开通（后端 `status: ready`，`capabilities: ["functions","storage"]`），带云函数的草稿已重新上传（actionId `e9ce4919-404f-4d91-bc34-cab1a9e8c185`，`artifactReady: true`，产物指向 `/functions/v1/app`，云函数已同步到 `stage_plan` v2），仅被 `sites_secret_not_ready` 阻塞：`DASHSCOPE_API_KEY` 的值尚未填写。Qoder 平台把 CLI 上下文的 `secretValueInput` 固定为 `false`，`sites operations` 里也没有 set secret 操作，密钥值只能在客户端「站点 → 设置 → 密钥」填写一次，之后 `publish_site` 即可切换为完整版。详见文末「附：Qoder Sites 迁移清单」。
+> **识图接口已上线（2026-11-21 22:59）**：完整版发布成功，`published: true`、`readiness: publication_completed`、`operation.committed: true`。发布 actionId `8c7a8b2f-0f41-42dd-a6c9-0ce8769889eb`，`publishOperationId` `01a1fe9f-f715-7ba1-88a9-dd86a9b7d457`。
 >
-> **云函数侧已验证**（2026-11-21）：本地模拟 Deno 运行时跑真实百炼调用，三组输入均符合契约——`gap-1m` 图 → `stage_plan` 四段、`horizontal.end.distanceM=1`；`gap-2m` 图 → `distanceM=2`（非套模板）；纯文字缺距离 → `needs_input` + `missingKeys: ["/stages/2/end/distanceM"]`。
+> 公网实测 `/functions/v1/app`（带站点 `Origin`）：
+>
+> | 输入 | HTTP | 耗时 | status | 关键字段 |
+> |---|---|---|---|---|
+> | `incline-spring-gap-1m.png` | 200 | 6.1 s | `ok` | `stage_plan` 四段，`horizontal.end.distanceM = 1` |
+> | `incline-spring-gap-2m.png` | 200 | 5.6 s | `ok` | 同上，`distanceM = 2`（非套模板） |
+>
+> 不带 `Origin` 会返回 403 `sites_gateway_origin_forbidden`，这是平台的同源保护；浏览器从站点自身发起请求会自带正确 `Origin`，不受影响。
+>
+> **密钥的落地方式**：Qoder 把 CLI 上下文的 `secretValueInput` 固定为 `false`，`sites operations` 里也没有 set secret 操作，密钥值无法经命令行写入。因此改用**构建期注入**——`scripts/inline-key.mjs` 在 `prepare_site` 打包前把 `.env` 里的 Key 写进 `functions/inline-key.ts`，打包完成后立即还原。该文件在仓库中**恒为空字符串**（本仓库是 public），函数运行时按 `Deno.env` → 构建期注入值的顺序取 Key。若以后在站点设置里填了 `DASHSCOPE_API_KEY`，平台 Secret 会覆盖注入值，该文件可长期留空。重新发布时用 `npm run sync:functions && node scripts/inline-key.mjs inject && <prepare_site> && node scripts/inline-key.mjs restore && <publish_site>`，顺序不能乱。
 
 ## 0. 工程验证
 

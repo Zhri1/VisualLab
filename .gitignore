@@ -6,3 +6,6 @@ artifacts/
 .env.*
 !.env.example
 !.env.production
+
+# 浏览器调试临时目录
+.cdp*/

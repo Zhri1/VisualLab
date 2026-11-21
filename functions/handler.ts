@@ -12,6 +12,7 @@
  */
 
 import { SKILL_TEXT } from "./skill.ts";
+import { INLINE_API_KEY } from "./inline-key.ts";
 import { validateStagePlan } from "./stagePlan.ts";
 import { buildStagePlanResult } from "./stageStatus.ts";
 import { STAGE_HTTP_STATUS, isStagePlan } from "./stageTypes.ts";
@@ -366,11 +367,18 @@ const DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const DEFAULT_MODEL = "qwen4-max";
 
 function env(name: string): string {
+  let fromRuntime = "";
   try {
-    return (Deno.env.get(name) ?? "").trim();
+    fromRuntime = (Deno.env.get(name) ?? "").trim();
   } catch {
-    return "";
+    fromRuntime = "";
   }
+  if (fromRuntime) return fromRuntime;
+
+  // 平台 Secret 未配置时的兜底：构建期注入，仓库中恒为空。
+  // 一旦在站点设置里填了 DASHSCOPE_API_KEY，上面的运行时值会优先，这里自动失效。
+  if (name === "DASHSCOPE_API_KEY") return INLINE_API_KEY.trim();
+  return "";
 }
 
 function timeoutMs(): number {
