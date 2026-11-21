@@ -12,6 +12,10 @@
  */
 
 import { SKILL_TEXT } from "./skill.ts";
+import { validateStagePlan } from "./stagePlan.ts";
+import { buildStagePlanResult } from "./stageStatus.ts";
+import { STAGE_HTTP_STATUS, isStagePlan } from "./stageTypes.ts";
+import type { StagePlanResult } from "./stageTypes.ts";
 
 declare const Deno: {
   env: { get(key: string): string | undefined };
@@ -184,6 +188,12 @@ type PlanResult =
   | { status: "needs_input"; reading: Reading | null; missingKeys: string[]; message: string; assumptions: string[] }
   | { status: "unsupported"; message: string };
 
+/**
+ * 对外回包：旧模板（templateId）或阶段计划（kind: "stage_plan"）。
+ * 与 Node 侧 `PlanResponse` 同一形状，前端按 `reading.kind` 分派。
+ */
+type PlanResponse = PlanResult | StagePlanResult;
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
@@ -317,6 +327,26 @@ function buildPlan(raw: unknown): PlanResult {
 
   const missingKeys = fields.filter((key) => key !== "templateId");
   return { status: "needs_input", reading, missingKeys, message: describeMissing(verdict.code, missingKeys), assumptions };
+}
+
+/**
+ * 识别接口的唯一入口（同 src/api/validate.ts 的 buildPlanResponse）。
+ *
+ * - `kind === "stage_plan"` → 剥保留字段 → validateStagePlan → 契约第 2 节状态映射
+ * - 其余 → 旧 templateId 路径，行为不变
+ *
+ * 这里与 Node 服务调用的是**同一份** stageStatus / stagePlan 代码
+ * （由 scripts/sync-functions.mjs 复制，非手写第二份），保证两端回包一致。
+ */
+function buildPlanResponse(raw: unknown): PlanResponse {
+  const data = asRecord(raw);
+
+  if (isStagePlan(data)) {
+    const assumptions = toStringList(data.assumptions);
+    return buildStagePlanResult(data, validateStagePlan, assumptions);
+  }
+
+  return buildPlan(data);
 }
 
 /* ============================ 百炼视觉模型（同 src/api/dashscope.ts） ============================ */
@@ -559,14 +589,17 @@ export async function handler(request: Request): Promise<Response> {
     });
   }
 
-  const result = buildPlan(vision.raw);
+  const result = buildPlanResponse(vision.raw);
   const elapsed = Date.now() - startedAt;
+
+  // 契约第 2 节：ok / needs_input / unsupported 都是 200，只有 invalid_reading 是 502
+  const status = result.status === "invalid_reading" ? STAGE_HTTP_STATUS.invalid_reading : 200;
 
   console.log(
     `[plan] ${requestId} ${result.status} ${elapsed}ms model=${vision.model} image=${imageBase64 ? "yes" : "no"} text=${text.length}`,
   );
 
-  return json(result, 200, {
+  return json(result, status, {
     "x-request-id": requestId,
     "x-elapsed-ms": String(elapsed),
     "x-vision-model": vision.model,

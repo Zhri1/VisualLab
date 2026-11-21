@@ -13,7 +13,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { callVisionModel, VisionError } from './dashscope';
-import { buildPlan } from './validate';
+import { STAGE_HTTP_STATUS } from './stageTypes';
+import { buildPlanResponse } from './validate';
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_EDGE_HINT = '单张图片请控制在 8 MB 以内';
@@ -36,14 +37,17 @@ function toBase64(bytes: Uint8Array): string {
 
 let cachedSkill: string | null = null;
 
-/** Skill 说明与代码分开放，改文案不用重新构建 */
+/**
+ * 默认发 v2（阶段组合版）。v1 只用于回放历史数据，不再作为默认。
+ * 云函数不走文件读取，而是内联常量（见 functions/skill.ts）。
+ */
 export function loadSkillText(): string {
   if (cachedSkill) return cachedSkill;
 
   const candidates = [
     process.env.SKILL_PATH,
-    join(process.cwd(), 'skills', 'vision-reading.v1.md'),
-    join(process.cwd(), '..', 'skills', 'vision-reading.v1.md'),
+    join(process.cwd(), 'skills', 'vision-reading.v2.md'),
+    join(process.cwd(), '..', 'skills', 'vision-reading.v2.md'),
   ].filter((item): item is string => Boolean(item));
 
   for (const path of candidates) {
@@ -55,7 +59,7 @@ export function loadSkillText(): string {
     }
   }
 
-  throw new Error('未找到 skills/vision-reading.v1.md，可用 SKILL_PATH 指定绝对路径');
+  throw new Error('未找到 skills/vision-reading.v2.md，可用 SKILL_PATH 指定绝对路径');
 }
 
 function corsHeaders(request: Request): Record<string, string> {
@@ -165,14 +169,17 @@ export async function handlePlan(request: Request): Promise<Response> {
     });
   }
 
-  const result = buildPlan(vision.raw);
+  const result = buildPlanResponse(vision.raw);
   const elapsed = Date.now() - startedAt;
+
+  // 契约第 2 节：ok / needs_input / unsupported 都是 200，只有 invalid_reading 是 502
+  const status = result.status === 'invalid_reading' ? STAGE_HTTP_STATUS.invalid_reading : 200;
 
   console.log(
     `[plan] ${requestId} ${result.status} ${elapsed}ms model=${vision.model} image=${imageBase64 ? 'yes' : 'no'} text=${text.length}`,
   );
 
-  return json(result, 200, {
+  return json(result, status, {
     ...base,
     'x-request-id': requestId,
     'x-elapsed-ms': String(elapsed),
