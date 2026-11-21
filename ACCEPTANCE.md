@@ -4,21 +4,23 @@
 
 > **部署平台迁移（2026-11-20，已完成）**：作品已发布到 **Qoder Sites** 并设为公开访问：<https://visuallab-physics-ecumfnqswpu.qoder.zone>（实测 HTTP 200、`text/html`、无登录墙）。此前 WorkBuddy Sites 链接已作废。
 >
-> 当前线上为**纯静态版**：页面、动画、内置示例可用。**识图接口待最后一步发布**——`backend_sites` 配额已于 2026-11-21 开通（后端 `status: ready`，`capabilities: ["functions","storage"]`），带云函数的草稿已上传（`artifactReady: true`，产物指向 `/functions/v1/app`），仅被 `sites_secret_not_ready` 阻塞：`DASHSCOPE_API_KEY` 的值尚未填写。Qoder 平台把 CLI 上下文的 `secretValueInput` 固定为 `false`，密钥值只能在客户端「站点 → 设置 → 密钥」填写一次，之后 `publish_site` 即可切换为完整版。详见文末「附：Qoder Sites 迁移清单」。
+> 当前线上为**纯静态版**：页面、动画、内置示例可用。**识图接口待最后一步发布**——`backend_sites` 配额已于 2026-11-21 开通（后端 `status: ready`，`capabilities: ["functions","storage"]`），带云函数的草稿已重新上传（actionId `e9ce4919-404f-4d91-bc34-cab1a9e8c185`，`artifactReady: true`，产物指向 `/functions/v1/app`，云函数已同步到 `stage_plan` v2），仅被 `sites_secret_not_ready` 阻塞：`DASHSCOPE_API_KEY` 的值尚未填写。Qoder 平台把 CLI 上下文的 `secretValueInput` 固定为 `false`，`sites operations` 里也没有 set secret 操作，密钥值只能在客户端「站点 → 设置 → 密钥」填写一次，之后 `publish_site` 即可切换为完整版。详见文末「附：Qoder Sites 迁移清单」。
+>
+> **云函数侧已验证**（2026-11-21）：本地模拟 Deno 运行时跑真实百炼调用，三组输入均符合契约——`gap-1m` 图 → `stage_plan` 四段、`horizontal.end.distanceM=1`；`gap-2m` 图 → `distanceM=2`（非套模板）；纯文字缺距离 → `needs_input` + `missingKeys: ["/stages/2/end/distanceM"]`。
 
 ## 0. 工程验证
 
 | 检查项 | 命令 | 期望 | 状态 |
 |---|---|---|---|
 | 类型检查 | `npm run typecheck` | 0 错误 | ✅ 通过 |
-| 前端与契约单测 | `npm test` | vitest **46** 条通过（3 个文件） | ✅ 通过 |
+| 前端与契约单测 | `npm test` | vitest **100** 条通过（8 个文件） | ✅ 通过 |
 | 物理库测试 | `npm run test:physics` | `node --test` **14** 条通过 | ✅ 通过 |
 | 契约自检 | `node node_modules/vite-node/vite-node.mjs scripts/check-contract.ts` | **9** 个用例通过（离线，不联网） | ✅ 通过 |
 | 构建 | `npm run build` | 通过 | ✅ 通过 |
 | 数值自检（`verify.html`） | 浏览器打开 | 13/13，与方案第 3 节逐位一致 | ✅ |
 | 浏览器走查 | `npm run test:ui` | **22** 条断言全绿 | ✅ 手动，见下 |
 
-单测拆分：`src/api/__tests__/validate.test.ts` 12 条、`src/services/__tests__/imageRecognition.test.ts` 15 条、`src/adapters/__tests__/acceptance.test.ts` 19 条，合计 46 条。
+单测拆分：`src/api/__tests__/validate.test.ts` 12 条、`src/api/__tests__/command.test.ts` 11 条、`src/api/__tests__/stageStatus.test.ts` 10 条、`src/api/__tests__/stageFixtures.test.ts` 9 条、`src/api/__tests__/dispatch.test.ts` 8 条（阶段组合端到端分派）、`src/physics/__tests__/stagePlan.test.ts`（B 的 `validateStagePlan`）、`src/services/__tests__/imageRecognition.test.ts` 15 条、`src/adapters/__tests__/acceptance.test.ts` 19 条。
 
 上述命令都可以用 node 直连本地依赖执行，避免 PowerShell 执行策略拦 `npm.ps1`，也避免 `npx` 联网：`node node_modules/typescript/bin/tsc --noEmit`、`node node_modules/vitest/vitest.mjs run`、`node --test src/physics/motion.test.ts src/physics/scene.test.ts`、`node node_modules/vite-node/vite-node.mjs scripts/check-contract.ts`、`node node_modules/vite/bin/vite.js build`。
 
