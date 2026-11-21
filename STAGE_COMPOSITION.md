@@ -1,38 +1,161 @@
 # 运动阶段组合契约（供 A、B、C 联审）
 
-本契约对应 [参赛规划](PROJECT_PLAN_FINAL.md) 的动态组合要求。B 起草并维护物理接口。A 核对条件表、几何绘制和播放器，C 核对识图、文字指令及两种后端的回包。先用第 4 节的开发样例联调，正式五题另选。
+本契约对应 [参赛规划](PROJECT_PLAN_FINAL.md) 的动态组合要求。B 维护校验、装配与运动接口，A 核对绘图、时间轴和编辑，C 核对识别、指令与两套后端的回包。三方先用第 5 节的开发样例联调，正式五道真题另选。
 
-## 1. 输入及兼容
+## 1. 图文输入、指令与计划格式
 
-上传接口沿用 `POST /api/animation/plan`，接收 `image` 或 `text`。成功与部分识别的结果继续由 `reading` 承载。旧数据用 `templateId` 识别，新数据用 `kind: "stage_plan"` 和 `schemaVersion: 1` 识别。旧斜面弹簧输入、返回结构和数值基准继续用于回归。
+`POST /api/animation/plan` 接收 `multipart/form-data`。Qoder 云函数采用相同字段与回包。两种请求模式互斥。
 
-新 `reading` 包含一个运动物体的初态、题目参数和有序的 `stages`。每段按 `kind` 选择库模块。初态直线运动用 `speedMps`，直接进入抛体时用 `vxMps` 和 `vyMps`。只有第一段使用显式初速度，后续段从前一段继承。公共 `gravityMps2` 供重力和摩擦计算，`massKg` 在求弹簧段时必需。未给定的必需参数用 `null`，可选且未被阶段使用的参数可省略。数值均为米制，角度用度。
+| 模式 | 请求字段 | 成功回包 |
+|---|---|---|
+| 识别新题 | `image` 或 `text` 至少一个。`text` 用于题面或题设补充。 | `{ status: "ok", reading }` |
+| 修改当前运动 | `command` 为修改指令，`currentPlan` 为当前有效阶段计划的 JSON 字符串。 | `{ status: "ok", intent }` |
 
-`ok` 返回可计算计划。`needs_input` 返回能确认的部分，用 `missingKeys` 定位到字段。例如 `/stages/2/end/distanceM` 指向下标为 2 的阶段。旧数据维持原字段名定位。`unsupported` 说明缺少支持的模块或题设的连接方式。上传格式和上游异常沿用现有 HTTP 状态。
+例如「只看斜面」通过 `command` 提交，识别接口的 `text` 继续承载题设。混用两种模式或指令缺少当前计划时返回 400。指令无法确认时返回 `needs_input` 及澄清提示，明确超出范围时返回 `unsupported`。图片格式或上游异常沿用已有 HTTP 状态。
 
-## 2. 阶段及其接续
+旧题用 `templateId` 标记，沿用 [首版契约](CONTRACTS.md) 的输入与回包。新题的 `reading` 使用 `kind: "stage_plan"`、`schemaVersion: 1`，并按题意给出可用模块的有序 `stages`。数值使用米制，角度用度。
+
+| 计划字段 | 约定 |
+|---|---|
+| `massKg` | 位于计划顶层。含 `spring_contact` 的计划需给出有限正质量。其他阶段可省略。 |
+| `gravityMps2` | 位于计划顶层。斜面、含动摩擦的水平滑动及抛体需要有限正值，未给出时以 `/gravityMps2` 提示补齐。仅有光滑水平运动或弹簧接触时可省略。 |
+| `initial` | 初段为斜面、水平或弹簧时用 `{ speedMps }`，方向由阶段确定。初段为抛体时用 `{ vxMps, vyMps }`。两种形状互斥，后续段从前一段继承速度。 |
+| `stages` | 非空的有序阶段列表。阶段特有的事实放在相应阶段内，组合计划无需全局 `facts`。 |
+
+已知结构中的未知必填值取 `null`，可选且未被阶段使用的字段可省略。重力加速度使用题面或用户提供的值。静止释放等前提由题面确认。
+
+## 2. 校验与错误定位
+
+B 从 `src/physics/index.ts` 导出纯函数 `validateStagePlan(input: unknown)`，供 C 校验模型回包，也供 `assembleScene` 复用。同一份验收样例在 Node 服务和 Qoder 云函数中应得到一致的结果。
+
+```ts
+type FieldError = { path: string; code: string; message: string };
+
+type StagePlanValidation =
+  | { ok: true; reading: ResolvedStagePlan }
+  | {
+      ok: false;
+      code: "NEEDS_INPUT" | "INVALID_READING" | "INCONSISTENT_CONDITIONS" | "UNSUPPORTED";
+      message: string;
+      missingKeys: string[];
+      fieldErrors: FieldError[];
+    };
+```
+
+- 新阶段计划统一使用以 `reading` 为根的零基 JSON Pointer。`/stages/2/end/distanceM` 表示第 3 段的距离，`/stages/2/end` 表示整块结束条件缺失，界面高亮整块。播放器同时兼容旧模板的裸字段名。
+- `missingKeys` 只收录待补条件。超出范围、非有限值或可修正的物理前提冲突分别用 `fieldErrors` 返回，代码例如 `RANGE`、`NOT_FINITE`、`PRECONDITION_CONFLICT`。同一路径有字段错误时通过 `fieldErrors` 定位。非有限数传输时转为 `null` 并带错误原因。
+- 新题的 `needs_input` 回包包含 `reading`、`missingKeys`、`fieldErrors` 和 `message`。部分 `reading` 保留已识别的阶段 `kind`、结束条件 `end.kind` 和已知值，未知必填值用 `null`。题意模糊到无法确认计划结构时可用 `reading: null` 并提示重拍或补充。两种问题列表都可为空。
+- `ok` 的 `reading` 经过结构和可校验前提的检查。明确缺少支持模块或接续规则的题意映射为 `unsupported`。实际先发生哪个运动事件由物理库计算。
+
+所有已知数值须有限。斜长、指定距离和劲度系数大于零，斜面倾角在 0° 与 90° 之间，动摩擦因数和落差可为零。标量初速应为非负值，弹簧压缩需正向入射。抛体初速度的两个分量可以带符号。同一个 `initial` 同时提交标量和分量时，错误定位到 `/initial`。
+
+## 3. 阶段及其接续
 
 | 阶段 `kind` | 题设字段 | 求解结果 |
 |---|---|---|
-| `incline_slide` | `lengthM`、`angleDeg`、`kineticFrictionCoefficient`。静止释放使用 `slidesAfterRelease: true` 确认题设支持下滑。 | 入射方向沿斜面向下，计算到坡底或提前停住的时刻和末态。 |
-| `lossless_turn` | `lossless: true`，题面给出或明确支持光滑、可忽略高度差的过渡。 | 坡底位置与速率连续，速度转向水平，记为零时长事件。 |
-| `horizontal_slide` | `kineticFrictionCoefficient`，以及 `end: { kind: "distance", distanceM }` 或 `end: { kind: "stop" }`。 | 距离目标和停止条件都存在时，取先发生的事件。光滑水平面上的正初速运动需有明确距离目标。 |
-| `spring_contact` | `springConstantNpm`、`frictionless: true`、`unattached: true`。 | 由接触点和入射速度计算压缩、反弹和脱离。接触段终止于恢复原长。 |
-| `projectile` | `dropHeightM`，表示发射点到落地平面的竖直落差。 | 自发射状态起算，输出落地和实际发生的最高点。落地样本保留首次接地速度。 |
+| `incline_slide` | `lengthM`、`angleDeg`、`kineticFrictionCoefficient`。静止释放需要 `slidesAfterRelease: true`。 | 沿斜面向下，计算到坡底或先停止的状态。 |
+| `lossless_turn` | `lossless: true` 为常量，表示题设支持光滑且近似无高度差的转向。未知填 `null` 并提示核对，明确为 `false` 时返回超范围。 | 坡底位置和速率连续，速度转为水平。输出瞬时事件。 |
+| `horizontal_slide` | `kineticFrictionCoefficient`，以及 `end: { kind: "distance", distanceM }` 或 `end: { kind: "stop" }`。 | `distance` 指从本水平段起点量起的计划距离。摩擦造成的停止即使未显式写入 `end`，也可能先于该目标发生。 |
+| `spring_contact` | `springConstantNpm`、`frictionless: true`、`unattached: true`，质量读计划顶层。 | 水平正速入射，计算接触、最大压缩和恢复原长后脱离。 |
+| `projectile` | `dropHeightM` 是发射点到落地平面的非负竖直落差，落地平面为 `launch.yM - dropHeightM`。 | 自发射状态起算，记录实际发生的最高点与落地。 |
 
-V1 连接规则包括斜面到坡底后接无损转向，转向后接水平滑动或弹簧接触，以及水平到指定距离后接弹簧或抛体。单个滑动、弹簧或抛体阶段可以独立生成。模块根据题设检查接续前提，弹簧须水平正速入射，处于桌沿且速度仍向外才接平抛。**当停止先发生，或在桌沿恰好停住时，动画结束于停止事件。** 落地和弹簧脱离为本版的结束事件。
+`horizontal_slide.end` 是二选一。指定距离时，库比较到达目标与因摩擦停止两个事件。停止更早时返回 `stop_before_target`，恰好同时发生时停止优先，返回 `stop_at_target`。只指定 `stop` 时，以停止为目标。光滑面上有正初速且要求因摩擦停止，返回可定位的前提冲突。
 
-新场景统一用起始位置作为坐标原点，x 向右、y 向上。支撑面、接触点与落地平面由题设和前段结果定位。阶段间位置连续。方向变化通过显式事件记录，后续阶段继承事件后的速度。落差以该抛体段的发射位置为基准。水平段接抛体时，距离目标就是桌沿位置，提前停住也按题设绘制桌沿。
+V1 支持斜面到坡底接无损转向，转向接水平滑动或弹簧，水平正速到达指定距离后接弹簧或抛体。单段可以独立运行。水平段接抛体时，距离目标就是题设桌沿，只有正速到达才产生离桌事件。弹簧脱离及落地为终止事件。
 
-## 3. 播放及阶段编辑
+## 4. 装配结果、绘图与阶段修改
 
-B 的装配和构建入口保持 `assembleScene → buildMotion`。成功结果提供米制几何、总时长、已实际执行的 `segments`、`events` 和 `sampleAt(timeSeconds)`。每个段和事件可关联到原计划的阶段下标，事件标识在同一次计算中唯一。画布使用场景给出的斜面、水平面、弹簧和地面等绘制要素。采样至少包含 `xM`、`yM`、`vxMps`、`vyMps`，弹簧段附压缩量。时间越界时取最近端点，同刻事件按执行顺序输出，精确事件时刻取最后一个已执行事件后的状态。
+### 4.1 几何与取样参考点
 
-「只看斜面」由 C 解析为截至指定阶段的修改意图，A 提交截断后的阶段前缀，B 按原参数重新装配。该场景在坡底结束，末速度沿斜面方向，画面和时间轴都按新结果生成。修改失败时保留原输入及最近一次有效结果。
+`assembleScene → buildMotion` 输出同一坐标系中的几何和运动。世界坐标 x 向右、y 向上。斜面起始的场景以坡底为原点，其他场景以第一段起点为原点。后续阶段继承上一段末位。
 
-## 4. 新组合的共享开发样例
+```ts
+type Point = { xM: number; yM: number };
 
-这条组合在原整题预设中没有登记。斜面长 3.6 m、倾角 30°，滑块由静止下滑。坡底经过无损过渡进入动摩擦因数 0.2 的水平桌面。桌沿距坡底 5 m，桌面离地 1.25 m，取重力加速度 10 m/s²。
+type StageGeometry = {
+  incline?: { start: Point; end: Point };
+  horizontal?: { start: Point; plannedEnd: Point | null };
+  spring?: { contact: Point; anchor: Point };
+  projectile?: { launch: Point; landingPlane: { yM: number } };
+  blockSizeM: number;
+  positionReference: "front_bottom";
+};
+```
+
+- 有明确距离目标时，`plannedEnd = { xM: start.xM + distanceM, yM: start.yM }`。接抛体时它是题设桌沿。提前停止也必须保留桌沿，真实停止位置读取 `sampleAt(durationSeconds)`。
+- `end.kind === "stop"` 且题设未声明距离目标时，`plannedEnd` 为 `null`。A 可按实际运动范围画出支撑面。抛体几何只在实际离桌或发射后生成。
+- `front_bottom` 表示运动物体的固定前下沿参考点。斜面上是沿下坡方向的前侧贴面角，水平、弹簧与抛体阶段用右下角。速度反向时沿用同一角，画布按支撑方向将方块向后并向上绘制。恰停桌沿时参考点与桌沿重合，方块底边留在桌面一侧。方块尺寸为绘图值。
+
+### 4.2 时间轴、事件与终点口径
+
+```ts
+type Velocity = { vxMps: number; vyMps: number };
+
+type EndReason =
+  | "stop_before_target"
+  | "stop_at_target"
+  | "stopped"
+  | "landed"
+  | "spring_detached"
+  | "prefix_end";
+
+type MotionSegment = {
+  stageIndex: number;
+  kind: string;
+  startSeconds: number;
+  endSeconds: number;
+};
+
+type MotionEvent = {
+  id: string;
+  stageIndex: number;
+  kind: string;
+  timeSeconds: number;
+  order: number;
+  velocityBefore: Velocity;
+  velocityAfter: Velocity;
+  label: string;
+  explanation: string;
+};
+
+type StageMotion = {
+  geometry: StageGeometry;
+  durationSeconds: number;
+  segments: MotionSegment[];
+  events: MotionEvent[];
+  termination: { reason: EndReason; eventId: string; stageIndex: number };
+  readonly endReason: EndReason;
+  sampleAt(timeSeconds: number): Point & Velocity & { springCompressionM: number };
+};
+```
+
+- `stageIndex` 是原计划中的零基下标，画面可按 `kind` 显示中文名称并用下标关联阶段和事件。同一个阶段可包含多个事件。`segments` 只含实际发生且有正时长的段。`lossless_turn` 只产生零时长转向事件，前后速度必填。
+- `order` 是事件的零基执行序号。事件先按 `timeSeconds` 升序排列，同刻再按 `order` 严格排序。事件前后速度都要填写，连续事件可相等。精确用 `event.timeSeconds` 取样时，先计及早于该时刻的事件，再按顺序应用同刻事件，返回最后一个事件后的状态。超出时间区间时取相邻端点。
+- `termination` 指向最后一个实际发生的事件。`endReason` 与 `termination.reason` 同源同值，供字幕读取。无距离目标的正常停止用 `stopped`，落地用 `landed`，弹簧脱离用 `spring_detached`，按给定阶段播完且无其他物理终止事件时用 `prefix_end`。事件类型至少包括 `release`、`reach_bottom`、`lossless_turn`、`reach_target`、`stop`、`leave_table`、`apex`、`land`、`spring_contact`、`max_compression` 与 `spring_detach`。
+- `stop_before_target` 和 `stop_at_target` 两种结局的最后一个事件都是 `stop`，均不输出 `projectile` 段和 `leave_table`、`apex`、`land` 事件。终点及其后的取样均为静止。字幕使用实际停止结局。落地末帧保留首次接地速度。
+
+### 4.3 「只看斜面」的提交方式
+
+C 从 `command` 解析并返回意图，`throughStageIndex` 是包含该阶段的零基下标。
+
+```json
+{ "type": "truncate_stages", "throughStageIndex": 0 }
+```
+
+A 检查下标和当前有效计划，按下面的方式构造完整前缀，再调用同一条装配及计算路径。原计划的 `kind`、`schemaVersion`、`gravityMps2`、`initial`、`massKg` 等字段通过展开保留。处理失败时保留原输入与最近一次有效结果。
+
+```ts
+const nextPlan = {
+  ...originalPlan,
+  stages: originalPlan.stages.slice(0, throughStageIndex + 1),
+};
+```
+
+这一步沿用已识别题设。标准斜面弹簧预设可由程序转换成对应阶段计划。截到斜面末尾的结果在坡底结束，终止原因为 `prefix_end`，末速度保持斜向。转向阶段只有在前缀包含它时才执行。
+
+## 5. 共享开发样例与五条自测
+
+滑块从 3.6 m、30° 的光滑斜面顶端静止释放，过坡底无损转向后进入动摩擦因数 0.2 的水平桌面。桌沿距坡底 5 m，桌面离地 1.25 m，取重力加速度 10 m/s²。该完整阶段顺序用于开发联调。
 
 ```json
 {
@@ -49,14 +172,12 @@ B 的装配和构建入口保持 `assembleScene → buildMotion`。成功结果�
 }
 ```
 
-## 5. 联调验收
-
-| 输入或操作 | 对照结果 |
+| 自测 | 对照结果 |
 |---|---|
-| 完整新组合 | 1.2 s 到坡底，转向后速率 6 m/s。2.2 s 以 4 m/s 离桌，2.7 s 落地，落点在桌沿右侧 2 m，接地速度为 (4, −5) m/s。 |
-| 桌沿移至距坡底 10 m | 4.2 s 时在坡底右侧 9 m 停住，时间轴到停止为止。 |
-| 桌沿恰距坡底 9 m | 4.2 s 时在桌沿停住，末速度为零。 |
-| 对该计划输入「只看斜面」 | 保留原斜面条件，1.2 s 于坡底结束。末速度为 (3√3, −3) m/s。完整计划同刻转向后的取样为 (6, 0) m/s。 |
-| 原斜面弹簧 | 原题的事件时刻、最大压缩量、字幕和几何回归通过。 |
+| 1. 完整新组合 | 1.2 s 到坡底。转向前的速度趋近 (3√3, −3) m/s，在转向事件精确时刻为 (6, 0) m/s，随后进入水平减速。2.2 s 以 4 m/s 离桌，2.7 s 落在 x = 7 m、y = −1.25 m。末帧速度为 (4, −5) m/s，原因 `landed`。 |
+| 2. 桌沿改至距坡底 10 m | 4.2 s 停在 x = 9 m，速度为零。桌沿仍画在 x = 10 m，原因 `stop_before_target`。 |
+| 3. 桌沿恰距坡底 9 m | 4.2 s 停在 `plannedEnd`，速度为零。方块在桌面一侧，原因 `stop_at_target`。 |
+| 4. 只看斜面 | 保留题设，1.2 s 播到坡底，末速度为 (3√3, −3) m/s，原因 `prefix_end`。画面只保留斜面及滑块，事件中没有转向。 |
+| 5. 原斜面弹簧 | 第 3 节 [规划书](PROJECT_PLAN_FINAL.md) 的原题和数值回归通过。原题约 2.2361 s 接触、2.3146 s 压缩最短，最大压缩量约 0.2012 m，脱离速率约 4.0249 m/s。 |
 
-A 用共享计划核对绘图、停止与飞出两条分支、阶段列表和字段定位。C 核对 Node 服务和 Qoder 云函数对同一题的字段、状态和单位一致，并用文字识别「只看斜面」。B 用解析结果审核阶段衔接、样本和事件。
+对第 1、4 条读取斜面末端附近的 `t−ε`、`t` 和 `t+ε`。完整计划在 `t+ε` 进入减速，速度为 (6 − 2ε, 0) m/s。前缀计划在 `t+ε` 钳制到保留斜向速度的末帧。对第 2、3 条检查最后事件为 `stop`，越界取样仍为静止，播放列表与字幕中均无飞行和落地。A、C 联调时另测缺少整块 `end`、缺少距离以及距离非法这三种回包。
