@@ -4,7 +4,7 @@
 
 > **部署平台迁移（2026-11-20，已完成）**：作品已发布到 **Qoder Sites** 并设为公开访问：<https://visuallab-physics-ecumfnqswpu.qoder.zone>（实测 HTTP 200、`text/html`、无登录墙）。此前 WorkBuddy Sites 链接已作废。
 >
-> 当前线上为**纯静态版**：页面、动画、内置示例可用；**识图接口尚未上线**——发布账号的 `backend_sites` 配额为 `0`（`used: 0, limit: 0`），Qoder Sites 云函数无法分配。云函数代码（`functions/index.ts` + `functions/handler.ts` + 内联 Skill）已就绪，开通后端配额后重新 `prepare_site` 即可切换为完整版。详见文末「附：Qoder Sites 迁移清单」。
+> 当前线上为**纯静态版**：页面、动画、内置示例可用。**识图接口待最后一步发布**——`backend_sites` 配额已于 2026-11-21 开通（后端 `status: ready`，`capabilities: ["functions","storage"]`），带云函数的草稿已上传（`artifactReady: true`，产物指向 `/functions/v1/app`），仅被 `sites_secret_not_ready` 阻塞：`DASHSCOPE_API_KEY` 的值尚未填写。Qoder 平台把 CLI 上下文的 `secretValueInput` 固定为 `false`，密钥值只能在客户端「站点 → 设置 → 密钥」填写一次，之后 `publish_site` 即可切换为完整版。详见文末「附：Qoder Sites 迁移清单」。
 
 ## 0. 工程验证
 
@@ -62,7 +62,7 @@
 
 旧 WorkBuddy 链接（已作废，仅作历史记录）：<https://wbapp-tm3ozhpna47stakp5egt9i.apps.workbuddy.host/?sharecode=ITSMMGMUVE>
 
-**当前版本边界**：线上是纯静态构建，`/functions/v1/app` 返回 409（云函数未分配）。识图能力需等 `backend_sites` 配额开通后，用同一 projectId 重新 `prepare_site`（带 `functionDirectory: "functions"` 与 `secretNames: ["DASHSCOPE_API_KEY"]`）再发布。
+**当前版本边界**：线上是纯静态构建，`/functions/v1/app` 返回 `409 sites_gateway_supabase_not_ready`（尚无已发布函数）。2026-11-21 后端配额开通后，已用同一 projectId 重新 `prepare_site`（带 `functionDirectory: "functions"` 与 `secretNames: ["DASHSCOPE_API_KEY"]`），草稿 `artifactReady: true`，阻塞项仅剩 `sites_secret_not_ready`。在客户端填好密钥后执行 `publish_site`（actionId `0c3a3277-f8de-46ba-9205-c4ee4114d1a9`）即可切为完整版，域名不变。
 
 Qoder Sites 站点直接公开访问，不需要分享码或 cookie。生产构建已关闭 Mock（`.env.production` 设 `VITE_USE_MOCK_API=false`），接口路径由 `VITE_PLAN_PATH=/functions/v1/app` 指向同源云函数（本地 `npm run dev` 仍走 `/api/animation/plan` 代理）。
 
