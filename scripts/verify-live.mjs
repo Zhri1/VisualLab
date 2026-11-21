@@ -1,9 +1,13 @@
 /**
  * 线上接口自检：直接打公网 `/functions/v1/app`，覆盖契约第 2 节的三种状态。
  *
- * - `ok`：两张真实题图，断言阶段序列与水平段距离
- * - `needs_input`：缺水平段距离的文字题，断言缺项路径
+ * - `ok`：两张真实题图，断言旧 `Reading` 形状与水平段距离
+ * - `needs_input`：弹簧题但题面没给水平距离，断言缺项指向 `springGapM`
  * - `unsupported`：电磁场题，断言整题超范围
+ *
+ * 断言按**线上实际契约**写：`API_CONTRACT_MODE` 默认 `legacy`，回包是旧的
+ * `{ templateId, conditions, facts }`。切到 `stage_plan` 后本脚本会整体失败，
+ * 提醒同步改断言 —— 这是有意的，避免契约换了还在跑旧检查。
  *
  * 为什么要带 `Origin`：Qoder 网关（Kong 2.8.1）对函数入口做同源校验，
  * 不带返回 403 `sites_gateway_origin_forbidden`。浏览器从站点自身发起请求时
@@ -11,11 +15,13 @@
  *
  * 为什么要带浏览器 UA：Kong 的 bot 检测会拦 `HeadlessChrome` / `Puppeteer` /
  * `Playwright` / `Selenium` 以及空 UA，返回 403 `BOT_DETECTED`。这不是接口缺陷，
- * 真实浏览器不受影响；脚本显式声明一个普通 UA 即可。
+ * 真实浏览器不受影响；脚本显式声明一个普通 UA 即可，不做任何绕过。
  *
  * 用法：
  *   node scripts/verify-live.mjs
  *   SITE_HOST=xxx.qoder.zone node scripts/verify-live.mjs
+ *
+ * 想用真实浏览器跑同一组用例：打开 `https://<站点>/acceptance/`。
  */
 import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
@@ -28,10 +34,10 @@ const ENDPOINT = `${ORIGIN}/functions/v1/app`;
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36";
 
-const COMPLETE_ORDER = "incline_slide,lossless_turn,horizontal_slide,spring_contact";
-const MISSING_DISTANCE_TEXT =
-  "倾角30°的粗糙斜面长3.6m，动摩擦因数0，滑块由静止释放，经光滑圆弧进入水平面，" +
-  "水平面动摩擦因数0.2，滑块从桌面边缘平抛，桌面高1.25m。求落地水平距离。（未给出水平段长度）取g=10";
+const TIGHT_SPRING_TEXT =
+  "倾角37°的粗糙斜面长4m，动摩擦因数0.5，滑块由静止释放，经光滑圆弧进入光滑水平面，" +
+  "压缩右端固定的弹簧后弹回，滑块与弹簧不连接，弹簧劲度系数400N/m，滑块质量1kg。" +
+  "题面未给出弹簧与坡底的距离。取g=10";
 const ELECTROMAGNETISM_TEXT =
   "如图，质量为m、电荷量为q的粒子以速度v垂直射入磁感应强度为B的匀强磁场，求粒子做圆周运动的半径。";
 
@@ -40,27 +46,30 @@ const CASES = [
   {
     label: "gap-1m 图",
     image: "fixtures/incline-spring-gap-1m.png",
-    expect: (body, stages) => [
+    expect: (body) => [
       ["status=ok", body.status === "ok"],
-      ["四段齐全", stages.join(",") === COMPLETE_ORDER],
-      ["distanceM=1", stages.includes("horizontal_slide") && body.reading?.stages?.[2]?.end?.distanceM === 1],
+      ["templateId=incline_spring", body.reading?.templateId === "incline_spring"],
+      ["springGapM=1", body.reading?.conditions?.springGapM === 1],
+      ["不是 stage_plan 形状", body.reading?.kind === undefined],
     ],
   },
   {
     label: "gap-2m 图",
     image: "fixtures/incline-spring-gap-2m.png",
-    expect: (body, stages) => [
+    expect: (body) => [
       ["status=ok", body.status === "ok"],
-      ["四段齐全", stages.join(",") === COMPLETE_ORDER],
-      ["distanceM=2", body.reading?.stages?.[2]?.end?.distanceM === 2],
+      ["templateId=incline_spring", body.reading?.templateId === "incline_spring"],
+      ["springGapM=2", body.reading?.conditions?.springGapM === 2],
+      ["不是 stage_plan 形状", body.reading?.kind === undefined],
     ],
   },
   {
-    label: "缺水平段距离",
-    text: MISSING_DISTANCE_TEXT,
+    label: "缺弹簧距离",
+    text: TIGHT_SPRING_TEXT,
     expect: (body) => [
       ["status=needs_input", body.status === "needs_input"],
-      ["缺项路径正确", (body.missingKeys ?? []).includes("/stages/2/end/distanceM")],
+      ["缺项指向 springGapM", (body.missingKeys ?? []).includes("springGapM")],
+      ["缺项不混入 JSON Pointer", !(body.missingKeys ?? []).some((key) => key.startsWith("/"))],
     ],
   },
   {
@@ -109,18 +118,17 @@ for (const item of CASES) {
   }
 
   const { res, body, elapsed } = outcome;
-  const stages = Array.isArray(body.reading?.stages)
-    ? body.reading.stages.map((stage) => stage.kind)
-    : [];
-
-  const checks = [["HTTP 200", res.status === 200], ...item.expect(body, stages)];
+  const checks = [["HTTP 200", res.status === 200], ...item.expect(body)];
   const ok = checks.every(([, pass]) => pass);
   if (!ok) failed += 1;
 
   console.log(
     `${ok ? "✓" : "✗"} ${item.label} · HTTP ${res.status} · ${elapsed} ms · ${res.headers.get("x-vision-model") ?? "-"}`,
   );
-  if (stages.length) console.log(`  ${stages.join(" → ")}`);
+  if (body.reading?.templateId) {
+    const conditions = body.reading.conditions ?? {};
+    console.log(`  ${body.reading.templateId} · springGapM=${conditions.springGapM ?? "null"}`);
+  }
   if (body.status === "unsupported") console.log(`  ${body.message}`);
   if (body.missingKeys?.length) console.log(`  缺项：${body.missingKeys.join(", ")}`);
   for (const [name, pass] of checks) {
