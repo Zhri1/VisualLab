@@ -226,6 +226,8 @@ try {
   const beforeSampleRequests = apiRequests.length;
   await reload();
   await click(".sample-button");
+  await sleep(300);
+  await click(".sample-option");
   await waitFor('document.querySelector(".player-title")?.textContent.includes("斜面滑块与弹簧")');
   check("接口失败时内置示例仍本地打开", await canvasNonBlank());
   check("内置示例零识别请求", apiRequests.length === beforeSampleRequests, String(apiRequests.length - beforeSampleRequests));

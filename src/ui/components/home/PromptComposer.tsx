@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Camera, Crop, ImagePlus, RotateCcw, RotateCw, X } from "lucide-react";
+import { ArrowUp, ImagePlus, X } from "lucide-react";
 
 interface Props {
   value: string;
@@ -9,12 +9,10 @@ interface Props {
   previewUrl: string | null;
   onPickFile: (f: File | null) => void;
   busy: boolean;
-  /** 图片校验/压缩失败的提示 */
+  /** 选图校验/压缩失败的提示 */
   error?: string | null;
-  /** 图片正在压缩或旋转 */
+  /** 图片正在压缩 */
   preparing?: boolean;
-  onRotate?: (direction: "left" | "right") => void;
-  onCrop?: () => void;
 }
 
 export function PromptComposer({
@@ -27,19 +25,10 @@ export function PromptComposer({
   busy,
   error,
   preparing,
-  onRotate,
-  onCrop,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const cameraRef = useRef<HTMLInputElement | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [coarsePointer] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(pointer: coarse)").matches,
-  );
 
   useEffect(() => {
     textareaRef.current?.focus();
@@ -103,8 +92,7 @@ export function PromptComposer({
       <textarea
         ref={textareaRef}
         className="composer-text"
-        placeholder="粘贴题干或题图，也可以直接拖入图片…"
-        aria-label="题目描述或题干"
+        placeholder="输入物理问题，或上传一道题目…"
         value={value}
         onChange={(e) => {
           onChange(e.target.value);
@@ -112,10 +100,13 @@ export function PromptComposer({
         }}
         onPaste={handlePaste}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            if (canSubmit) onSubmit();
-          }
+          if (e.key !== "Enter") return;
+          // 输入法回车是在确认候选词，不能当作发送
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+          // Shift+Enter 换行，便于多行题干
+          if (e.shiftKey) return;
+          e.preventDefault();
+          if (canSubmit) onSubmit();
         }}
         disabled={locked}
       />
@@ -126,50 +117,9 @@ export function PromptComposer({
           <span className="name" title={file.name}>
             {file.name}
           </span>
-          <div className="composer-preview-actions">
-            {onRotate && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => onRotate("left")}
-                  aria-label="向左旋转"
-                  title="向左旋转"
-                  disabled={locked}
-                >
-                  <RotateCcw size={13} strokeWidth={2.2} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onRotate("right")}
-                  aria-label="向右旋转"
-                  title="向右旋转"
-                  disabled={locked}
-                >
-                  <RotateCw size={13} strokeWidth={2.2} />
-                </button>
-              </>
-            )}
-            {onCrop && (
-              <button
-                type="button"
-                onClick={onCrop}
-                aria-label="裁剪图片"
-                title="裁剪"
-                disabled={locked}
-              >
-                <Crop size={13} strokeWidth={2.2} />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => onPickFile(null)}
-              aria-label="移除图片"
-              title="移除图片"
-              disabled={locked}
-            >
-              <X size={13} strokeWidth={2.2} />
-            </button>
-          </div>
+          <button onClick={() => onPickFile(null)} aria-label="移除图片" type="button">
+            <X size={13} strokeWidth={2.2} />
+          </button>
         </div>
       )}
 
@@ -180,47 +130,20 @@ export function PromptComposer({
       )}
 
       <div className="composer-row">
-        <div className="composer-tools">
-          <button
-            className="attach-button"
-            onClick={() => fileRef.current?.click()}
-            aria-label="上传题目图片"
-            title="上传 JPG / PNG 题图"
-            disabled={locked}
-            type="button"
-          >
-            <ImagePlus size={19} strokeWidth={1.7} />
-          </button>
-          {coarsePointer && (
-            <button
-              className="attach-button"
-              onClick={() => cameraRef.current?.click()}
-              aria-label="拍照上传"
-              title="拍照上传"
-              disabled={locked}
-              type="button"
-            >
-              <Camera size={19} strokeWidth={1.7} />
-            </button>
-          )}
-          
-        </div>
+        <button
+          className="attach-button"
+          onClick={() => fileRef.current?.click()}
+          aria-label="上传题目图片"
+          title="上传 JPG / PNG 题图"
+          disabled={locked}
+          type="button"
+        >
+          <ImagePlus size={19} strokeWidth={1.7} />
+        </button>
         <input
           ref={fileRef}
           type="file"
           accept="image/jpeg,image/png"
-          hidden
-          onChange={(e) => {
-            const f = e.target.files?.[0] ?? null;
-            if (f) onPickFile(f);
-            e.target.value = "";
-          }}
-        />
-        <input
-          ref={cameraRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
           hidden
           onChange={(e) => {
             const f = e.target.files?.[0] ?? null;

@@ -1,4 +1,4 @@
-// 首页增强验收：引导/示例卡片/文字样例/草稿/校验/旋转裁剪/最近记录。
+// 首页验收：保持极简，同时确认粘贴/拖拽/校验/压缩/草稿等不可见能力可用。
 // 用法：先 vite preview（默认 4173），再 node scripts/home-verify.mjs [cdpPort]
 import { writeFileSync, mkdirSync } from "node:fs";
 
@@ -55,17 +55,38 @@ const upload = async (filePath) => {
 await send("Page.enable");
 await send("Runtime.enable");
 await send("DOM.enable");
-await send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+await send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 await send("Page.navigate", { url: base });
 await sleep(1200);
 await evaluate("localStorage.clear()");
 await send("Page.reload");
 await sleep(1500);
 
-check("首页有示例卡片", await evaluate('!!document.querySelector(".sample-card")'));
-check("多阶段说明已出现", /多阶段/.test(await text(".home-note")));
+check("示例仍是文字按钮", (await text(".sample-button")).includes("内置示例"));
+check(
+  "没有引导/样例/最近等附加块",
+  await evaluate(
+    '!document.querySelector(".sample-card, .home-steps, .text-samples, .home-capabilities, .home-recents")',
+  ),
+);
+check("保留一行能力说明", /单题/.test(await text(".home-note")));
 
-// 草稿：输入 → 刷新 → 自动恢复
+await evaluate('document.querySelector(".sample-button").click()');
+await sleep(250);
+check(
+  "点示例先弹出选择",
+  await evaluate('!!document.querySelector(".sample-picker") && document.querySelectorAll(".sample-option").length === 1'),
+);
+await evaluate('document.querySelector(".sample-option").click()');
+await sleep(1500);
+check("选中示例进入工作台", await evaluate('!!document.querySelector(".player-title")'));
+
+await send("Page.navigate", { url: base });
+await sleep(1200);
+await evaluate("localStorage.clear()");
+await send("Page.reload");
+await sleep(1500);
+
 await evaluate(`(() => {
   const ta = document.querySelector(".composer-text");
   const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
@@ -77,7 +98,6 @@ await send("Page.reload");
 await sleep(1500);
 check("刷新后恢复草稿", (await evaluate('document.querySelector(".composer-text").value')).includes("草稿恢复测试"));
 
-// 校验：类型与体积
 await upload(badFile);
 await sleep(400);
 check("非图片被拦截", /JPG \/ PNG/.test(await text(".composer-error")), await text(".composer-error"));
@@ -85,29 +105,26 @@ await upload(bigFile);
 await sleep(400);
 check("超 8MB 被拦截", /8MB/.test(await text(".composer-error")), await text(".composer-error"));
 
-// 有效图片：预览 → 旋转 → 裁剪
 await upload(fixture);
 await sleep(1200);
 check("有效题图出现预览", await evaluate('!!document.querySelector(".composer-preview img")'));
-check("有旋转与裁剪入口", await evaluate('!!document.querySelector(\'button[aria-label="向右旋转"]\') && !!document.querySelector(\'button[aria-label="裁剪图片"]\')'));
-await evaluate('document.querySelector(\'button[aria-label="向右旋转"]\').click()');
-await sleep(900);
-check("旋转后仍保留预览", await evaluate('!!document.querySelector(".composer-preview img")'));
-await evaluate('document.querySelector(\'button[aria-label="裁剪图片"]\').click()');
-await sleep(400);
-check("裁剪弹层打开", await evaluate('!!document.querySelector(".crop-dialog")'));
-await evaluate(`[...document.querySelectorAll(".crop-dialog button")].find((b) => b.textContent.includes("应用裁剪")).click()`);
-await sleep(1200);
-check("裁剪后弹层关闭且预览保留", (await evaluate('!document.querySelector(".crop-dialog")')) && (await evaluate('!!document.querySelector(".composer-preview img")')));
 
-// 提交后写入最近记录（预览无后端，落到错误卡片也应有最近）
+const pressEnter = (extra) =>
+  evaluate(`document.querySelector(".composer-text").dispatchEvent(new KeyboardEvent("keydown", Object.assign({ key: "Enter", bubbles: true, cancelable: true }, ${extra})))`);
+
+await pressEnter("{ shiftKey: true }");
+await sleep(400);
+check("Shift+Enter 不发送", await evaluate('!document.querySelector(".notice") && !document.querySelector(".recognizing")'));
+await pressEnter("{ isComposing: true }");
+await sleep(400);
+check("输入法回车不发送", await evaluate('!document.querySelector(".notice") && !document.querySelector(".recognizing")'));
+await pressEnter("{}");
+await sleep(1800);
+check("Enter 直接发送", (await text(".notice")).length > 0 || (await evaluate('!!document.querySelector(".recognizing")')));
+
 await evaluate('document.querySelector(\'button[aria-label="开始识别"]\').click()');
 await sleep(1800);
-check("提交失败有结构化错误卡", await evaluate('!!document.querySelector(".notice-card")'));
-check("最近记录已生成", await evaluate('!!document.querySelector(".recent-chip")'));
-await send("Page.reload");
-await sleep(1500);
-check("刷新后最近记录仍在", await evaluate('!!document.querySelector(".recent-chip")'));
+check("识别失败有提示", (await text(".notice")).length > 0);
 
 ws.close();
 const failed = checks.filter(([, ok]) => !ok);

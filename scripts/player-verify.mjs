@@ -69,6 +69,8 @@ await send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, de
 await send("Page.navigate", { url: base });
 await sleep(1500);
 await click(".sample-button");
+await sleep(300);
+await click(".sample-option");
 await sleep(1500);
 check("默认1倍速、关键点暂停关闭", await evaluate('document.querySelector(".rate-control select").value === "1" && !document.querySelector(".auto-pause-control input").checked'));
 check("释放静止速度为0", (await evaluate('document.querySelector("#player-speed").textContent')).includes("大小 0 米每秒"));

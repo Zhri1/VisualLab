@@ -54,7 +54,7 @@ export default function App() {
           onSubmit={({ file, text }) => {
             void ws.recognize({ file, text });
           }}
-          onSample={() => ws.loadSample()}
+          onSample={(id) => ws.loadSample(id)}
         />
       ) : (
         <WorkspaceLayout ws={ws} />

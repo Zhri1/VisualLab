@@ -21,7 +21,11 @@ const checks = [];
 const check = (name, ok) => { checks.push([name, !!ok]); console.log(`${ok ? "PASS" : "FAIL"} ${name}`); };
 const homeVisible = () => ev('!!document.querySelector(".sample-button")');
 const workVisible = () => ev('!!document.querySelector(".player-title")');
-const clickSample = () => ev('document.querySelector(".sample-button").click()');
+const clickSample = async () => {
+  await ev('document.querySelector(".sample-button").click()');
+  await sleep(250);
+  await ev('document.querySelector(".sample-option")?.click()');
+};
 const clickText = (t) => ev(`[...document.querySelectorAll("button")].find(b => b.textContent.includes(${JSON.stringify(t)}))?.click()`);
 
 await send("Page.enable"); await send("Runtime.enable");

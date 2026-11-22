@@ -1,42 +1,27 @@
 import { useEffect, useRef, useState } from "react";
+import { ArrowRight } from "lucide-react";
 // 组件只负责输入态，识别与状态机在 useWorkspace
 import { PRODUCT_NAME, PRODUCT_TAGLINE } from "../../../config/brand";
 import type { Notice } from "../../../hooks/useWorkspace";
-import { ImageCropDialog } from "./ImageCropDialog";
 import { PromptComposer } from "./PromptComposer";
-import { SampleCard } from "./SampleCard";
-import { loadHomeDraft, makeRecent, pushRecent, saveHomeDraft } from "./homeDraft";
-import type { RecentProblem } from "./homeDraft";
-import {
-  checkImageFile,
-  cropImageFile,
-  dataUrlToFile,
-  prepareImageFile,
-  readFileAsDataUrl,
-  rotateImageFile,
-} from "./imageTools";
-import type { CropRect } from "./imageTools";
+import { SamplePicker } from "./SamplePicker";
+import { loadDraftText, saveDraftText } from "./homeDraft";
+import { checkImageFile, prepareImageFile } from "./imageTools";
 
 interface Props {
   busy: boolean;
   notice: Notice | null;
   onSubmit: (input: { file: File | null; text: string }) => void;
-  onSample: () => void;
+  onSample: (id?: string) => void;
 }
 
-/** 小于该体积的题图才写入最近记录（避免 localStorage 超限）。 */
-const RECENT_IMAGE_BYTES = 240_000;
-
 export function InitialScreen({ busy, notice, onSubmit, onSample }: Props) {
-  const [initial] = useState(() => loadHomeDraft());
-  const [text, setText] = useState(initial.text);
-  const [recents, setRecents] = useState<RecentProblem[]>(initial.recents);
+  const [text, setText] = useState(() => loadDraftText());
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [cropOpen, setCropOpen] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
+  const [sampleOpen, setSampleOpen] = useState(false);
   const previewRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -46,25 +31,8 @@ export function InitialScreen({ busy, notice, onSubmit, onSample }: Props) {
   }, []);
 
   useEffect(() => {
-    saveHomeDraft({ text, recents });
-  }, [text, recents]);
-
-  useEffect(() => {
-    if (!busy) {
-      setElapsed(0);
-      return;
-    }
-    const timer = window.setInterval(() => setElapsed((value) => value + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, [busy]);
-
-  const replacePreview = (next: File) => {
-    if (previewRef.current) URL.revokeObjectURL(previewRef.current);
-    const url = URL.createObjectURL(next);
-    previewRef.current = url;
-    setPreviewUrl(url);
-    setFile(next);
-  };
+    saveDraftText(text);
+  }, [text]);
 
   const clearPreview = () => {
     if (previewRef.current) URL.revokeObjectURL(previewRef.current);
@@ -86,7 +54,12 @@ export function InitialScreen({ busy, notice, onSubmit, onSample }: Props) {
     }
     setPreparing(true);
     try {
-      replacePreview(await prepareImageFile(next));
+      const prepared = await prepareImageFile(next);
+      if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+      const url = URL.createObjectURL(prepared);
+      previewRef.current = url;
+      setPreviewUrl(url);
+      setFile(prepared);
     } catch {
       setLocalError("图片处理失败，请换一张图片重试");
     } finally {
@@ -94,78 +67,11 @@ export function InitialScreen({ busy, notice, onSubmit, onSample }: Props) {
     }
   };
 
-  const rotate = async (direction: "left" | "right") => {
-    if (!file || busy || preparing) return;
-    setLocalError(null);
-    setPreparing(true);
-    try {
-      replacePreview(await rotateImageFile(file, direction === "left" ? 270 : 90));
-    } catch {
-      setLocalError("旋转失败，请换一张图片重试");
-    } finally {
-      setPreparing(false);
-    }
-  };
-
-  const applyCrop = async (rect: CropRect) => {
-    setCropOpen(false);
-    if (!file) return;
-    setPreparing(true);
-    setLocalError(null);
-    try {
-      replacePreview(await cropImageFile(file, rect));
-    } catch {
-      setLocalError("裁剪失败，请换一张图片重试");
-    } finally {
-      setPreparing(false);
-    }
-  };
-
-  const rememberRecent = (trimmed: string) => {
-    const label = trimmed ? trimmed.slice(0, 24) : (file?.name ?? "题图");
-    const entry = makeRecent({ label, text: trimmed });
-    const nextRecents = pushRecent({ text: trimmed, recents }, entry).recents;
-    setRecents(nextRecents);
-    saveHomeDraft({ text: trimmed, recents: nextRecents });
-
-    if (file && file.size <= RECENT_IMAGE_BYTES) {
-      void readFileAsDataUrl(file)
-        .then((dataUrl) => {
-          const withImage = nextRecents.map((item) =>
-            item.id === entry.id ? { ...item, imageDataUrl: dataUrl } : item,
-          );
-          setRecents(withImage);
-          saveHomeDraft({ text: trimmed, recents: withImage });
-        })
-        .catch(() => {
-          /* 缩略数据保存失败不影响识别 */
-        });
-    }
-  };
-
   const submit = () => {
     if (busy || preparing) return;
     const trimmed = text.trim();
     if (!trimmed && !file) return;
-    rememberRecent(trimmed);
     onSubmit({ file, text: trimmed });
-  };
-
-  const restoreRecent = async (item: RecentProblem) => {
-    setLocalError(null);
-    setText(item.text);
-    if (item.imageDataUrl) {
-      try {
-        replacePreview(await dataUrlToFile(item.imageDataUrl, `recent-${item.id}.png`));
-      } catch {
-        setLocalError("这张历史图片无法恢复，请重新上传");
-      }
-    } else {
-      clearPreview();
-    }
-    window.requestAnimationFrame(() => {
-      document.querySelector<HTMLTextAreaElement>(".composer-text")?.focus();
-    });
   };
 
   return (
@@ -189,90 +95,42 @@ export function InitialScreen({ busy, notice, onSubmit, onSample }: Props) {
           busy={busy}
           error={localError}
           preparing={preparing}
-          onRotate={(direction) => {
-            void rotate(direction);
-          }}
-          onCrop={() => setCropOpen(true)}
         />
 
-        {(preparing || busy) && (
+        {busy ? (
           <div className="recognizing" role="status" aria-live="polite">
             <span className="spinner" aria-hidden="true" />
-            <span>{preparing ? "正在处理图片…" : "正在识别题目…"}</span>
-            {busy && elapsed > 0 && (
-              <span className="recognizing-time" aria-hidden="true">
-                {elapsed}s
-              </span>
-            )}
-            {busy && elapsed >= 15 && (
-              <span className="recognizing-hint">仍在识别，网络较慢时可稍后重试</span>
-            )}
+            正在识别题目…
           </div>
-        )}
-
-        {!preparing && !busy && notice && (
+        ) : notice ? (
           <div
-            className={`notice ${notice.kind} notice-card`}
+            className={`notice ${notice.kind}`}
+            style={{ marginTop: 20, textAlign: "left", maxWidth: 560, marginInline: "auto" }}
             role={notice.kind === "error" ? "alert" : "status"}
           >
-            <div className="notice-body">
-              <span>{notice.text}</span>
-              {notice.fieldErrors && notice.fieldErrors.length > 0 && (
-                <ul className="notice-fields">
-                  {notice.fieldErrors.slice(0, 4).map((error) => (
-                    <li key={`${error.code}-${error.message}`}>{error.message}</li>
-                  ))}
-                </ul>
-              )}
-              {notice.showSample && (
-                <button className="link" onClick={onSample}>
-                  用内置示例
-                </button>
-              )}
-            </div>
-            {notice.kind === "error" && (
-              <div className="notice-actions">
-                <button className="ghost-button" onClick={submit} disabled={busy}>
-                  重试
-                </button>
-              </div>
+            <span>{notice.text}</span>
+            {notice.showSample && (
+              <button className="link" onClick={() => onSample()} style={{ marginLeft: "auto" }}>
+                用内置示例
+              </button>
             )}
           </div>
+        ) : (
+          <button className="sample-button" onClick={() => setSampleOpen(true)} disabled={busy}>
+            内置示例
+            <ArrowRight size={15} strokeWidth={2} />
+          </button>
         )}
 
-        {!preparing && !busy && !notice && <SampleCard onClick={onSample} disabled={busy} />}
-
-        {recents.length > 0 && (
-          <div className="home-recents">
-            <span className="home-recents-label">最近</span>
-            {recents.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className="recent-chip"
-                onClick={() => {
-                  void restoreRecent(item);
-                }}
-                title={item.text || item.label}
-              >
-                {item.imageDataUrl ? "图 · " : ""}
-                {item.label || "题图"}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <p className="home-note">
-          支持 JPG / PNG 单题图片（≤8MB）· 支持斜面→弹簧及多阶段组合
-        </p>
+        <p className="home-note">支持 JPG / PNG 单题图片</p>
       </div>
 
-      {cropOpen && previewUrl && (
-        <ImageCropDialog
-          previewUrl={previewUrl}
-          onCancel={() => setCropOpen(false)}
-          onConfirm={(rect) => {
-            void applyCrop(rect);
+      {sampleOpen && (
+        <SamplePicker
+          onClose={() => setSampleOpen(false)}
+          onSelect={(id) => {
+            setSampleOpen(false);
+            onSample(id);
           }}
         />
       )}
