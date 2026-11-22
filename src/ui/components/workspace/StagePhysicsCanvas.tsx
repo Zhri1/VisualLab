@@ -18,7 +18,7 @@ interface Props {
 
 type Bounds = { x1: number; x2: number; y1: number; y2: number };
 
-function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: number, motion: Motion, time: number) {
+export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: number, motion: Motion, time: number) {
   const g = motion.stageGeometry!;
   const size = g.blockSizeM;
   const sample = motion.sampleAt(time);
@@ -32,6 +32,11 @@ function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: number, mot
   }
   if (g.spring) points.push({ x: g.spring.contact.xM, y: g.spring.contact.yM }, { x: g.spring.anchor.xM, y: g.spring.anchor.yM });
   if (g.projectile) points.push({ x: g.projectile.launch.xM, y: g.projectile.launch.yM }, { x: last.position.x, y: g.projectile.landingPlane.yM });
+  if (g.verticalArc) {
+    const arc = g.verticalArc;
+    points.push({ x: arc.entry.xM, y: arc.entry.yM }, { x: arc.plannedEnd.xM, y: arc.plannedEnd.yM },
+      { x: arc.center.xM + arc.radiusM * Math.sin(Math.min(90, arc.endAngleDeg) * Math.PI / 180), y: arc.center.yM });
+  }
 
   const xs = points.map((point) => point.x);
   const ys = points.map((point) => point.y);
@@ -105,7 +110,8 @@ function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: number, mot
   }
 
   const horizontalIndex = motion.stagePlan?.stages.findIndex((stage) => stage.kind === "horizontal_slide") ?? -1;
-  const hasPlannedProjectile = horizontalIndex >= 0 && Boolean(motion.stagePlan?.stages.some((stage, index) => index > horizontalIndex && stage.kind === "projectile"));
+  const hasPlannedProjectile = horizontalIndex >= 0 && motion.stagePlan?.stages[horizontalIndex + 1]?.kind === "projectile";
+  const hasPlannedArc = horizontalIndex >= 0 && motion.stagePlan?.stages[horizontalIndex + 1]?.kind === "vertical_arc";
   const plannedEnd = g.horizontal?.plannedEnd;
   if (plannedEnd && hasPlannedProjectile) {
     const floorY = g.projectile?.landingPlane.yM ?? plannedEnd.yM - size * 4;
@@ -125,6 +131,33 @@ function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: number, mot
     ctx.fillText("桌沿", X(plannedEnd.xM) + 7, Y(plannedEnd.yM) - 5);
   }
 
+  // 圆弧使用质点轨迹；真实入口与计划端点均来自米制几何，不按画布缩放反推。
+  if (g.verticalArc) {
+    const arc = g.verticalArc;
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = sample.constraint ? 2.4 : 1.6;
+    ctx.beginPath();
+    for (let i = 0; i <= 80; i++) {
+      const phi = arc.endAngleDeg * Math.PI / 180 * i / 80;
+      const x = X(arc.entry.xM + arc.radiusM * Math.sin(phi));
+      const y = Y(arc.entry.yM + arc.radiusM * (1 - Math.cos(phi)));
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.save(); ctx.setLineDash([3, 4]); ctx.strokeStyle = HAIR; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(X(arc.center.xM), Y(arc.center.yM));
+    ctx.lineTo(X(arc.center.xM + arc.radiusM), Y(arc.center.yM)); ctx.stroke(); ctx.restore();
+    ctx.font = `500 12px ${SANS}`; ctx.fillStyle = SOFT; ctx.textAlign = "center";
+    ctx.fillText("R", X(arc.center.xM + arc.radiusM / 2), Y(arc.center.yM) - 7);
+    ctx.fillText(arc.endAngleDeg === 180 ? "C" : "端点", X(arc.plannedEnd.xM) - 10, Y(arc.plannedEnd.yM) - 12);
+  }
+  const arcEntry = g.verticalArc?.entry ?? (hasPlannedArc ? plannedEnd : undefined);
+  if (arcEntry) {
+    ctx.font = `500 12px ${SANS}`; ctx.fillStyle = SOFT; ctx.textAlign = "center";
+    ctx.fillText("B", X(arcEntry.xM), Y(arcEntry.yM) + 19);
+    if (g.horizontal) ctx.fillText("A", X(g.horizontal.start.xM), Y(g.horizontal.start.yM) + 19);
+  }
+
   // 只有实际进入抛体阶段才画轨迹与落地面。
   const projectileSegment = motion.segments.find((segment) => segment.kind === "projectile");
   if (g.projectile && projectileSegment) {
@@ -132,8 +165,8 @@ function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: number, mot
     ctx.strokeStyle = INK;
     ctx.lineWidth = 1.6;
     ctx.beginPath();
-    ctx.moveTo(X(g.projectile.launch.xM - size), Y(floorY));
-    ctx.lineTo(X(last.position.x + size * 2), Y(floorY));
+    ctx.moveTo(X(Math.min(g.projectile.launch.xM, last.position.x) - size), Y(floorY));
+    ctx.lineTo(X(Math.max(g.projectile.launch.xM, last.position.x) + size), Y(floorY));
     ctx.stroke();
     ctx.save();
     ctx.setLineDash([4, 5]);
@@ -195,6 +228,12 @@ function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: number, mot
   const ny = Math.cos(rotation);
 
   const block = (point: Vec2, ghost: boolean) => {
+    if (g.positionReference === "particle") {
+      ctx.save(); ctx.beginPath(); ctx.arc(X(point.x), Y(point.y), 6, 0, 2 * Math.PI);
+      if (ghost) { ctx.setLineDash([2, 3]); ctx.strokeStyle = SOFT; ctx.stroke(); }
+      else { ctx.fillStyle = INK; ctx.fill(); }
+      ctx.restore(); return point;
+    }
     const centerX = point.x + nx * half - tx * half;
     const centerY = point.y + ny * half - ty * half;
     ctx.save();
@@ -263,8 +302,16 @@ function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: number, mot
   ctx.font = `500 13px ${SANS}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
-  const labelY = Math.max(16, Y(center.y) - half * S - 9);
-  ctx.fillText(`v = ${speedText} m/s`, X(center.x), labelY);
+  const label = `v = ${speedText} m/s`;
+  const labelWidth = ctx.measureText(label).width;
+  const preferredX = g.positionReference === "particle" ? X(center.x) + labelWidth / 2 + 16 : X(center.x);
+  const labelX = Math.min(W - labelWidth / 2 - 8, Math.max(labelWidth / 2 + 8, preferredX));
+  const labelY = Math.min(H - 28, Math.max(20, Y(center.y) - (g.positionReference === "particle" ? 18 : half * S + 9)));
+  ctx.fillStyle = PAPER; ctx.fillRect(labelX - labelWidth / 2 - 3, labelY - 15, labelWidth + 6, sample.constraint ? 35 : 18);
+  ctx.fillStyle = INK; ctx.fillText(label, labelX, labelY);
+  if (sample.constraint) {
+    ctx.fillStyle = SOFT; ctx.fillText(`N = ${sample.constraint.normalForceN.toFixed(2)} N`, labelX, labelY + 18);
+  }
 }
 
 export function StagePhysicsCanvas({ motion, time, isPlaying = false }: Props) {
@@ -311,12 +358,15 @@ export function StagePhysicsCanvas({ motion, time, isPlaying = false }: Props) {
   }, [motion, time, paint]);
 
   const velocity = motion.sampleAt(time).velocity;
+  const constraint = motion.sampleAt(time).constraint;
   const speedText = formatSpeed(Math.hypot(velocity.x, velocity.y));
   return (
     <figure className="physics-figure" data-renderer="stage">
       <canvas ref={canvasRef} aria-label="有序物理阶段动画" aria-describedby="player-speed" role="img" />
       <figcaption id="player-speed" className="player-sr-only" aria-live={isPlaying ? "off" : "polite"}>
-        当前速度大小 {speedText.startsWith("<") ? "小于 0.01" : speedText} 米每秒；结束原因 {motion.endReason ?? "进行中"}
+        当前速度大小 {speedText.startsWith("<") ? "小于 0.01" : speedText} 米每秒；
+        {constraint && `圆弧角度 ${constraint.angleDeg.toFixed(2)} 度，法向力 ${constraint.normalForceN.toFixed(2)} 牛顿；`}
+        结束原因 {motion.endReason ?? "进行中"}
       </figcaption>
     </figure>
   );

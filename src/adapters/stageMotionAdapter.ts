@@ -93,9 +93,10 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
       label: event.label,
       caption: event.explanation,
       detail: event.explanation,
-      segment: segmentKind(owner?.kind ?? fallback),
+      segment: segmentKind(owner?.kind ?? plan?.stages[event.stageIndex]?.kind ?? fallback),
       velocityBefore: vec(event.velocityBefore.vxMps, event.velocityBefore.vyMps),
       velocityAfter: vec(event.velocityAfter.vxMps, event.velocityAfter.vyMps),
+      ...(event.position ? { position: vec(event.position.xM, event.position.yM), normalForceBeforeN: event.normalForceBeforeN, normalForceAfterN: event.normalForceAfterN } : {}),
     };
   });
 
@@ -121,6 +122,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
         position: vec(sample.xM, sample.yM),
         velocity: vec(sample.vxMps, sample.vyMps),
         springCompressionM: sample.springCompressionM,
+        ...(sample.constraint ? { constraint: { ...sample.constraint } } : {}),
       };
     },
   };

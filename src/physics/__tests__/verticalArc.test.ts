@@ -102,6 +102,15 @@ describe("竖直圆弧公共入口", () => {
     expect(motion.segments).toEqual([]); expect(motion.sampleAt(10).constraint?.normalForceN).toBe(1);
     expect(motion.sampleAt(NaN)).toEqual(motion.sampleAt(Infinity));
   });
+  it("极短但可表示的圆弧不把离弧事件吸附到初态", () => {
+    const motion = build({ ...endpoint, initial: { speedMps: 1e12 } });
+    const end = motion.events.find(e => e.kind === "arc_endpoint")!;
+    expect(end.timeSeconds).toBeGreaterThan(0); expect(end.timeSeconds).toBeLessThan(1e-9);
+    expect(motion.sampleAt(0).yM).toBe(0); expect(motion.sampleAt(0).vxMps).toBe(1e12);
+    expect(motion.sampleAt(end.timeSeconds / 2).constraint).toBeDefined();
+    expect(motion.sampleAt(end.timeSeconds).yM).toBe(.8);
+    expect(motion.sampleAt(end.timeSeconds).constraint).toBeUndefined();
+  });
 
   it.each([[8 - 1e-7, "returned_to_entry"], [8, "returned_to_entry"], [8 + 1e-7, "landed"], [20 - 1e-7, "arc_contact_lost"], [20, "arc_endpoint"], [20 + 1e-7, "arc_endpoint"]])("临界能量 %s 保留真实分支", (v2, expected) => {
     const motion = build(withSpeedSquared(v2 as number));

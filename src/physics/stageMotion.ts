@@ -264,11 +264,14 @@ function compute(plan: ResolvedStagePlan): StageMotion | StagePlanFailure {
     sampleAt(timeSeconds) {
       const t = Number.isNaN(timeSeconds) ? 0 : Math.min(time, Math.max(0, timeSeconds));
       // 同刻的最后一个事件状态优先，确保转向、接触和零时长终止可精确停靠。
-      // 事件时刻由累加得到，常与十进制字面量差 1 ulp（如 1.2000000000000002 与 1.2），
-      // 播放进度按十进制推进时严格相等会错过事件、停在事件前一瞬。这里只吸收这一级误差：
-      // 容差 1e-9 s 远小于采样步长（前端按 1e-7 s 取事件前后状态），不改变「事件前」语义。
+      // 吸收累加时刻和十进制播放值的 ulp 误差，按物理时刻缩放。
+      // 固定绝对容差会把极短圆弧的离弧事件错误吸附到 t=0。
       const copy = (s: MotionSample): MotionSample => ({ ...s, ...(s.constraint ? { constraint: { ...s.constraint } } : {}) });
-      for (let i = events.length - 1; i >= 0; i--) if (Math.abs(events[i].timeSeconds - t) <= 1e-9) return copy(eventStates[i]);
+      for (let i = events.length - 1; i >= 0; i--) {
+        const eventTime = events[i].timeSeconds;
+        const tolerance = 8 * Number.EPSILON * Math.max(Math.abs(eventTime), Math.abs(t), Number.MIN_VALUE);
+        if (Math.abs(eventTime - t) <= tolerance) return copy(eventStates[i]);
+      }
       const active = runs.find((item) => t >= item.start && t < item.end);
       return copy(active ? active.run.sampleAt(t - active.start) : final);
     },

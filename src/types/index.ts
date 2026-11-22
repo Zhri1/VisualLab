@@ -3,7 +3,7 @@
  * 字段名一律沿用契约原文，不在这里做重命名。
  */
 
-import type { EndReason, StageGeometry } from "../physics/stageMotion";
+import type { EndReason, StageGeometry, ArcConstraint } from "../physics/stageMotion";
 import type { ResolvedStagePlan, StageKind, StagePlanDraft } from "../physics/stagePlan";
 
 export type TemplateId = "incline_spring";
@@ -143,15 +143,19 @@ export interface MotionEvent {
   segment: SegmentKind;
   velocityBefore?: Vec2;
   velocityAfter?: Vec2;
+  position?: Vec2;
+  normalForceBeforeN?: number;
+  normalForceAfterN?: number;
   /** 供 AI 联动使用的补充数值 */
   detail?: string;
 }
 
 export interface MotionSample {
-  /** 滑块前下沿接触点 */
+  /** 由 stageGeometry.positionReference 指定；旧场景为滑块前下沿。 */
   position: Vec2;
   velocity: Vec2;
   springCompressionM: number;
+  constraint?: ArcConstraint;
 }
 
 export interface Motion {
