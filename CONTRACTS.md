@@ -4,6 +4,8 @@
 
 竖直内侧圆弧的新增字段与接续见 [圆弧扩展契约](VERTICAL_ARC.md)，实现须在该契约联审合并后接入。
 
+预压弹簧释放、能量反求和部分精确播放的增量见 [预压弹簧契约](PRECOMPRESSED_SPRING.md)。该增量独立联审，合并前不改变运行时支持范围。
+
 首版模板为 `incline_spring`。主演示题、物理前提和验收数值见 [参赛最终方案](PROJECT_PLAN_FINAL.md)。
 
 ## 1. 识别数据 `Reading`

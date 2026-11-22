@@ -4,6 +4,8 @@
 
 新增 `vertical_arc`、固定落地平面及圆弧状态的约定见 [圆弧扩展契约](VERTICAL_ARC.md)。该扩展单独联审，旧阶段和本文件第 5 节的基准保持兼容。
 
+新增 `spring_release`、跨释放位移的水平距离基准、能量反求与示意/精确播放范围见 [预压弹簧扩展契约](PRECOMPRESSED_SPRING.md)，独立联审后接入。
+
 ## 1. 图文输入、指令与计划格式
 
 `POST /api/animation/plan` 接收 `multipart/form-data`。Qoder 云函数采用相同字段与回包。两种请求模式互斥。
@@ -19,9 +21,10 @@
 
 | 计划字段 | 约定 |
 |---|---|
-| `massKg` | 位于计划顶层。含 `spring_contact` 或 `vertical_arc` 的计划需给出有限正质量；圆弧用其输出法向力，见 [圆弧输入约定](VERTICAL_ARC.md#1-输入单位与范围)。其他阶段可省略。 |
-| `gravityMps2` | 位于计划顶层。斜面、含动摩擦的水平滑动、抛体及竖直圆弧需要有限正值，未给出时以 `/gravityMps2` 提示补齐。仅有光滑水平运动或弹簧接触时可省略。圆弧约定见 [扩展契约](VERTICAL_ARC.md#1-输入单位与范围)。 |
-| `initial` | 初段为斜面、水平、弹簧或竖直圆弧时用 `{ speedMps }`，方向由阶段确定；圆弧从最低点水平向右入射，详见 [扩展契约](VERTICAL_ARC.md#1-输入单位与范围)。初段为抛体时用 `{ vxMps, vyMps }`。两种形状互斥，后续段从前一段继承速度。 |
+| `massKg` | 位于计划顶层。含 `spring_contact`、`vertical_arc` 或扩展 `spring_release` 的计划需给出有限正质量；圆弧用其输出法向力，预压释放及能量推导见 [预压弹簧契约](PRECOMPRESSED_SPRING.md)。其他阶段可省略。 |
+| `gravityMps2` | 位于计划顶层。斜面、含动摩擦的水平滑动或预压释放、抛体及竖直圆弧需要有限正值，未给出时以 `/gravityMps2` 提示补齐。仅有光滑水平运动或弹簧接触时可省略。圆弧约定见 [扩展契约](VERTICAL_ARC.md#1-输入单位与范围)。 |
+| `initial` | 初段为斜面、水平、弹簧或竖直圆弧时用 `{ speedMps }`，方向由阶段确定；预压释放本批为静止，圆弧从最低点水平向右入射。初段为抛体时用 `{ vxMps, vyMps }`。两种形状互斥，后续段从前一段继承速度。 |
+| `constraints`、`energy`（扩展） | 预压释放的活动题面条件及规范化后保留的能量来源记录，见 [预压弹簧契约第4节](PRECOMPRESSED_SPRING.md#4-题面约束固定能量与缺参处理)。由B推导，AB编辑保留已固定能量，不重施原临界条件。 |
 | `stages` | 非空的有序阶段列表。阶段特有的事实放在相应阶段内，组合计划无需全局 `facts`。 |
 
 已知结构中的未知必填值取 `null`，可选且未被阶段使用的字段可省略。重力加速度使用题面或用户提供的值。静止释放等前提由题面确认。
@@ -77,12 +80,15 @@ Node 服务与 Qoder 云函数识别新题时使用同一张映射表。
 |---|---|---|
 | `incline_slide` | `lengthM`、`angleDeg`、`kineticFrictionCoefficient`。静止释放需要 `slidesAfterRelease: true`。 | 沿斜面向下，计算到坡底或先停止的状态。 |
 | `lossless_turn` | `lossless: true` 为常量，表示题设支持光滑且近似无高度差的转向。未知填 `null` 并提示核对，明确为 `false` 时返回超范围。 | 坡底位置和速率连续，速度转为水平。输出瞬时事件；还可按 [圆弧接续约定](VERTICAL_ARC.md#1-输入单位与范围) 接 `vertical_arc`。 |
-| `horizontal_slide` | `kineticFrictionCoefficient`，以及 `end: { kind: "distance", distanceM }` 或 `end: { kind: "stop" }`。 | `distance` 指从本水平段起点量起的计划距离。摩擦造成的停止即使未显式写入 `end`，也可能先于该目标发生；正速到达后还可按 [圆弧接续约定](VERTICAL_ARC.md#1-输入单位与范围) 接 `vertical_arc`。 |
+| `horizontal_slide` | `kineticFrictionCoefficient`，以及旧 `end: { kind: "distance", distanceM }` / `{ kind: "stop" }`；[预压扩展](PRECOMPRESSED_SPRING.md#2-距离和合法接续)另有 `distance_from_stage_start`。 | 旧 `distance` 只从本水平段起点量起，新引用距离可从A量总AB；摩擦停止可能先于目标。正速到达后还可按 [圆弧接续约定](VERTICAL_ARC.md#1-输入单位与范围) 接 `vertical_arc`。 |
 | `spring_contact` | `springConstantNpm`、`frictionless: true`、`unattached: true`，质量读计划顶层。 | 水平正速入射，计算接触、最大压缩和恢复原长后脱离。 |
+| `spring_release`（扩展） | `springConstantNpm`、`initialCompressionM`、`kineticFrictionCoefficient`、`unattached`、`slidesAfterRelease`；缺参后缀另需可确认的 `releaseCompleteByM`，见 [预压弹簧契约](PRECOMPRESSED_SPRING.md)。 | 预压后释放，仍压缩时也受摩擦；比较恢复原长与先停止。与旧 `spring_contact` 独立。 |
 | `vertical_arc` | `radiusM`、`endAngleDeg`、`side: "inside"`、`frictionless: true`，质量与重力读计划顶层；完整范围见 [圆弧扩展契约](VERTICAL_ARC.md#1-输入单位与范围)。 | 计算到端点飞出、提前失去接触或停下回滑，输出圆弧几何、约束状态和关键事件。 |
 | `projectile` | 旧 `dropHeightM` 继续表示发射点到落地平面的非负落差，平面为 `launch.yM - dropHeightM`。扩展允许互斥的固定世界坐标 `landingPlaneYM`；圆弧后抛体必须选固定平面，详见 [固定地面约定](VERTICAL_ARC.md#2-接抛体时固定地面)。 | 自实际发射状态起算，记录实际发生的最高点与落地。 |
 
-`horizontal_slide.end` 是二选一。指定距离时，库比较到达目标与因摩擦停止两个事件。停止更早时返回 `stop_before_target`，恰好同时发生时停止优先，返回 `stop_at_target`。只指定 `stop` 时，以停止为目标。光滑面上有正初速且要求因摩擦停止，返回可定位的前提冲突。
+`horizontal_slide.end` 原有 `distance/stop` 两种互斥分支保持兼容。指定距离时，库比较到达目标与因摩擦停止两个事件。停止更早时返回 `stop_before_target`，恰好同时发生时停止优先，返回 `stop_at_target`。只指定 `stop` 时，以停止为目标。光滑面上有正初速且要求因摩擦停止，返回可定位的前提冲突。
+
+[预压弹簧扩展](PRECOMPRESSED_SPRING.md#2-距离和合法接续) 另登记 `end.kind: "distance_from_stage_start"`：从指定预压释放阶段的初始 A 点量总距离，完整释放后的实际水平余程扣掉已发生的释放位移。旧 `distance` 仍只从本水平段起点量起。新释放阶段可以独立运行或接合法后缀，不要求后缀一定是圆弧。
 
 V1 支持斜面到坡底接无损转向，转向接水平滑动或弹簧，水平正速到达指定距离后接弹簧或抛体。按 [圆弧扩展契约](VERTICAL_ARC.md#1-输入单位与范围)，无损转向和水平定距段还都可以接竖直圆弧，圆弧实际离弧后可以接固定 `landingPlaneYM` 的抛体。单段可以独立运行。水平段直接接抛体时，距离目标就是题设桌沿，只有正速到达才产生离桌事件；接圆弧时目标是圆弧入口，水平提前停或恰停均不执行圆弧及其抛体后缀。弹簧脱离及落地为原有终止事件，圆弧的脱离和返回入口等终止口径见 [扩展分支约定](VERTICAL_ARC.md#3-物理状态分支与时间)。
 
@@ -110,6 +116,7 @@ type StageGeometry = {
 - `end.kind === "stop"` 且题设未声明距离目标时，`plannedEnd` 为 `null`。A 可按实际运动范围画出支撑面。抛体几何只在实际离桌或发射后生成。
 - `front_bottom` 表示运动物体的固定前下沿参考点。斜面上是沿下坡方向的前侧贴面角，水平、弹簧与抛体阶段用右下角。速度反向时沿用同一角，画布按支撑方向将方块向后并向上绘制。恰停桌沿时参考点与桌沿重合，方块底边留在桌面一侧。方块尺寸为绘图值。
 - 含圆弧的场景全程使用 `particle`，前段水平、圆弧与后段抛体都继承同一质点位置；旧场景继续使用 `front_bottom`。上例中的 `VerticalArcGeometry` 完整字段、实际离弧点及可选约束取样见 [圆弧绘图约定](VERTICAL_ARC.md#4-绘图取样和事件的增量)。圆弧入口继承前段的实际世界坐标，不能重置到原点；抛体 `landingPlane.yM` 使用 `landingPlaneYM`，原 `dropHeightM` 路径保持原计算口径。
+- 预压弹簧扩展也使用 `particle`。其 `springRelease` 几何、A/B/C 标记、未计时的 `schematic` 前段以及 `timing` 元数据见 [预压弹簧输出约定](PRECOMPRESSED_SPRING.md#5-公开输出坐标和精确播放范围)。已有几何字段继续仅表示实际算过的阶段，未知前段不得冒充已求出的轨迹。
 
 ### 4.2 时间轴、事件与终点口径
 
