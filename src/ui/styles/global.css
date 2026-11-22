@@ -316,6 +316,7 @@ textarea {
 }
 
 .composer {
+  position: relative;
   margin-top: 32px;
   background: var(--surface);
   border-radius: var(--radius-xl);
@@ -328,6 +329,29 @@ textarea {
 .composer:focus-within {
   border-color: var(--border-strong);
   box-shadow: 0 1px 2px rgba(17, 17, 17, 0.04), 0 22px 54px -24px rgba(17, 17, 17, 0.26);
+}
+
+/* 拖拽与图片校验反馈：只在交互/出错时出现，不占常态版面 */
+.composer.is-dragging {
+  border-color: var(--accent);
+}
+.composer-drop {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: rgba(250, 250, 247, 0.92);
+  border: 1px dashed var(--border-strong);
+  font-size: 13px;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+.composer-error {
+  margin: 9px 2px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #8a4b4b;
 }
 
 .composer-text {
@@ -455,271 +479,6 @@ textarea {
   font-size: 12px;
   color: var(--text-tertiary);
   letter-spacing: 0.005em;
-}
-
-/* ---------- 首页：拖拽 / 粘贴 / 预览操作 ---------- */
-
-.composer {
-  position: relative;
-}
-.composer.is-dragging {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.06);
-}
-.composer-drop {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  border-radius: inherit;
-  background: rgba(250, 250, 247, 0.92);
-  border: 1px dashed var(--border-strong);
-  font-size: 13px;
-  color: var(--text-secondary);
-  pointer-events: none;
-  z-index: 2;
-}
-
-.composer-tools {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.composer-error {
-  margin: 9px 2px 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #8a4b4b;
-  text-align: left;
-}
-
-.composer-preview {
-  max-width: 100%;
-}
-.composer-preview .name {
-  min-width: 0;
-}
-.composer-preview-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: auto;
-  flex: none;
-}
-.composer-preview-actions button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-/* ---------- 首页：示例卡片 ---------- */
-
-.sample-card {
-  width: 100%;
-  max-width: 430px;
-  margin-top: 24px;
-  padding: 10px 14px 10px 10px;
-  border-radius: 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  text-align: left;
-}
-.sample-card:hover {
-  gap: 12px;
-}
-.sample-card-art {
-  width: 92px;
-  height: 56px;
-  flex: none;
-  color: var(--text-primary);
-  background: var(--paper);
-  border-radius: 10px;
-  padding: 3px 5px;
-}
-.sample-card-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.sample-card-copy strong {
-  font-size: 13.5px;
-  font-weight: 600;
-}
-.sample-card-copy small {
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-.sample-card-arrow {
-  margin-left: auto;
-  flex: none;
-  color: var(--text-tertiary);
-  transition: transform 0.15s ease;
-}
-.sample-card:hover .sample-card-arrow {
-  transform: translateX(2px);
-}
-
-/* ---------- 首页：文字样例 / 步骤 / 最近 / 能力说明 ---------- */
-
-.home-recents {
-  margin-top: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  font-size: 12px;
-}
-.home-recents-label {
-  color: var(--text-tertiary);
-}
-.recent-chip {
-  max-width: 180px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--hair);
-  background: var(--paper);
-  font-size: 12px;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: border-color 0.15s ease, color 0.15s ease;
-}
-.recent-chip:hover {
-  border-color: var(--border-strong);
-  color: var(--text-primary);
-}
-
-/* ---------- 首页：结构化提示 ---------- */
-
-.notice-card {
-  display: block;
-  max-width: 560px;
-  margin: 20px auto 0;
-  text-align: left;
-}
-.notice-body {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-}
-.notice-fields {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 12px;
-  line-height: 1.6;
-}
-.notice-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 8px;
-}
-.notice-actions .ghost-button {
-  padding: 5px 12px;
-  font-size: 12px;
-}
-
-.recognizing {
-  flex-wrap: wrap;
-}
-.recognizing-time {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-tertiary);
-}
-.recognizing-hint {
-  flex-basis: 100%;
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-
-/* ---------- 首页：裁剪弹层 ---------- */
-
-.crop-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgba(17, 17, 17, 0.45);
-  animation: fadeIn 0.18s ease both;
-}
-.crop-dialog {
-  width: min(680px, 94vw);
-  max-height: 90vh;
-  overflow: auto;
-  padding: 16px;
-  border-radius: var(--radius-xl);
-  background: var(--surface);
-  box-shadow: var(--shadow-float);
-  text-align: left;
-}
-.crop-head {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 12px;
-}
-.crop-head strong {
-  font-size: 14px;
-}
-.crop-head span {
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-.crop-stage {
-  position: relative;
-  display: inline-block;
-  max-width: 100%;
-  overflow: hidden;
-  border-radius: 8px;
-  background: var(--paper);
-  touch-action: none;
-}
-.crop-stage img {
-  display: block;
-  max-width: 100%;
-  max-height: 58vh;
-  user-select: none;
-}
-.crop-box {
-  position: absolute;
-  border: 2px solid #fff;
-  border-radius: 2px;
-  box-shadow: 0 0 0 9999px rgba(17, 17, 17, 0.5);
-  cursor: move;
-  touch-action: none;
-}
-.crop-handle {
-  position: absolute;
-  right: 2px;
-  bottom: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #fff;
-  border: 2px solid rgba(17, 17, 17, 0.35);
-  cursor: nwse-resize;
-}
-.crop-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }
 
 /* 处理中 */
@@ -1847,15 +1606,6 @@ textarea {
 @media (max-width: 720px) {
   .topbar {
     padding: 10px 14px;
-  }
-  .home {
-    padding: 3vh 16px 8vh;
-  }
-  .sample-card {
-    max-width: 100%;
-  }
-  .crop-stage img {
-    max-height: 46vh;
   }
   .workspace {
     padding: 0 10px 12px;

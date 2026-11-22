@@ -1,13 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  emptyDraft,
-  loadHomeDraft,
-  makeRecent,
-  pushRecent,
-  saveHomeDraft,
-  type DraftStorage,
-  type RecentProblem,
-} from "../homeDraft";
+import { loadDraftText, saveDraftText, type DraftStorage } from "../homeDraft";
 
 class MemoryStorage implements DraftStorage {
   private readonly map = new Map<string, string>();
@@ -19,50 +11,36 @@ class MemoryStorage implements DraftStorage {
   }
 }
 
-const recent = (label: string, text = label): RecentProblem => ({
-  id: label,
-  label,
-  text,
-  createdAt: 0,
-});
-
 describe("homeDraft", () => {
-  it("空存储返回空草稿", () => {
-    expect(loadHomeDraft(new MemoryStorage())).toEqual(emptyDraft());
+  it("空存储返回空字符串", () => {
+    expect(loadDraftText(new MemoryStorage())).toBe("");
   });
 
-  it("保存后可恢复文字与最近记录", () => {
+  it("保存后可恢复题干", () => {
     const storage = new MemoryStorage();
-    saveHomeDraft({ text: "题干", recents: [recent("a")] }, storage);
-    const restored = loadHomeDraft(storage);
-    expect(restored.text).toBe("题干");
-    expect(restored.recents).toHaveLength(1);
-    expect(restored.recents[0].label).toBe("a");
+    saveDraftText("质量 1 kg 的滑块…", storage);
+    expect(loadDraftText(storage)).toBe("质量 1 kg 的滑块…");
   });
 
   it("坏 JSON 不崩溃", () => {
     const storage = new MemoryStorage();
     storage.setItem("visuallab:home-draft:v1", "{not-json");
-    expect(loadHomeDraft(storage)).toEqual(emptyDraft());
+    expect(loadDraftText(storage)).toBe("");
   });
 
-  it("最近记录去重且最多三条", () => {
-    let state = emptyDraft();
-    for (const label of ["a", "b", "c", "d"]) {
-      state = pushRecent(state, recent(label));
-    }
-    expect(state.recents.map((item) => item.label)).toEqual(["d", "c", "b"]);
-
-    const deduped = pushRecent(state, recent("c"));
-    expect(deduped.recents.map((item) => item.label)).toEqual(["c", "d", "b"]);
+  it("存储写入失败时静默降级", () => {
+    const broken: DraftStorage = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("quota exceeded");
+      },
+    };
+    expect(() => saveDraftText("题干", broken)).not.toThrow();
   });
 
-  it("过大的图片数据不写入", () => {
+  it("超长题干截断到 4000 字", () => {
     const storage = new MemoryStorage();
-    saveHomeDraft(
-      { text: "", recents: [makeRecent({ label: "大图", text: "", imageDataUrl: "x".repeat(400_000) })] },
-      storage,
-    );
-    expect(loadHomeDraft(storage).recents[0].imageDataUrl).toBeUndefined();
+    saveDraftText("x".repeat(5000), storage);
+    expect(loadDraftText(storage)).toHaveLength(4000);
   });
 });

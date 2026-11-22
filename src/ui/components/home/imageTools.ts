@@ -1,5 +1,5 @@
 /**
- * 首页图片入口的轻量工具：前置校验、上传前缩放、旋转与裁剪。
+ * 首页图片入口的轻量工具：前置校验与上传前缩放。
  * 只在浏览器里跑；识别契约不受影响。
  */
 
@@ -63,19 +63,6 @@ function outputType(file: File): "image/png" | "image/jpeg" {
   return file.type === "image/png" ? "image/png" : "image/jpeg";
 }
 
-async function encodeCanvas(
-  canvas: HTMLCanvasElement,
-  file: File,
-  name = file.name,
-): Promise<File> {
-  const type = outputType(file);
-  const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, type, type === "image/jpeg" ? 0.9 : undefined),
-  );
-  if (!blob) throw new Error("canvas encode failed");
-  return new File([blob], name, { type, lastModified: Date.now() });
-}
-
 /** 超过长边或体积阈值时等比缩小；失败则回退原图，保证识别可用。 */
 export async function prepareImageFile(file: File): Promise<File> {
   const check = checkImageFile(file);
@@ -99,84 +86,17 @@ export async function prepareImageFile(file: File): Promise<File> {
     const context = canvas.getContext("2d");
     if (!context) return file;
     context.drawImage(decoded.source, 0, 0, canvas.width, canvas.height);
-    const encoded = await encodeCanvas(canvas, file);
+
+    const type = outputType(file);
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, type, type === "image/jpeg" ? 0.9 : undefined),
+    );
+    if (!blob) return file;
+    const encoded = new File([blob], file.name, { type, lastModified: Date.now() });
     return encoded.size < file.size ? encoded : file;
   } catch {
     return file;
   } finally {
     decoded.close();
   }
-}
-
-export async function rotateImageFile(file: File, degrees: 90 | 180 | 270): Promise<File> {
-  const decoded = await decodeImage(file);
-  try {
-    const swap = degrees === 90 || degrees === 270;
-    const canvas = document.createElement("canvas");
-    canvas.width = swap ? decoded.height : decoded.width;
-    canvas.height = swap ? decoded.width : decoded.height;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("canvas unavailable");
-
-    if (degrees === 90) {
-      context.translate(canvas.width, 0);
-      context.rotate(Math.PI / 2);
-    } else if (degrees === 180) {
-      context.translate(canvas.width, canvas.height);
-      context.rotate(Math.PI);
-    } else {
-      context.translate(0, canvas.height);
-      context.rotate(-Math.PI / 2);
-    }
-    context.drawImage(decoded.source, 0, 0);
-    return await encodeCanvas(canvas, file);
-  } finally {
-    decoded.close();
-  }
-}
-
-export interface CropRect {
-  /** 归一化坐标，0–1 */
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export async function cropImageFile(file: File, rect: CropRect): Promise<File> {
-  const decoded = await decodeImage(file);
-  try {
-    const x = Math.min(Math.max(rect.x, 0), 1);
-    const y = Math.min(Math.max(rect.y, 0), 1);
-    const width = Math.min(Math.max(rect.width, 0.05), 1 - x);
-    const height = Math.min(Math.max(rect.height, 0.05), 1 - y);
-    const sx = x * decoded.width;
-    const sy = y * decoded.height;
-    const sw = Math.max(1, width * decoded.width);
-    const sh = Math.max(1, height * decoded.height);
-
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(sw);
-    canvas.height = Math.round(sh);
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("canvas unavailable");
-    context.drawImage(decoded.source, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-    return await encodeCanvas(canvas, file);
-  } finally {
-    decoded.close();
-  }
-}
-
-export function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
-    reader.readAsDataURL(file);
-  });
-}
-
-export async function dataUrlToFile(dataUrl: string, name: string): Promise<File> {
-  const blob = await (await fetch(dataUrl)).blob();
-  return new File([blob], name, { type: blob.type || "image/png" });
 }
