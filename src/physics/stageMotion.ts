@@ -267,11 +267,17 @@ function compute(plan: ResolvedStagePlan): StageMotion | StagePlanFailure {
       // 吸收累加时刻和十进制播放值的 ulp 误差，按物理时刻缩放。
       // 固定绝对容差会把极短圆弧的离弧事件错误吸附到 t=0。
       const copy = (s: MotionSample): MotionSample => ({ ...s, ...(s.constraint ? { constraint: { ...s.constraint } } : {}) });
+      let nearestIndex = -1, nearestDistance = Infinity;
       for (let i = events.length - 1; i >= 0; i--) {
         const eventTime = events[i].timeSeconds;
+        // 精确时刻优先。逆序保留同刻最后事件，近似命中不能抢走另一精确时刻。
+        if (eventTime === t) return copy(eventStates[i]);
+        const distance = Math.abs(eventTime - t);
         const tolerance = 8 * Number.EPSILON * Math.max(Math.abs(eventTime), Math.abs(t), Number.MIN_VALUE);
-        if (Math.abs(eventTime - t) <= tolerance) return copy(eventStates[i]);
+        if (distance <= tolerance && distance < nearestDistance) { nearestIndex = i; nearestDistance = distance; }
       }
+      // 只有无精确命中时才选最近事件；等距不覆盖，沿用逆序的最后事件优先。
+      if (nearestIndex >= 0) return copy(eventStates[nearestIndex]);
       const active = runs.find((item) => t >= item.start && t < item.end);
       return copy(active ? active.run.sampleAt(t - active.start) : final);
     },

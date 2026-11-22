@@ -111,6 +111,34 @@ describe("竖直圆弧公共入口", () => {
     expect(motion.sampleAt(end.timeSeconds).yM).toBe(.8);
     expect(motion.sampleAt(end.timeSeconds).constraint).toBeUndefined();
   });
+  it("相邻浮点时刻精确匹配优先，近似匹配选择更近的入弧事件", () => {
+    const motion = build({ ...endpoint, initial: { speedMps: 1 }, stages: [
+      { kind: "horizontal_slide", kineticFrictionCoefficient: 0, end: { kind: "distance", distanceM: 1 } },
+      { ...endpoint.stages[0], radiusM: 1e-16 },
+    ] });
+    const enter = motion.events.find(e => e.kind === "arc_enter")!;
+    const exit = motion.events.find(e => e.kind === "arc_endpoint")!;
+    expect(enter.timeSeconds).toBe(1); expect(exit.timeSeconds).toBe(1 + Number.EPSILON);
+    const at = motion.sampleAt(1);
+    expect(at.constraint?.stageIndex).toBe(1); expect(at.vxMps).toBe(1); expect(at.yM).toBe(0);
+    expect(motion.sampleAt(exit.timeSeconds).constraint).toBeUndefined();
+    expect(motion.sampleAt(exit.timeSeconds).vxMps).toBeLessThan(0);
+    const nearEntry = motion.sampleAt(1 - Number.EPSILON / 2);
+    expect(nearEntry.constraint?.stageIndex).toBe(1); expect(nearEntry.vxMps).toBe(1);
+  });
+  it("无精确命中且与两个事件等距时保留后发生的事件", () => {
+    const motion = build({ ...endpoint, initial: { speedMps: 1 }, stages: [
+      { kind: "horizontal_slide", kineticFrictionCoefficient: 0, end: { kind: "distance", distanceM: 1 } },
+      { ...endpoint.stages[0], radiusM: 4 * Number.EPSILON / Math.PI },
+    ] });
+    const enter = motion.events.find(e => e.kind === "arc_enter")!.timeSeconds;
+    const exit = motion.events.find(e => e.kind === "arc_endpoint")!.timeSeconds;
+    const middle = (enter + exit) / 2;
+    expect(middle).toBeGreaterThan(enter); expect(middle).toBeLessThan(exit);
+    expect(middle - enter).toBe(exit - middle);
+    expect(motion.sampleAt(middle).constraint).toBeUndefined();
+    expect(motion.sampleAt(middle).vxMps).toBeLessThan(0);
+  });
 
   it.each([[8 - 1e-7, "returned_to_entry"], [8, "returned_to_entry"], [8 + 1e-7, "landed"], [20 - 1e-7, "arc_contact_lost"], [20, "arc_endpoint"], [20 + 1e-7, "arc_endpoint"]])("临界能量 %s 保留真实分支", (v2, expected) => {
     const motion = build(withSpeedSquared(v2 as number));
