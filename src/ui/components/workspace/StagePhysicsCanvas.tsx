@@ -20,11 +20,13 @@ type Bounds = { x1: number; x2: number; y1: number; y2: number };
 
 export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: number, motion: Motion, time: number) {
   const g = motion.stageGeometry!;
+  const displayArc = g.verticalArc ?? g.schematic?.verticalArc;
   const size = g.blockSizeM;
   const sample = motion.sampleAt(time);
   const first = motion.sampleAt(0);
   const last = motion.sampleAt(motion.durationSeconds);
   const points: Vec2[] = [first.position, last.position];
+  for (const landmark of g.landmarks ?? []) points.push({ x: landmark.position.xM, y: landmark.position.yM });
   if (g.incline) points.push({ x: g.incline.start.xM, y: g.incline.start.yM }, { x: g.incline.end.xM, y: g.incline.end.yM });
   if (g.horizontal) {
     points.push({ x: g.horizontal.start.xM, y: g.horizontal.start.yM });
@@ -32,8 +34,8 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   }
   if (g.spring) points.push({ x: g.spring.contact.xM, y: g.spring.contact.yM }, { x: g.spring.anchor.xM, y: g.spring.anchor.yM });
   if (g.projectile) points.push({ x: g.projectile.launch.xM, y: g.projectile.launch.yM }, { x: last.position.x, y: g.projectile.landingPlane.yM });
-  if (g.verticalArc) {
-    const arc = g.verticalArc;
+  if (displayArc) {
+    const arc = displayArc;
     points.push({ x: arc.entry.xM, y: arc.entry.yM }, { x: arc.plannedEnd.xM, y: arc.plannedEnd.yM },
       { x: arc.center.xM + arc.radiusM * Math.sin(Math.min(90, arc.endAngleDeg) * Math.PI / 180), y: arc.center.yM });
   }
@@ -60,6 +62,20 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   ctx.fillRect(0, 0, W, H);
   ctx.lineCap = "butt";
   ctx.lineJoin = "round";
+  if (g.schematic?.horizontal) {
+    const { start, plannedEnd } = g.schematic.horizontal;
+    ctx.save(); ctx.setLineDash([5, 5]); ctx.strokeStyle = SOFT;
+    ctx.beginPath(); ctx.moveTo(X(start.xM), Y(start.yM)); ctx.lineTo(X(plannedEnd.xM), Y(plannedEnd.yM)); ctx.stroke(); ctx.restore();
+    ctx.fillStyle = SOFT; ctx.font = `12px ${SANS}`; ctx.fillText("前段示意 · 未计时", Math.max(8, X(start.xM)), Y(start.yM) + 36);
+  }
+  const release = g.springRelease;
+  const springIcon = release?.start ?? g.schematic?.springIconAt;
+  if (springIcon) {
+    if (release) { ctx.strokeStyle = INK; ctx.beginPath(); ctx.moveTo(X(release.start.xM), Y(release.start.yM)); ctx.lineTo(X(release.naturalContact.xM), Y(release.naturalContact.yM)); ctx.stroke(); }
+    const left = X(springIcon.xM) - 34, right = X(release ? release.naturalContact.xM - sample.springCompressionM : springIcon.xM);
+    ctx.strokeStyle = SOFT; ctx.beginPath(); ctx.moveTo(left, Y(springIcon.yM) - 5);
+    for (let i = 1; i <= 12; i++) ctx.lineTo(left + (right - left) * i / 12, Y(springIcon.yM) - 5 + (i % 2 ? -5 : 5)); ctx.stroke();
+  }
 
   const active = [...motion.segments].reverse().find((segment) => time >= segment.startSeconds - 1e-9)
     ?? motion.segments[0];
@@ -132,8 +148,9 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   }
 
   // 圆弧使用质点轨迹；真实入口与计划端点均来自米制几何，不按画布缩放反推。
-  if (g.verticalArc) {
-    const arc = g.verticalArc;
+  if (displayArc) {
+    const arc = displayArc;
+    ctx.save(); if (!g.verticalArc) ctx.setLineDash([5, 5]);
     ctx.strokeStyle = INK;
     ctx.lineWidth = sample.constraint ? 2.4 : 1.6;
     ctx.beginPath();
@@ -143,16 +160,16 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
       const y = Y(arc.entry.yM + arc.radiusM * (1 - Math.cos(phi)));
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
-    ctx.stroke();
+    ctx.stroke(); ctx.restore();
     ctx.save(); ctx.setLineDash([3, 4]); ctx.strokeStyle = HAIR; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(X(arc.center.xM), Y(arc.center.yM));
     ctx.lineTo(X(arc.center.xM + arc.radiusM), Y(arc.center.yM)); ctx.stroke(); ctx.restore();
     ctx.font = `500 12px ${SANS}`; ctx.fillStyle = SOFT; ctx.textAlign = "center";
     ctx.fillText("R", X(arc.center.xM + arc.radiusM / 2), Y(arc.center.yM) - 7);
-    ctx.fillText(arc.endAngleDeg === 180 ? "C" : "端点", X(arc.plannedEnd.xM) - 10, Y(arc.plannedEnd.yM) - 12);
+    if (!g.landmarks?.length) ctx.fillText(arc.endAngleDeg === 180 ? "C" : "端点", X(arc.plannedEnd.xM) - 10, Y(arc.plannedEnd.yM) - 12);
   }
   const arcEntry = g.verticalArc?.entry ?? (hasPlannedArc ? plannedEnd : undefined);
-  if (arcEntry) {
+  if (arcEntry && !g.landmarks?.length) {
     ctx.font = `500 12px ${SANS}`; ctx.fillStyle = SOFT; ctx.textAlign = "center";
     ctx.fillText("B", X(arcEntry.xM), Y(arcEntry.yM) + 19);
     if (g.horizontal) ctx.fillText("A", X(g.horizontal.start.xM), Y(g.horizontal.start.yM) + 19);
@@ -298,6 +315,10 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   }
 
   const speedText = formatSpeed(speed);
+  for (const landmark of g.landmarks ?? []) {
+    ctx.fillStyle = SOFT; ctx.font = `12px ${SANS}`; ctx.textAlign = "center";
+    ctx.fillText(landmark.label, X(landmark.position.xM) - 9, Y(landmark.position.yM) + (landmark.label === "C" || landmark.label === "端点" ? -12 : 19));
+  }
   ctx.fillStyle = INK;
   ctx.font = `500 13px ${SANS}`;
   ctx.textAlign = "center";

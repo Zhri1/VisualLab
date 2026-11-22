@@ -25,6 +25,7 @@ export function WorkspaceLayout({ ws }: Props) {
   const stagePlan = isStageReading(ws.appliedReading) ? ws.appliedReading : null;
   const legacyReading = ws.appliedReading && !isStageReading(ws.appliedReading) ? ws.appliedReading : null;
   const stageLabels = {
+    spring_release: "预压释放",
     incline_slide: "斜面",
     lossless_turn: "转向",
     horizontal_slide: "水平",
@@ -117,6 +118,8 @@ export function WorkspaceLayout({ ws }: Props) {
             </button>
           </div>
 
+          {motion?.timing && <div className="notice info" role="status"><span>{motion.timing.mode === "full" ? "全程精确播放" : motion.timing.mode === "suffix" ? "前段示意 · 从B精确计时" : "仅展示已知状态 · 用时未知"}：{motion.timing.reason}
+            {motion.calculations?.map(c => <span key={c.quantity}>　{{ initial_elastic_energy: "初始弹性势能", release_speed: "脱离速度", arc_entry_speed: "入弧速度" }[c.quantity] ?? c.quantity} = {Number(c.value.toPrecision(6))} {c.unit}（{c.source === "derived" ? "物理推导" : "题设/用户给定"}）</span>)}</span></div>}
           {motion && (
             <ul className="scene-legend" aria-label="路段与动摩擦因数">
               {stagePlan ? motion.segments.map((segment) => {
@@ -180,14 +183,14 @@ export function WorkspaceLayout({ ws }: Props) {
                 onSlowSegment={ws.slowCurrentSegment}
                 onExitSegment={ws.exitSegmentPlayback}
               />
-              <div className="explanation-slot">
+              {motion.timing?.mode !== "state_only" && <div className="explanation-slot">
                 <PhysicsExplanation motion={motion} time={currentTime} />
                 <div className="explanation-reserve" aria-hidden="true">
                   {explanationTimes.map((time, index) => (
                     <PhysicsExplanation key={index} motion={motion} time={time} />
                   ))}
                 </div>
-              </div>
+              </div>}
             </>
           ) : null}
         </section>

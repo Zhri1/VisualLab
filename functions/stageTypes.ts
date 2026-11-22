@@ -38,7 +38,7 @@ export type StagePlanFailureCode =
 
 /** B 的 validateStagePlan 返回形状 */
 export type StagePlanValidation =
-  | { ok: true; reading: unknown }
+  | { ok: true; reading: unknown; playback?: { reason: string } }
   | {
       ok: false;
       code: StagePlanFailureCode;

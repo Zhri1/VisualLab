@@ -81,6 +81,7 @@
 | `lossless_turn` | `lossless` | 恒为 `true`；题面没写转向是否光滑填 `null`；明确有能量损失 → 超范围 |
 | `horizontal_slide` | `kineticFrictionCoefficient`、`end` | `end` 二选一：`{ "kind": "distance", "distanceM": 5 }` 或 `{ "kind": "stop" }`。`distanceM` **从本水平段起点量起**（通常就是坡底/转向点） |
 | `spring_contact` | `springConstantNpm`、`frictionless`、`unattached` | `frictionless` 指水平接触面光滑；`unattached` 指滑块与弹簧不连接。二者为 `false` → 超范围 |
+| `spring_release` | `springConstantNpm`、`initialCompressionM`、`kineticFrictionCoefficient`、`unattached`、`slidesAfterRelease`，必要时releaseCompleteByM | 静止预压释放首段；完整或缺参条件见第8节，由B计算能量与精确范围 |
 | `vertical_arc` | `radiusM`、`endAngleDeg`、`side`、`frictionless` | 光滑竖直圆弧内侧，半径 >0，最低点水平向右入射，沿右半圆向上；端点角从最低点量起，0<角度≤180°，半圆最高点为180°；`side` 仅支持 `"inside"`；光滑前提未知填 `null` |
 | `projectile` | `dropHeightM` 或 `landingPlaneYM`，只能保留一个键 | 旧 `dropHeightM` 是相对发射点的非负落差。`landingPlaneYM` 是固定世界坐标的落地高度，可带符号；圆弧后必须用固定高度，最低点地面且首段从最低点开始时为0。依据不足填 `null`，不要按最终脱轨位置猜地面 |
 
@@ -106,6 +107,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 3. `horizontal_slide`（定距） → `spring_contact`、`projectile` 或 `vertical_arc`
 4. `vertical_arc` → `projectile`，后者使用固定 `landingPlaneYM`；实际到端点、先脱轨或回滑由物理库判定，不由模型预先删段
 5. 单段独立：`incline_slide`、`horizontal_slide`、`spring_contact`、`projectile`、`vertical_arc` 都可以单独出现
+6. `spring_release`作为首段可独立，或接水平、弹簧接触、圆弧、抛体；接续和距离/能量前提见第8节。
 
 > 「只看斜面」这类截断请求会生成只有 `incline_slide` 的前缀计划，必须能通过校验，终止原因为 `prefix_end`。
 
@@ -120,7 +122,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 `horizontal_slide` 接 `projectile` 时，`distanceM` 就是题设的**桌沿位置**；只有正速到达才产生离桌。
 
-`horizontal_slide` 接 `vertical_arc` 时，`distanceM` 是到圆弧最低点的距离。坐标原点仍是全场景第一段起点（斜面起始时沿用坡底原点），圆弧入口不得重置到0。只有无高度差的短光滑过渡才用 `lossless_turn`；给出半径且高度变化不可忽略的竖直圆轨道必须用 `vertical_arc`。外侧、双面卡槽、粗糙或超过半圈暂不支持。预压弹簧和“恰好通过最高点”所需的能量反求另待模块接入，不要伪造初速、劲度系数或压缩量。
+`horizontal_slide` 接 `vertical_arc` 时，`distanceM` 是到圆弧最低点的距离。坐标原点仍是全场景第一段起点（斜面起始时沿用坡底原点），圆弧入口不得重置到0。只有无高度差的短光滑过渡才用 `lossless_turn`；给出半径且高度变化不可忽略的竖直圆轨道必须用 `vertical_arc`。外侧、双面卡槽、粗糙或超过半圈暂不支持。预压释放和临界能量条件见第8节；不要伪造初速、劲度系数或压缩量。
 
 ### 4.1 省略水平段 = 断言「弹簧紧贴坡底」
 
@@ -179,7 +181,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 出现下列任一情况，输出 `kind: "stage_plan"`、`stages: []`、`gravityMps2: null`、`initial: { "speedMps": null }`，并在 `unsupportedReason` 写一句中文：
 
 - 电磁学、竖直光滑内侧半圆以外的圆周轨道、天体、碰撞/动量、连接体、传送带、浮力热学、光学原子物理、机械波
-- 预压弹簧释放或仅给临界条件、需反求初始能量/初速的题（本批尚未接入）
+- 不符合第8节前提的预压释放/能量题
 - 斜面直接接抛体或直接接弹簧
 - 弹簧与滑块连接、转向有明显能量损失
 - 水平面粗糙但题面要求"因摩擦停止"却给了正初速（前提冲突）
@@ -268,7 +270,28 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 > 对比：单独的平抛题（桌面边缘以 v₀ 水平抛出）是**合法**的单段 `projectile`，应正常输出 `stages: [{ "kind": "projectile", "dropHeightM": 1.25 }]` 与 `initial: { "vxMps": 4, "vyMps": 0 }`，不要误判为超范围。
 
-## 8. 提交前自检
+## 8. 预压弹簧与临界条件
+
+现在支持首段 `spring_release`：从静止的预压弹簧释放，字段为springConstantNpm、initialCompressionM、kineticFrictionCoefficient、unattached、slidesAfterRelease。质量必给；压缩阶段同样使用本段μ。与已有spring_contact入射压缩反弹独立。后接水平段时，题面AB从初始A量总长应写 `end:{kind:"distance_from_stage_start",stageIndex:0,distanceM:AB}`，不要把AB误作脱离后还要走的距离。
+
+题面只有“恰好通过最高点”时：保留未知k/c为null，添加 `constraints:[{kind:"critical_arc_top",stageIndex:圆弧下标}]`，圆弧必须为180°光滑内侧。若明确在B前或B点已恢复原长，releaseCompleteByM填写已知AB，表示初压缩量c不超过该值；无法确认则null。不要按图像比例猜压缩量，不要计算E或B速度，B会生成固定能量及来源记录。完整参数可由B计算是否已释放，无需额外上界。允许摩擦区不同，不要将其整题判为超范围。
+
+例如原题m=.1kg、g=10、AB=2、μ=.2、R=.4，初态静止，k/c未知：
+
+```json
+{
+  "kind":"stage_plan","schemaVersion":1,"massKg":0.1,"gravityMps2":10,"initial":{"speedMps":0},
+  "constraints":[{"kind":"critical_arc_top","stageIndex":2}],
+  "stages":[
+    {"kind":"spring_release","springConstantNpm":null,"initialCompressionM":null,"kineticFrictionCoefficient":0.2,"unattached":true,"slidesAfterRelease":true,"releaseCompleteByM":2},
+    {"kind":"horizontal_slide","kineticFrictionCoefficient":0.2,"end":{"kind":"distance_from_stage_start","stageIndex":0,"distanceM":2}},
+    {"kind":"vertical_arc","radiusM":0.4,"endAngleDeg":180,"side":"inside","frictionless":true},
+    {"kind":"projectile","landingPlaneYM":0}
+  ]
+}
+```
+
+## 9. 提交前自检
 
 圆弧提取示例：质量0.1 kg，最低点水平入射速度4 m/s，半径0.4 m的光滑竖直半圆内侧，到最高点后可飞出，地面与最低点同高，g=10。输出保留全部计划，不预判提前脱轨：
 

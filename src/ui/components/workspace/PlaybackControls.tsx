@@ -42,7 +42,7 @@ export function PlaybackControls({
   return (
     <div className="transport">
       <div className="transport-row">
-        <button className="tbtn" onClick={onReplay} title="从头重播" aria-label="从头重播">
+        <button className="tbtn" onClick={onReplay} title="从头重播" aria-label="从头重播" disabled={motion.timing?.mode === "state_only"}>
           <RotateCcw size={17} strokeWidth={1.9} />
         </button>
 
@@ -51,6 +51,7 @@ export function PlaybackControls({
           onClick={onTogglePlay}
           title={isPlaying ? "暂停" : "播放"}
           aria-label={isPlaying ? "暂停" : "播放"}
+          disabled={motion.timing?.mode === "state_only"}
         >
           {isPlaying ? (
             <Pause size={15} fill="currentColor" strokeWidth={0} />
@@ -64,23 +65,24 @@ export function PlaybackControls({
           onClick={onNextEvent}
           title="跳到下一关键事件"
           aria-label="跳到下一关键事件"
+          disabled={motion.timing?.mode === "state_only"}
         >
           <SkipForward size={17} strokeWidth={1.9} />
         </button>
 
         <div className="time-readout">
-          <b>{time.toFixed(2)}</b> s / {motion.durationSeconds.toFixed(2)} s
+          {motion.timing?.mode === "state_only" ? "已知状态 · 用时未知" : <><b>{time.toFixed(2)}</b> s / {motion.durationSeconds.toFixed(2)} s</>}
         </div>
       </div>
 
-      <EventTimeline
+      {motion.timing?.mode !== "state_only" && <EventTimeline
         motion={motion}
         time={time}
         onSeek={onSeek}
         onSeekEvent={onSeekEvent}
         onScrubStart={onScrubStart}
-      />
-      <div className="playback-auxiliary" aria-label="辅助播放选项">
+      />}
+      {motion.timing?.mode !== "state_only" && <div className="playback-auxiliary" aria-label="辅助播放选项">
         <div className="playback-options">
           <label className="rate-control">
             播放倍率
@@ -104,7 +106,7 @@ export function PlaybackControls({
         <p className="playback-mode" role="status">
           {segmentName ? `本段慢放 · ${segmentName} · 段末停止` : "全程播放"}
         </p>
-      </div>
+      </div>}
     </div>
   );
 }

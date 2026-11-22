@@ -18,6 +18,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** 源文件 → 云函数文件。顺序即依赖顺序，便于阅读。 */
 const FILES = [
+  { from: "src/physics/springEnergy.ts", to: "functions/springEnergy.ts" },
   { from: "src/physics/stagePlan.ts", to: "functions/stagePlan.ts" },
   { from: "src/api/stageTypes.ts", to: "functions/stageTypes.ts" },
   { from: "src/api/stageStatus.ts", to: "functions/stageStatus.ts" },
