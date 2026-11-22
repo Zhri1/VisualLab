@@ -175,6 +175,22 @@ textarea {
   gap: 10px;
 }
 
+/* 顶栏品牌区作为“返回首页”入口：重置按钮默认样式并保持原有排布。 */
+.brand-button {
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.brand-button:hover {
+  background: var(--surface-secondary);
+}
+
 .topbar-right {
   display: flex;
   align-items: center;
