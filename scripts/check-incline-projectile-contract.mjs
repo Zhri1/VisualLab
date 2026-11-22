@@ -10,7 +10,7 @@ const close = (actual, expected, tolerance = 1e-12) => {
   assert.ok(Number.isFinite(actual) && Math.abs(actual - expected) <= tolerance, `${actual} 与 ${expected} 不符`);
   checks++;
 };
-const state = (actual, expected) => { for (const key of ['xM', 'yM', 'vxMps', 'vyMps', 'springCompressionM']) if (key in expected) close(actual[key], expected[key]); };
+const state = (actual, expected, tolerance = 1e-12) => { for (const key of ['xM', 'yM', 'vxMps', 'vyMps', 'springCompressionM']) if (key in expected) close(actual[key], expected[key], tolerance); };
 
 const main = data.cases[0];
 for (const entry of data.cases) {
@@ -62,9 +62,28 @@ for (const entry of data.cases) {
 
 // 解析边界两侧独立展开，避免把连续速度误写成水平转向。
 const e = data.epsilonSeconds;
-state({ xM: -4 * e + 2 * e ** 2, yM: 3 * e - 1.5 * e ** 2, vxMps: 4 - 4 * e, vyMps: -3 + 3 * e }, data.handoffSamples.before);
-state({ xM: 0, yM: 0, vxMps: 4, vyMps: -3 }, data.handoffSamples.at);
-state({ xM: 4 * e, yM: -3 * e - 5 * e ** 2, vxMps: 4, vyMps: -3 - 10 * e }, data.handoffSamples.after);
+const handoffTolerance = data.handoffAbsoluteToleranceSI;
+same(handoffTolerance > 0 && handoffTolerance <= 1e-10, true);
+state({ xM: -4 * e + 2 * e ** 2, yM: 3 * e - 1.5 * e ** 2, vxMps: 4 - 4 * e, vyMps: -3 + 3 * e }, data.handoffSamples.before, handoffTolerance);
+state({ xM: 0, yM: 0, vxMps: 4, vyMps: -3 }, data.handoffSamples.at, handoffTolerance);
+state({ xM: 4 * e, yM: -3 * e - 5 * e ** 2, vxMps: 4, vyMps: -3 - 10 * e }, data.handoffSamples.after, handoffTolerance);
+same(data.handoffSamples.accelerationBefore, { axMps2: 4, ayMps2: -3 });
+same(data.handoffSamples.accelerationAfter, { axMps2: 0, ayMps2: -10 });
+// 错把前一帧交给重力段、或后一帧交给斜面段，都必须被所定容差识别。
+same(Math.abs(data.handoffSamples.before.vxMps - 4) > handoffTolerance, true);
+same(Math.abs(data.handoffSamples.after.vxMps - (4 + 4 * e)) > handoffTolerance, true);
+same(data.timeClampChecks.beforeStartTimesSeconds, [-1, -e]);
+same(data.timeClampChecks.beforeStartExpectedState, 'start');
+same(data.timeClampChecks.atOrAfterEndOffsetsSeconds, [0, e, 1]);
+same(data.timeClampChecks.atOrAfterEndExpectedState, 'final');
+same(data.timeClampChecks.includeInfiniteEndpoints, true);
+same(data.timeClampChecks.appliesTo, ['cases', 'prefix']);
+for (const entry of data.cases.filter(c => c.terminationReason?.startsWith('stop_'))) {
+  // 固化运行时回归所需的两套不同状态，不能把负时间当成停止后。
+  state(entry.start, { vxMps: 1.6, vyMps: -1.2 });
+  state(entry.final, { vxMps: 0, vyMps: 0 });
+  same(entry.durationSeconds > 0, true);
+}
 same(data.handoffSamples.timeSeconds, main.handoff.timeSeconds);
 close(data.prefix.durationSeconds, main.handoff.timeSeconds);
 state(data.prefix.final, { ...data.handoffSamples.at, springCompressionM: 0 });

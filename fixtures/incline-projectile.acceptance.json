@@ -2,6 +2,15 @@
   "description": "斜面直接斜抛契约期望；独立解析复算，不是当前生产入口回包。",
   "toleranceSI": 0.000001,
   "epsilonSeconds": 1e-7,
+  "handoffAbsoluteToleranceSI": 1e-10,
+  "timeClampChecks": {
+    "beforeStartTimesSeconds": [-1, -1e-7],
+    "beforeStartExpectedState": "start",
+    "atOrAfterEndOffsetsSeconds": [0, 1e-7, 1],
+    "atOrAfterEndExpectedState": "final",
+    "includeInfiniteEndpoints": true,
+    "appliesTo": ["cases", "prefix"]
+  },
   "cases": [
     {
       "readingFile": "incline-projectile.reading.json",
@@ -64,6 +73,8 @@
   "forbiddenEventKinds": ["lossless_turn", "leave_table", "apex"],
   "handoffSamples": {
     "timeSeconds": 1,
+    "accelerationBefore": { "axMps2": 4, "ayMps2": -3 },
+    "accelerationAfter": { "axMps2": 0, "ayMps2": -10 },
     "before": { "xM": -3.9999998e-7, "yM": 2.99999985e-7, "vxMps": 3.9999996, "vyMps": -2.9999997 },
     "at": { "xM": 0, "yM": 0, "vxMps": 4, "vyMps": -3 },
     "after": { "xM": 4e-7, "yM": -3.0000005e-7, "vxMps": 4, "vyMps": -3.000001 }
