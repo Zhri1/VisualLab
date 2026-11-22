@@ -6,6 +6,8 @@
 
 新增 `spring_release`、跨释放位移的水平距离基准、能量反求与示意/精确播放范围见 [预压弹簧扩展契约](PRECOMPRESSED_SPRING.md)，独立联审后接入。
 
+新增轻绳摆、最低点正碰、受控并行和按bodyId同步取样见 [摆与碰撞扩展契约](PENDULUM_COLLISION.md)。本文件以下单物体描述继续适用于旧计划；新增body表、初态、坐标、几何和事件快照以该扩展为准，待联审合并后实现。
+
 ## 1. 图文输入、指令与计划格式
 
 `POST /api/animation/plan` 接收 `multipart/form-data`。Qoder 云函数采用相同字段与回包。两种请求模式互斥。
@@ -26,6 +28,7 @@
 | `initial` | 初段为斜面、水平、弹簧或竖直圆弧时用 `{ speedMps }`，方向由阶段确定；预压释放本批为静止，圆弧从最低点水平向右入射。初段为抛体时用 `{ vxMps, vyMps }`。两种形状互斥，后续段从前一段继承速度。 |
 | `constraints`、`energy`（扩展） | 预压释放的活动题面条件及规范化后保留的能量来源记录，见 [预压弹簧契约第4节](PRECOMPRESSED_SPRING.md#4-题面约束固定能量与缺参处理)。由B推导，AB编辑保留已固定能量，不重施原临界条件。 |
 | `stages` | 非空的有序阶段列表。阶段特有的事实放在相应阶段内，组合计划无需全局 `facts`。 |
+| `bodies`、`primaryBodyId`（待实现扩展） | [摆与碰撞契约第1节](PENDULUM_COLLISION.md#1-范围坐标和物体标识)定义稳定ID和各自质量；旧无body表的单物体计划保持原值。新摆初态、碰后并行规则不能按旧单物体的顺序速度继承猜测。 |
 
 已知结构中的未知必填值取 `null`，可选且未被阶段使用的字段可省略。重力加速度使用题面或用户提供的值。静止释放等前提由题面确认。
 
@@ -85,6 +88,7 @@ Node 服务与 Qoder 云函数识别新题时使用同一张映射表。
 | `spring_release`（扩展） | `springConstantNpm`、`initialCompressionM`、`kineticFrictionCoefficient`、`unattached`、`slidesAfterRelease`；缺参后缀另需可确认的 `releaseCompleteByM`，见 [预压弹簧契约](PRECOMPRESSED_SPRING.md)。 | 预压后释放，仍压缩时也受摩擦；比较恢复原长与先停止。与旧 `spring_contact` 独立。 |
 | `vertical_arc` | `radiusM`、`endAngleDeg`、`side: "inside"`、`frictionless: true`，质量与重力读计划顶层；完整范围见 [圆弧扩展契约](VERTICAL_ARC.md#1-输入单位与范围)。 | 计算到端点飞出、提前失去接触或停下回滑，输出圆弧几何、约束状态和关键事件。 |
 | `projectile` | 旧 `dropHeightM` 继续表示发射点到落地平面的非负落差，平面为 `launch.yM - dropHeightM`。扩展允许互斥的固定世界坐标 `landingPlaneYM`；圆弧后抛体必须选固定平面，详见 [固定地面约定](VERTICAL_ARC.md#2-接抛体时固定地面)。 | 自实际发射状态起算，记录实际发生的最高点与落地。 |
+| `pendulum_swing` / `collision_1d` / `parallel_motion`（待实现扩展） | 具体字段、张力/松绳、两质量、带符号速度和碰后约束见 [摆与碰撞契约第2至4节](PENDULUM_COLLISION.md#2-有序阶段与受控并行)。 | 一根轻绳的非线性摆动、最低点瞬时正碰及碰后同钟轨道；不新增整题模板或任意规则求解器。 |
 
 `horizontal_slide.end` 原有 `distance/stop` 两种互斥分支保持兼容。指定距离时，库比较到达目标与因摩擦停止两个事件。停止更早时返回 `stop_before_target`，恰好同时发生时停止优先，返回 `stop_at_target`。只指定 `stop` 时，以停止为目标。光滑面上有正初速且要求因摩擦停止，返回可定位的前提冲突。
 
@@ -117,10 +121,13 @@ type StageGeometry = {
 - `front_bottom` 表示运动物体的固定前下沿参考点。斜面上是沿下坡方向的前侧贴面角，水平、弹簧与抛体阶段用右下角。速度反向时沿用同一角，画布按支撑方向将方块向后并向上绘制。恰停桌沿时参考点与桌沿重合，方块底边留在桌面一侧。方块尺寸为绘图值。
 - 含圆弧的场景全程使用 `particle`，前段水平、圆弧与后段抛体都继承同一质点位置；旧场景继续使用 `front_bottom`。上例中的 `VerticalArcGeometry` 完整字段、实际离弧点及可选约束取样见 [圆弧绘图约定](VERTICAL_ARC.md#4-绘图取样和事件的增量)。圆弧入口继承前段的实际世界坐标，不能重置到原点；抛体 `landingPlane.yM` 使用 `landingPlaneYM`，原 `dropHeightM` 路径保持原计算口径。
 - 预压弹簧扩展也使用 `particle`。其 `springRelease` 几何、A/B/C 标记、未计时的 `schematic` 前段以及 `timing` 元数据见 [预压弹簧输出约定](PRECOMPRESSED_SPRING.md#5-公开输出坐标和精确播放范围)。已有几何字段继续仅表示实际算过的阶段，未知前段不得冒充已求出的轨迹。
+- 摆场景以最低点而非首段释放点为原点，支点=(0,L)，全程particle。新增bodies/pendulums/bodyTracks、sample的body/constraint表及主物体兼容投影见 [摆与碰撞输出约定](PENDULUM_COLLISION.md#5-状态几何事件和兼容投影)，不能将目标轨迹混进主物体的旧geometry。
 
 ### 4.2 时间轴、事件与终点口径
 
 下列类型展示原有阶段的共同字段；圆弧增加的终止原因、事件元数据与 `sampleAt` 可选约束状态见 [圆弧状态与事件约定](VERTICAL_ARC.md#4-绘图取样和事件的增量)。
+
+摆与碰撞的新路径另有稳定bodyId、完整碰前后快照和MotionStatus，见 [扩展第5节](PENDULUM_COLLISION.md#5-状态几何事件和兼容投影)。最低点事件先于同刻碰撞，精确时刻原子地取所有body的碰后状态；旧顶层位置/速度继续投影主物体。转折不等于永久静止，并行目标尚未完成时摆须继续反向取样；真正超出模型的再次张紧须说明有限范围。
 
 ```ts
 type Velocity = { vxMps: number; vyMps: number };

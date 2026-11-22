@@ -115,7 +115,7 @@ export function useWorkspace() {
         errors: [{ code: "PRECONDITION_CONFLICT" as const, message: built.message }],
       };
     }
-    return { ok: true as const, motion: built.motion };
+    return { ok: true as const, motion: built.motion, reading: "kind" in assembled.scene ? assembled.scene.reading : r };
   }, []);
 
   /** 应用一份 reading：成功则整体切换并重置时间轴 */
@@ -128,8 +128,8 @@ export function useWorkspace() {
         }
         return { ok: false as const, errors: res.errors };
       }
-      setReading(r);
-      setAppliedReading(r);
+      setReading(res.reading);
+      setAppliedReading(res.reading);
       setMotion(res.motion);
       setSegmentPlayback(null);
       if (segmentPlayback) setIsPlaying(false);

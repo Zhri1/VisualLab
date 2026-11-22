@@ -535,6 +535,43 @@ textarea {
   letter-spacing: 0.005em;
 }
 
+/* ---------- 首页：拖拽 / 粘贴 / 预览操作 ---------- */
+
+.composer {
+  position: relative;
+}
+.composer.is-dragging {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.06);
+}
+.composer-drop {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: rgba(250, 250, 247, 0.92);
+  border: 1px dashed var(--border-strong);
+  font-size: 13px;
+  color: var(--text-secondary);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.composer-error {
+  margin: 9px 2px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #8a4b4b;
+  text-align: left;
+}
+
+.composer-preview {
+  max-width: 100%;
+}
+.composer-preview .name {
+  min-width: 0;
+}
 /* 处理中 */
 .recognizing {
   display: inline-flex;
@@ -1660,6 +1697,9 @@ textarea {
 @media (max-width: 720px) {
   .topbar {
     padding: 10px 14px;
+  }
+  .home {
+    padding: 3vh 16px 8vh;
   }
   .workspace {
     padding: 0 10px 12px;

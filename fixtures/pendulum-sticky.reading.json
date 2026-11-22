@@ -1,0 +1,66 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "bodies": [
+    {
+      "bodyId": "bob",
+      "massKg": 1
+    },
+    {
+      "bodyId": "target",
+      "massKg": 1
+    }
+  ],
+  "primaryBodyId": "bob",
+  "initial": {
+    "speedMps": 0
+  },
+  "stages": [
+    {
+      "kind": "pendulum_swing",
+      "bodyIds": [
+        "bob"
+      ],
+      "lengthM": 1,
+      "initialAngleDeg": -60,
+      "initialStringState": "taut",
+      "pivotFixed": true,
+      "lightInextensibleString": true,
+      "airResistanceNegligible": true,
+      "end": {
+        "kind": "lowest_point"
+      }
+    },
+    {
+      "kind": "collision_1d",
+      "bodyIds": [
+        "bob",
+        "target"
+      ],
+      "mode": "perfectly_inelastic",
+      "normalXM": 1,
+      "contact": {
+        "kind": "pendulum_lowest",
+        "pendulumStageIndex": 0
+      },
+      "targetApproach": {
+        "kind": "uniform_horizontal",
+        "velocityXMps": 0,
+        "endsAtContact": true
+      },
+      "externalImpulseNegligible": true
+    },
+    {
+      "kind": "pendulum_swing",
+      "bodyIds": [
+        "bob",
+        "target"
+      ],
+      "inheritFromStageIndex": 0,
+      "end": {
+        "kind": "first_turn"
+      }
+    }
+  ]
+}

@@ -1,0 +1,228 @@
+{
+  "description": "契约期望，非生产回包；闭式能量/动量与非线性时间积分独立复算。",
+  "toleranceSI": 0.000001,
+  "epsilonSeconds": 1e-7,
+  "release": {
+    "position": {
+      "xM": -0.8660254037844386,
+      "yM": 0.5
+    },
+    "tensionN": 5
+  },
+  "collisionTimeSeconds": 0.5330810687644838,
+  "elastic": {
+    "before": {
+      "bobXMps": 3.1622776601683795,
+      "targetXMps": 0,
+      "tensionN": 20,
+      "kineticEnergyJ": 5
+    },
+    "after": {
+      "bobXMps": 0,
+      "targetXMps": 3.1622776601683795,
+      "tensionN": 10,
+      "kineticEnergyJ": 5
+    },
+    "durationSeconds": 2.1142198988486736,
+    "targetFinal": {
+      "xM": 2.5,
+      "yM": 0,
+      "vxMps": 0,
+      "vyMps": 0
+    },
+    "endReason": "stopped",
+    "motionStatus": "complete"
+  },
+  "sticky": {
+    "velocityXMps": 1.5811388300841898,
+    "tensionAfterN": 25,
+    "kineticEnergyBeforeJ": 5,
+    "kineticEnergyAfterJ": 2.5,
+    "turnAngleDeg": 28.955024371859846,
+    "durationSeconds": 1.0378571806909704,
+    "position": {
+      "xM": 0.4841229182759271,
+      "yM": 0.125
+    },
+    "turnTensionN": 17.5,
+    "endReason": "pendulum_first_turn",
+    "motionStatus": "range_end"
+  },
+  "alone": {
+    "durationSeconds": 1.0661621375289676,
+    "turnAngleDeg": 60,
+    "position": {
+      "xM": 0.8660254037844386,
+      "yM": 0.5
+    },
+    "tensionN": 5,
+    "endReason": "pendulum_first_turn",
+    "motionStatus": "range_end"
+  },
+  "unequal": {
+    "bobAfterXMps": -1.5811388300841898,
+    "targetAfterXMps": 1.5811388300841898,
+    "bobTurnTimeSeconds": 1.0378571806909704,
+    "targetStopTimeSeconds": 1.3236504838065786,
+    "targetFinalXM": 0.625,
+    "bobAtTargetStop": {
+      "xM": -0.3139700254390958,
+      "yM": 0.05056710446405244,
+      "vxMps": 1.1584084843218272,
+      "vyMps": -0.3830766165797104
+    },
+    "endReason": "prefix_end",
+    "motionStatus": "range_end"
+  },
+  "targetProjectile": {
+    "leaveTimeSeconds": 0.8493088347813218,
+    "flightSeconds": 0.5,
+    "durationSeconds": 1.3493088347813218,
+    "targetFinal": {
+      "xM": 0.8743416490252569,
+      "yM": -1.25,
+      "vxMps": 0.9486832980505138,
+      "vyMps": -5
+    },
+    "bobAtLanding": {
+      "xM": -0.2831389763836676,
+      "yM": 0.04092110853569042,
+      "vxMps": 1.2436919377647584,
+      "vyMps": -0.36716235267955316
+    },
+    "endReason": "landed",
+    "motionStatus": "range_end"
+  },
+  "movingTarget": {
+    "initialXM": 0.5330810687644838,
+    "beforeXMps": -1,
+    "bobAfterXMps": -1,
+    "targetAfterXMps": 3.1622776601683795,
+    "momentumKgMps": 2.1622776601683795,
+    "kineticEnergyJ": 5.5
+  },
+  "slack": {
+    "initialTensionN": 40,
+    "lossTimeSeconds": 0.47761259968362624,
+    "lossAngleDeg": 109.47122063449069,
+    "lossSpeedMps": 1.8257418583505538,
+    "loss": {
+      "xM": 0.9428090415820634,
+      "yM": 1.3333333333333333,
+      "vxMps": -0.6085806194501845,
+      "vyMps": 1.7213259316477407
+    },
+    "flightSeconds": 0.6885303726590963,
+    "retautTimeSeconds": 1.1661429723427226,
+    "retaut": {
+      "xM": 0.5237828008789241,
+      "yM": 0.14814814814814747,
+      "vxMps": -0.6085806194501845,
+      "vyMps": -5.163977794943223
+    },
+    "endReason": "string_retaut_boundary",
+    "motionStatus": "model_limit"
+  },
+  "initialSlack": {
+    "requiredTensionN": -5,
+    "actualTensionN": 0,
+    "retautTimeSeconds": 0.4472135954999579,
+    "retaut": {
+      "xM": 0.8660254037844386,
+      "yM": 0.5,
+      "vxMps": 0,
+      "vyMps": -4.47213595499958
+    },
+    "endReason": "string_retaut_boundary"
+  },
+  "boundaryCases": [
+    {
+      "name": "静止最低点",
+      "angleDeg": 0,
+      "tangentialSpeedMps": 0,
+      "tensionN": 10,
+      "branch": "equilibrium"
+    },
+    {
+      "name": "右侧90度静止释放",
+      "angleDeg": 90,
+      "tangentialSpeedMps": 0,
+      "tensionN": 0,
+      "branch": "taut"
+    },
+    {
+      "name": "左侧90度静止释放",
+      "angleDeg": -90,
+      "tangentialSpeedMps": 0,
+      "tensionN": 0,
+      "branch": "taut"
+    },
+    {
+      "name": "2gL临界",
+      "angleDeg": 0,
+      "tangentialSpeedMps": 4.47213595499958,
+      "turnAngleDeg": 90,
+      "tensionAtTurnN": 0,
+      "branch": "turn_taut"
+    },
+    {
+      "name": "5gL临界",
+      "angleDeg": 0,
+      "tangentialSpeedMps": 7.0710678118654755,
+      "topSpeedMps": 3.1622776601683795,
+      "topTensionN": 0,
+      "branch": "full_rotation_taut"
+    }
+  ],
+  "validationCases": [
+    {
+      "name": "仅目标质量缺失",
+      "input": "pendulum-elastic.reading.json",
+      "replace": {
+        "/bodies/1/massKg": null
+      },
+      "code": "NEEDS_INPUT",
+      "missingKeys": [
+        "/bodies/1/massKg"
+      ]
+    },
+    {
+      "name": "仅绳长缺失",
+      "input": "pendulum-elastic.reading.json",
+      "replace": {
+        "/stages/0/lengthM": null
+      },
+      "code": "NEEDS_INPUT",
+      "missingKeys": [
+        "/stages/0/lengthM"
+      ]
+    },
+    {
+      "name": "张紧初态不成立",
+      "input": "pendulum-initial-slack.reading.json",
+      "replace": {
+        "/stages/0/initialStringState": "taut"
+      },
+      "code": "INCONSISTENT_CONDITIONS",
+      "fieldPath": "/stages/0/initialStringState"
+    },
+    {
+      "name": "同速无接近",
+      "input": "pendulum-elastic.reading.json",
+      "replace": {
+        "/stages/1/targetApproach/velocityXMps": 3.1622776601683795
+      },
+      "code": "INCONSISTENT_CONDITIONS",
+      "fieldPath": "/stages/1/targetApproach/velocityXMps"
+    },
+    {
+      "name": "错误初位",
+      "input": "pendulum-moving-target.reading.json",
+      "replace": {
+        "/stages/1/targetApproach/initialXM": 1
+      },
+      "code": "INCONSISTENT_CONDITIONS",
+      "fieldPath": "/stages/1/targetApproach/initialXM"
+    }
+  ]
+}

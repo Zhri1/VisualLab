@@ -159,6 +159,8 @@ export interface MotionSample {
 }
 
 export interface Motion {
+  timing?: import("../physics").StageMotion["timing"];
+  calculations?: import("../physics").StageMotion["calculations"];
   /** 旧模板几何继续保留；新计划另带完整 StageGeometry 供专用画布使用。 */
   geometry: SceneGeometry;
   stageGeometry?: StageGeometry;
