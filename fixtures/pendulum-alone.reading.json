@@ -1,0 +1,32 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "bodies": [
+    {
+      "bodyId": "bob",
+      "massKg": 1
+    }
+  ],
+  "primaryBodyId": "bob",
+  "initial": {
+    "speedMps": 0
+  },
+  "stages": [
+    {
+      "kind": "pendulum_swing",
+      "bodyIds": [
+        "bob"
+      ],
+      "lengthM": 1,
+      "initialAngleDeg": -60,
+      "initialStringState": "taut",
+      "pivotFixed": true,
+      "lightInextensibleString": true,
+      "airResistanceNegligible": true,
+      "end": {
+        "kind": "first_turn"
+      }
+    }
+  ]
+}
