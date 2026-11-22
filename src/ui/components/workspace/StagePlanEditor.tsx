@@ -2,6 +2,7 @@ import type { StageKind, StagePlanDraft } from "../../../physics/stagePlan";
 import type { FieldError } from "../../../types";
 
 const STAGE_LABELS: Record<StageKind, string> = {
+  vertical_arc: "竖直圆弧",
   incline_slide: "斜面下滑",
   lossless_turn: "无损转向",
   horizontal_slide: "水平滑动",

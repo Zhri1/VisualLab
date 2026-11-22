@@ -1,12 +1,13 @@
 // 由 scripts/sync-functions.mjs 从 src/physics/stagePlan.ts 复制生成，请勿手改。
 // 改动请改源文件后重新运行：node scripts/sync-functions.mjs
-export type StageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile";
+export type StageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc";
 export type Stage =
   | { kind: "incline_slide"; lengthM: number; angleDeg: number; kineticFrictionCoefficient: number; slidesAfterRelease?: boolean | null }
   | { kind: "lossless_turn"; lossless: true }
   | { kind: "horizontal_slide"; kineticFrictionCoefficient: number; end: { kind: "distance"; distanceM: number } | { kind: "stop" } }
   | { kind: "spring_contact"; springConstantNpm: number; frictionless: true; unattached: true }
-  | { kind: "projectile"; dropHeightM: number };
+  | { kind: "vertical_arc"; radiusM: number; endAngleDeg: number; side: "inside"; frictionless: true }
+  | ({ kind: "projectile" } & ({ dropHeightM: number; landingPlaneYM?: never } | { landingPlaneYM: number; dropHeightM?: never }));
 
 export type ResolvedStagePlan = {
   kind: "stage_plan";
@@ -35,7 +36,7 @@ export type StagePlanFailure = {
 };
 export type StagePlanValidation = { ok: true; reading: ResolvedStagePlan } | StagePlanFailure;
 
-const stageKinds: readonly string[] = ["incline_slide", "lossless_turn", "horizontal_slide", "spring_contact", "projectile"];
+const stageKinds: readonly string[] = ["incline_slide", "lossless_turn", "horizontal_slide", "spring_contact", "projectile", "vertical_arc"];
 const positive = (value: number) => value > 0;
 const nonnegative = (value: number) => value >= 0;
 const finite = (_value: number) => true;
@@ -44,7 +45,8 @@ const numericRules: Record<StageKind, Record<string, (value: number) => boolean>
   lossless_turn: {},
   horizontal_slide: { kineticFrictionCoefficient: nonnegative },
   spring_contact: { springConstantNpm: positive },
-  projectile: { dropHeightM: nonnegative },
+  projectile: {},
+  vertical_arc: { radiusM: positive, endAngleDeg: (value) => value > 0 && value <= 180 },
 };
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -142,9 +144,9 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
   for (const key of ["speedMps", "vxMps", "vyMps"]) {
     if (!initialKeys.includes(key) && key in initial) numberField(initial, normalizedInitial, key, "/initial/" + key, key === "speedMps" ? nonnegative : finite, false);
   }
-  const needsGravity = stages.some((stage) => stage.kind === "incline_slide" || stage.kind === "projectile"
+  const needsGravity = stages.some((stage) => stage.kind === "incline_slide" || stage.kind === "projectile" || stage.kind === "vertical_arc"
     || (stage.kind === "horizontal_slide" && typeof stage.kineticFrictionCoefficient === "number" && stage.kineticFrictionCoefficient > 0));
-  const needsMass = stages.some((stage) => stage.kind === "spring_contact");
+  const needsMass = stages.some((stage) => stage.kind === "spring_contact" || stage.kind === "vertical_arc");
   numberField(input, draft, "gravityMps2", "/gravityMps2", positive, needsGravity);
   numberField(input, draft, "massKg", "/massKg", positive, needsMass);
   for (const [i, source] of stages.entries()) {
@@ -157,6 +159,21 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       issue(path + "/slidesAfterRelease", "TYPE", "前提事实须为布尔值或 null。");
     }
     if (source.kind === "lossless_turn") fact(stage, "lossless", path + "/lossless");
+    if (source.kind === "vertical_arc") {
+      fact(stage, "frictionless", path + "/frictionless");
+      if (source.side == null) { stage.side = null; missingKeys.push(path + "/side"); }
+      else if (typeof source.side !== "string") issue(path + "/side", "TYPE", "轨道内外侧须为字符串。");
+      else if (source.side !== "inside") issue(path + "/side", "UNSUPPORTED", "当前只支持竖直圆弧内侧。");
+    }
+    if (source.kind === "projectile") {
+      const hasDrop = Object.prototype.hasOwnProperty.call(source, "dropHeightM");
+      const hasPlane = Object.prototype.hasOwnProperty.call(source, "landingPlaneYM");
+      const fromArc = stages[i - 1]?.kind === "vertical_arc";
+      if (hasDrop && hasPlane) issue(path, "PRECONDITION_CONFLICT", "相对落差与固定落地平面互斥，请保留一种。");
+      else if (fromArc && hasDrop) issue(path, "PRECONDITION_CONFLICT", "圆弧后抛体需固定 landingPlaneYM，不能使用相对落差。");
+      if (hasDrop || (!hasPlane && !fromArc)) numberField(source, stage, "dropHeightM", path + "/dropHeightM", nonnegative);
+      if (hasPlane || (fromArc && !hasDrop)) numberField(source, stage, "landingPlaneYM", path + "/landingPlaneYM", finite);
+    }
     if (source.kind === "spring_contact") {
       fact(stage, "frictionless", path + "/frictionless");
       fact(stage, "unattached", path + "/unattached");
@@ -176,13 +193,14 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
     const permitted = i === 0 ? source.kind !== "lossless_turn"
       : previous == null ? true
       : previous === "incline_slide" ? source.kind === "lossless_turn"
-      : previous === "lossless_turn" ? source.kind === "horizontal_slide" || source.kind === "spring_contact"
-      : previous === "horizontal_slide" ? source.kind === "spring_contact" || source.kind === "projectile"
+      : previous === "lossless_turn" ? source.kind === "horizontal_slide" || source.kind === "spring_contact" || source.kind === "vertical_arc"
+      : previous === "horizontal_slide" ? source.kind === "spring_contact" || source.kind === "projectile" || source.kind === "vertical_arc"
+      : previous === "vertical_arc" ? source.kind === "projectile"
       : false;
     if (!permitted) issue(path + "/kind", "UNSUPPORTED", "当前版本不支持该阶段接续。");
     if (i > 0 && previous === "horizontal_slide") {
       const end = stages[i - 1].end;
-      if (record(end) && end.kind === "stop") issue("/stages/" + (i - 1) + "/end", "PRECONDITION_CONFLICT", "接续弹簧或平抛需给出水平距离目标。");
+      if (record(end) && end.kind === "stop") issue("/stages/" + (i - 1) + "/end", "PRECONDITION_CONFLICT", "接续后段需给出水平距离目标。");
     }
   }
   // 只判定已知的起动矛盾，停止与到达谁先发生留给运动计算。

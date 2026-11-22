@@ -12,6 +12,7 @@ export type { Motion, MotionEvent, MotionSample } from "./motion.ts";
 export { validateStagePlan } from "./stagePlan.ts";
 export type { Stage, StageKind, StagePlanDraft, ResolvedStagePlan, StagePlanValidation, StagePlanFailure, StageFieldError } from "./stagePlan.ts";
 export type { StageScene, StageMotion, StageGeometry, StageEvent, EndReason } from "./stageMotion.ts";
+export type { StageSample, ArcConstraint, VerticalArcGeometry } from "./stageMotion.ts";
 export { assembleStageScene, buildStageMotion } from "./stageMotion.ts";
 
 export function assembleScene(input: StagePlanDraft | ResolvedStagePlan): ReturnType<typeof assembleStageScene>;

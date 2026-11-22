@@ -109,7 +109,7 @@ export interface ResolvedConditions {
   springConstantNpm: number;
 }
 
-export type SegmentKind = "incline" | "horizontal" | "spring" | "projectile";
+export type SegmentKind = "incline" | "horizontal" | "spring" | "projectile" | "vertical_arc";
 
 export interface MotionSegment {
   kind: SegmentKind;
