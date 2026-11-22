@@ -221,7 +221,10 @@ function compute(plan: ResolvedStagePlan): StageMotion | StagePlanFailure {
     sampleAt(timeSeconds) {
       const t = Number.isNaN(timeSeconds) ? 0 : Math.min(time, Math.max(0, timeSeconds));
       // 同刻的最后一个事件状态优先，确保转向、接触和零时长终止可精确停靠。
-      for (let i = events.length - 1; i >= 0; i--) if (events[i].timeSeconds === t) return { ...eventStates[i] };
+      // 事件时刻由累加得到，常与十进制字面量差 1 ulp（如 1.2000000000000002 与 1.2），
+      // 播放进度按十进制推进时严格相等会错过事件、停在事件前一瞬。这里只吸收这一级误差：
+      // 容差 1e-9 s 远小于采样步长（前端按 1e-7 s 取事件前后状态），不改变「事件前」语义。
+      for (let i = events.length - 1; i >= 0; i--) if (Math.abs(events[i].timeSeconds - t) <= 1e-9) return { ...eventStates[i] };
       const active = runs.find((item) => t >= item.start && t < item.end);
       return active ? active.run.sampleAt(t - active.start) : { ...final };
     },
