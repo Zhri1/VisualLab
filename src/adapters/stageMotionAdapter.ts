@@ -103,6 +103,8 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
   });
 
   return {
+    timing: source.timing,
+    calculations: source.calculations,
     geometry: legacyGeometry(source),
     stageGeometry: source.geometry,
     stagePlan: plan,

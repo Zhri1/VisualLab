@@ -302,8 +302,23 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   const final = { ...state };
   const last = events[events.length - 1];
   const termination = { reason, eventId: last.id, stageIndex: last.stageIndex };
+  const calculations: NonNullable<StageMotion["calculations"]> = plan.energy ? [{ quantity: "initial_elastic_energy", value: plan.energy.elasticEnergyJ, unit: "J", source: plan.energy.origin === "given" || plan.energy.origin === "user" ? plan.energy.origin : "derived", rule: plan.energy.origin, inputPaths: ["/energy"] }] : [];
+  if (scope) for (const e of events) {
+    if (e.kind !== "spring_release_end" && e.kind !== "arc_enter") continue;
+    const inputPaths = ["/massKg", "/gravityMps2"];
+    if (scope.mode !== "full") inputPaths.push("/energy");
+    // 使用实际前驱阶段的来源，直接释放入弧时没有水平目标或水平摩擦字段。
+    for (let i = 0; i <= (e.kind === "spring_release_end" ? e.stageIndex : e.stageIndex - 1); i++) {
+      const stage = plan.stages[i], path = `/stages/${i}`;
+      if (stage.kind === "spring_release") {
+        if (scope.mode === "full") inputPaths.push(`${path}/springConstantNpm`, `${path}/initialCompressionM`);
+        inputPaths.push(`${path}/kineticFrictionCoefficient`);
+      } else if (stage.kind === "horizontal_slide") inputPaths.push(`${path}/end`, `${path}/kineticFrictionCoefficient`);
+    }
+    calculations.push({ quantity: e.kind === "spring_release_end" ? "release_speed" : "arc_entry_speed", value: Math.hypot(e.velocityAfter.vxMps, e.velocityAfter.vyMps), unit: "m/s", source: "derived", rule: "energy_with_friction", inputPaths });
+  }
   return {
-    ...(scope ? { timing: { ...scope, anchor: { label: scope.mode === "full" ? "A" : scope.mode === "suffix" || scope.stopReason === "prefix_end" ? "B" : "静止点", position: scope.mode === "full" ? { xM: 0, yM: 0 } : { xM: scope.xM!, yM: 0 } }, absoluteStartSeconds: scope.mode === "full" ? 0 : null, excludedStageIndices: scope.mode === "full" ? [] : scope.mode === "suffix" ? Array.from({ length: from }, (_, i) => i) : plan.stages.map((_, i) => i) }, calculations: plan.energy ? [{ quantity: "initial_elastic_energy", value: plan.energy.elasticEnergyJ, unit: "J", source: plan.energy.origin === "given" || plan.energy.origin === "user" ? plan.energy.origin : "derived" as const, rule: plan.energy.origin, inputPaths: ["/energy"] }] : [] } : {}),
+    ...(scope ? { timing: { ...scope, anchor: { label: scope.mode === "full" ? "A" : scope.mode === "suffix" || scope.stopReason === "prefix_end" ? "B" : "静止点", position: scope.mode === "full" ? { xM: 0, yM: 0 } : { xM: scope.xM!, yM: 0 } }, absoluteStartSeconds: scope.mode === "full" ? 0 : null, excludedStageIndices: scope.mode === "full" ? [] : scope.mode === "suffix" ? Array.from({ length: from }, (_, i) => i) : plan.stages.map((_, i) => i) }, calculations } : {}),
     geometry, durationSeconds: time, segments, events, termination,
     get endReason() { return termination.reason; },
     sampleAt(timeSeconds) {

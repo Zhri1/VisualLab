@@ -13,8 +13,22 @@ const STAGE_LABELS: Record<StageKind, string> = {
 
 const STAGE_KINDS = Object.keys(STAGE_LABELS) as StageKind[];
 
+export function updateStagePlanNumber(draft: StagePlanDraft, index: number | null, key: string, value: number | null): StagePlanDraft {
+  const old = index === null ? (draft as unknown as Record<string, unknown>)[key] : draft.stages[index][key];
+  const stages = draft.stages.map((stage, i) => i === index ? { ...stage, [key]: value } : { ...stage });
+  const changedUpstream = (index === null || key === "kineticFrictionCoefficient") && typeof old === "number" && Number.isFinite(old) && old !== value;
+  if (changedUpstream && stages[0]?.kind === "spring_release" && (stages[0].springConstantNpm == null || stages[0].initialCompressionM == null)) stages[0] = { ...stages[0], slidesAfterRelease: null, releaseCompleteByM: null };
+  return { ...draft, ...(index === null ? { [key]: value } : {}), stages };
+}
+
 type NumberMeta = { key: string; label: string; unit: string; step?: number; hint?: string };
 const NUMBER_FIELDS: Partial<Record<StageKind, NumberMeta[]>> = {
+  spring_release: [
+    { key: "springConstantNpm", label: "弹簧劲度系数 k", unit: "N/m", step: 1, hint: "可补一项以求全程" },
+    { key: "initialCompressionM", label: "初始压缩量 c", unit: "m", step: .01 },
+    { key: "kineticFrictionCoefficient", label: "释放区动摩擦因数 μ", unit: "", step: .05 },
+    { key: "releaseCompleteByM", label: "释放完成位移上界", unit: "m", step: .1, hint: "题设确认c不超过此值；不是实际压缩量" },
+  ],
   incline_slide: [
     { key: "lengthM", label: "斜面长度 L", unit: "m", step: 0.1 },
     { key: "angleDeg", label: "斜面倾角 θ", unit: "°", step: 1, hint: "0° < θ < 90°" },
@@ -48,6 +62,7 @@ function displayNumber(value: unknown): string {
 }
 
 function blankStage(kind: StageKind): Record<string, unknown> {
+  if (kind === "spring_release") return { kind, springConstantNpm: null, initialCompressionM: null, kineticFrictionCoefficient: null, unattached: null, slidesAfterRelease: null };
   if (kind === "incline_slide") {
     return { kind, lengthM: null, angleDeg: null, kineticFrictionCoefficient: null, slidesAfterRelease: null };
   }
@@ -60,13 +75,26 @@ function blankStage(kind: StageKind): Record<string, unknown> {
   return { kind, dropHeightM: null };
 }
 
+export function updateStagePlanKind(draft: StagePlanDraft, index: number, kind: StageKind): StagePlanDraft {
+  const stages = [...draft.stages];
+  stages[index] = kind === "projectile" && draft.stages[index - 1]?.kind === "vertical_arc"
+    ? { kind, landingPlaneYM: null } : blankStage(kind);
+  const next = { ...draft, stages };
+  // 明确换掉释放首段时，移除已不适用于新计划的能量和临界条件。
+  if (index === 0 && draft.stages[0]?.kind === "spring_release" && kind !== "spring_release") {
+    delete next.energy;
+    delete next.constraints;
+  }
+  return next;
+}
+
 export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: Props) {
   const errorMap = new Map(fieldErrors.filter((error) => error.path).map((error) => [error.path!, error.message]));
   const flagged = (path: string) =>
     errorMap.has(path) || missingKeys.some((key) => key === path || key.startsWith(path + "/") || path.startsWith(key + "/"));
 
   const setTopNumber = (key: "gravityMps2" | "massKg", raw: string) => {
-    onChange({ ...draft, [key]: asNumber(raw) });
+    onChange(updateStagePlanNumber(draft, null, key, asNumber(raw)));
   };
   const setInitialNumber = (key: "speedMps" | "vxMps" | "vyMps", raw: string) => {
     onChange({ ...draft, initial: { ...draft.initial, [key]: asNumber(raw) } as StagePlanDraft["initial"] });
@@ -77,7 +105,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
     onChange({ ...draft, stages });
   };
   const setStageNumber = (index: number, key: string, raw: string) => {
-    setStage(index, { ...draft.stages[index], [key]: asNumber(raw) });
+    onChange(updateStagePlanNumber(draft, index, key, asNumber(raw)));
   };
   const setStageFact = (index: number, key: string, raw: string) => {
     const value = raw === "" ? null : raw === "true";
@@ -92,13 +120,13 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
     const oldEnd = stage.end && typeof stage.end === "object" ? stage.end as Record<string, unknown> : {};
     setStage(index, {
       ...stage,
-      end: raw === "distance" ? { kind: "distance", distanceM: oldEnd.distanceM ?? null } : { kind: "stop" },
+      end: raw === "distance_from_stage_start" ? { kind: raw, stageIndex: index - 1, distanceM: oldEnd.distanceM ?? null } : raw === "distance" ? { kind: "distance", distanceM: oldEnd.distanceM ?? null } : { kind: "stop" },
     });
   };
   const setDistance = (index: number, raw: string) => {
     const stage = draft.stages[index];
     const end = stage.end && typeof stage.end === "object" ? stage.end as Record<string, unknown> : { kind: "distance" };
-    setStage(index, { ...stage, end: { ...end, kind: "distance", distanceM: asNumber(raw) } });
+    setStage(index, { ...stage, end: { ...end, kind: end.kind ?? "distance", distanceM: asNumber(raw) } });
   };
 
   const numberRow = (
@@ -163,7 +191,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
   const initial = draft.initial ?? { speedMps: null };
   const firstKind = draft.stages[0]?.kind;
   const components = firstKind === "projectile" || "vxMps" in initial || "vyMps" in initial;
-  const showMass = "massKg" in draft || missingKeys.includes("/massKg") || draft.stages.some((stage) => stage.kind === "spring_contact" || stage.kind === "vertical_arc");
+  const showMass = "massKg" in draft || flagged("/massKg") || draft.stages.some((stage) => stage.kind === "spring_release" || stage.kind === "spring_contact" || stage.kind === "vertical_arc");
 
   return (
     <div className="stage-plan-editor" data-testid="stage-plan-editor">
@@ -202,8 +230,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                 aria-label={`阶段 ${index + 1} 类型`}
                 aria-invalid={flagged(kindPath)}
                 data-field-path={kindPath}
-                onChange={(event) => setStage(index, event.target.value === "projectile" && draft.stages[index - 1]?.kind === "vertical_arc"
-                  ? { kind: "projectile", landingPlaneYM: null } : blankStage(event.target.value as StageKind))}
+                onChange={(event) => onChange(updateStagePlanKind(draft, index, event.target.value as StageKind))}
               >
                 <option value="" disabled>选择阶段类型</option>
                 {known || !kind ? null : <option value={kind}>未登记：{kind}</option>}
@@ -222,6 +249,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                   {kind === "incline_slide" && ("slidesAfterRelease" in stage || missingKeys.includes(`/stages/${index}/slidesAfterRelease`)
                     || ("speedMps" in initial && initial.speedMps === 0)) && factRow(index, "slidesAfterRelease", "释放后下滑")}
                   {kind === "lossless_turn" && factRow(index, "lossless", "无损转向")}
+                  {kind === "spring_release" && <>{factRow(index, "unattached", "滑块与弹簧不连接")}{factRow(index, "slidesAfterRelease", "释放后开始滑动")}</>}
                   {kind === "vertical_arc" && (
                     <>
                       <tr data-field-path={`/stages/${index}/side`}>
@@ -267,12 +295,13 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                           >
                             <option value="">待确认</option>
                             <option value="distance">指定距离</option>
+                            {draft.stages[index - 1]?.kind === "spring_release" && <option value="distance_from_stage_start">从释放点A量总距离AB</option>}
                             <option value="stop">减速至停止</option>
                           </select>
                         </td>
                         <td />
                       </tr>
-                      {(!stage.end || (typeof stage.end === "object" && "kind" in stage.end && stage.end.kind === "distance")
+                      {(!stage.end || (typeof stage.end === "object" && "kind" in stage.end && (stage.end.kind === "distance" || stage.end.kind === "distance_from_stage_start"))
                         || missingKeys.includes(`/stages/${index}/end/distanceM`)) && numberRow({
                         key: "distanceM", label: "计划距离 / 桌沿位置", unit: "m", step: 0.1,
                         path: `/stages/${index}/end/distanceM`,
