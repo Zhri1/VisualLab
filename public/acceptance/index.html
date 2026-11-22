@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VisualLab · 公网验收</title>
+<style>
+  :root { color-scheme: light; --ink: #111; --muted: #8a8a86; --line: #ececea; --bg: #f6f6f4; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px 24px 72px;
+    background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+  h1 { font-size: 26px; letter-spacing: -.03em; margin: 0 0 6px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0; max-width: 56ch; }
+  .sub code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: #eaeae7; padding: 1px 5px; border-radius: 5px; }
+  button {
+    font: inherit; cursor: pointer; border: none; border-radius: 10px;
+    padding: 9px 16px; background: #111; color: #fff; font-weight: 500; white-space: nowrap;
+    transition: opacity .15s ease;
+  }
+  button:hover { opacity: .85; }
+  button:disabled { opacity: .4; cursor: default; }
+  button.ghost { background: #fff; color: #111; box-shadow: inset 0 0 0 1px #e2e2df; }
+  .summary {
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    padding: 14px 18px; border-radius: 14px; background: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 12px 30px -20px rgba(0,0,0,.2);
+    margin-bottom: 16px; font-size: 14px; min-height: 52px;
+  }
+  .pill { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; }
+  .pill.ok { background: #eef6f1; color: #2f6f52; }
+  .pill.bad { background: #fdf3f3; color: #8a4b4b; }
+  .pill.idle { background: #f0f0ee; color: #6b6b6b; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 12px 30px -20px rgba(0,0,0,.18); }
+  th { text-align: left; font-weight: 500; font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  td { padding: 13px 16px; border-bottom: 1px solid #f5f5f3; font-size: 13.5px; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.mid { color: #4a4a46; }
+  td.num { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+  td.last { text-align: right; white-space: nowrap; }
+  .tag { font-size: 11.5px; padding: 3px 10px; border-radius: 999px; white-space: nowrap; display: inline-block; font-weight: 500; }
+  .tag.pass { background: #eef6f1; color: #2f6f52; }
+  .tag.fail { background: #fdf3f3; color: #8a4b4b; }
+  .tag.wait { background: #f0f0ee; color: #6b6b6b; }
+  .checks { margin: 6px 0 0; padding: 0; list-style: none; font-size: 12px; color: #6b6b6b; }
+  .checks li { padding: 1px 0; }
+  .checks li::before { content: "· "; color: #c4c4bf; }
+  .checks li.no::before { content: "× "; color: #b06a6a; }
+  details { margin-top: 8px; }
+  details summary { cursor: pointer; font-size: 12px; color: var(--muted); list-style: none; }
+  details summary::-webkit-details-marker { display: none; }
+  details pre {
+    margin: 8px 0 0; padding: 12px 14px; background: #fafaf8; border-radius: 10px;
+    font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; line-height: 1.65;
+    color: #4a4a46; overflow-x: auto; max-height: 260px;
+  }
+  .note { margin-top: 22px; font-size: 12.5px; color: var(--muted); line-height: 1.8; }
+  .note b { color: #4a4a46; font-weight: 500; }
+  .actions { display: flex; gap: 10px; margin-top: 18px; }
+  textarea {
+    width: 100%; margin-top: 12px; padding: 14px; border-radius: 12px; border: 1px solid var(--line);
+    background: #fff; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; line-height: 1.7;
+    color: #4a4a46; resize: vertical; min-height: 140px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>公网验收</h1>
+      <p class="sub">
+        在你自己的浏览器里，从站点同源调用 <code>/functions/v1/app</code>，逐条核对契约第 2 节的状态。
+        这个页面不模拟浏览器、不改 UA，走的就是真实用户的请求路径。
+      </p>
+    </div>
+    <button id="run">开始验收</button>
+  </header>
+
+  <div class="summary" id="summary">
+    <span class="pill idle">未开始</span>
+    <span class="mono" id="endpoint"></span>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:30%">用例</th>
+        <th style="width:38%">期望</th>
+        <th style="width:20%">实际</th>
+        <th style="width:12%;text-align:right">结果</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <div class="actions">
+    <button class="ghost" id="copy" disabled>复制验收报告</button>
+    <button class="ghost" id="clear" disabled>清空</button>
+  </div>
+  <textarea id="report" readonly hidden></textarea>
+
+  <p class="note">
+    <b>为什么必须在浏览器里跑：</b>网关会校验请求来源必须是站点自身，并拦截无头浏览器与空 UA。
+    这两条都是平台侧的防护，验收不做任何绕过 —— 真实浏览器本来就不受影响。
+    <br />
+    <b>契约模式：</b>线上当前是 <code>legacy</code>（旧首题回包），所以断言看 <code>templateId</code> 与
+    <code>conditions</code>，不看 <code>stages</code>。
+  </p>
+</div>
+
+<script>
+const ENDPOINT = "/functions/v1/app";
+
+/** 与 scripts/verify-live.mjs 同一组用例，断言改按线上实际的 legacy 契约写 */
+const CASES = [
+  {
+    label: "gap-1m 图",
+    hint: "斜面弹簧，弹簧距坡底 1 m",
+    request: () => imageForm("/acceptance/incline-spring-gap-1m.png"),
+    expect: (body) => [
+      ["status = ok", body.status === "ok"],
+      ["templateId = incline_spring", body.reading?.templateId === "incline_spring"],
+      ["springGapM = 1", body.reading?.conditions?.springGapM === 1],
+      ["不返回 stage_plan 形状", body.reading?.kind === undefined],
+    ],
+  },
+  {
+    label: "gap-2m 图",
+    hint: "斜面弹簧，弹簧距坡底 2 m",
+    request: () => imageForm("/acceptance/incline-spring-gap-2m.png"),
+    expect: (body) => [
+      ["status = ok", body.status === "ok"],
+      ["templateId = incline_spring", body.reading?.templateId === "incline_spring"],
+      ["springGapM = 2", body.reading?.conditions?.springGapM === 2],
+      ["不返回 stage_plan 形状", body.reading?.kind === undefined],
+    ],
+  },
+  {
+    label: "缺弹簧距离",
+    hint: "弹簧题，题面没给水平距离",
+    request: () => textForm(
+      "倾角37°的粗糙斜面长4m，动摩擦因数0.5，滑块由静止释放，经光滑圆弧进入光滑水平面，" +
+      "压缩右端固定的弹簧后弹回，滑块与弹簧不连接，弹簧劲度系数400N/m，滑块质量1kg。" +
+      "题面未给出弹簧与坡底的距离。取g=10",
+    ),
+    expect: (body) => [
+      ["status = needs_input", body.status === "needs_input"],
+      ["缺项指向 springGapM", (body.missingKeys ?? []).includes("springGapM")],
+      ["缺项不混入 JSON Pointer", !(body.missingKeys ?? []).some((k) => k.startsWith("/"))],
+      ["不带错误码", body.code === undefined],
+    ],
+  },
+  {
+    label: "电磁场超范围",
+    hint: "带电粒子在磁场中做圆周运动",
+    request: () => textForm(
+      "如图，质量为m、电荷量为q的粒子以速度v垂直射入磁感应强度为B的匀强磁场，求粒子做圆周运动的半径。",
+    ),
+    expect: (body) => [
+      ["status = unsupported", body.status === "unsupported"],
+      ["message 非空", typeof body.message === "string" && body.message.trim().length > 0],
+      ["不带 reading", body.reading === undefined || body.reading === null],
+    ],
+  },
+];
+
+function imageForm(url) {
+  return fetch(url).then(async (res) => {
+    if (!res.ok) throw new Error(`取测试图片失败：${res.status}`);
+    const blob = await res.blob();
+    const form = new FormData();
+    form.append("image", blob, "question.png");
+    return form;
+  });
+}
+
+function textForm(text) {
+  const form = new FormData();
+  form.append("text", text);
+  return Promise.resolve(form);
+}
+
+const rowsEl = document.getElementById("rows");
+const summaryEl = document.getElementById("summary");
+const endpointEl = document.getElementById("endpoint");
+const runBtn = document.getElementById("run");
+const copyBtn = document.getElementById("copy");
+const clearBtn = document.getElementById("clear");
+const reportEl = document.getElementById("report");
+
+endpointEl.textContent = location.origin + ENDPOINT;
+
+let results = [];
+let running = false;
+
+function rowTemplate(item) {
+  return `<tr id="row-${item.id}">
+    <td>
+      <div>${item.label}</div>
+      <div class="mono" style="margin-top:2px">${item.hint}</div>
+    </td>
+    <td class="mid" id="want-${item.id}">${item.expect({}).map(([name]) => name).join("<br>")}</td>
+    <td class="mid num" id="got-${item.id}">—</td>
+    <td class="last"><span class="tag wait" id="tag-${item.id}">待跑</span></td>
+  </tr>`;
+}
+
+function reset() {
+  results = [];
+  rowsEl.innerHTML = CASES.map((item, index) => rowTemplate({ ...item, id: index })).join("");
+  summaryEl.innerHTML = '<span class="pill idle">未开始</span><span class="mono">共 ' +
+    CASES.length + ' 条用例</span>';
+  copyBtn.disabled = true;
+  clearBtn.disabled = true;
+  reportEl.hidden = true;
+  reportEl.value = "";
+}
+
+async function call(item) {
+  const form = await item.request();
+  const started = performance.now();
+  const res = await fetch(ENDPOINT, { method: "POST", body: form });
+  const elapsed = Math.round(performance.now() - started);
+  const body = await res.json().catch(() => ({}));
+  return { status: res.status, body, elapsed, model: res.headers.get("x-vision-model") || "-" };
+}
+
+function render(item, index, outcome) {
+  const { status, body, elapsed, model } = outcome;
+  const checks = [["HTTP 200", status === 200], ...item.expect(body)];
+  const pass = checks.every(([, ok]) => ok);
+
+  const wantEl = document.getElementById(`want-${index}`);
+  wantEl.innerHTML = checks
+    .map(([name, ok]) => `<span style="color:${ok ? "#2f6f52" : "#8a4b4b"}">${ok ? "✓" : "×"} ${name}</span>`)
+    .join("<br>");
+
+  document.getElementById(`got-${index}`).innerHTML =
+    `${body.status ?? "—"}<br><span class="mono">${status} · ${elapsed} ms · ${model}</span>`;
+
+  const tag = document.getElementById(`tag-${index}`);
+  tag.className = `tag ${pass ? "pass" : "fail"}`;
+  tag.textContent = pass ? "通过" : "未通过";
+
+  const row = document.getElementById(`row-${index}`);
+  const detail = document.createElement("details");
+  detail.innerHTML = `<summary>回包</summary><pre>${escapeHtml(JSON.stringify(body, null, 2))}</pre>`;
+  row.children[0].appendChild(detail);
+
+  return { label: item.label, pass, checks, status, elapsed, model, body };
+}
+
+function escapeHtml(text) {
+  return text.replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[ch]);
+}
+
+async function run() {
+  if (running) return;
+  running = true;
+  runBtn.disabled = true;
+  reset();
+
+  for (const [index, item] of CASES.entries()) {
+    document.getElementById(`tag-${index}`).textContent = "运行中";
+    document.getElementById(`got-${index}`).textContent = "…";
+    try {
+      const outcome = await call(item);
+      results.push(render(item, index, outcome));
+    } catch (error) {
+      const tag = document.getElementById(`tag-${index}`);
+      tag.className = "tag fail";
+      tag.textContent = "请求失败";
+      document.getElementById(`got-${index}`).textContent = error.message;
+      results.push({ label: item.label, pass: false, checks: [["请求成功", false]], error: error.message });
+    }
+  }
+
+  const passed = results.filter((item) => item.pass).length;
+  const allPass = passed === results.length;
+  summaryEl.innerHTML =
+    `<span class="pill ${allPass ? "ok" : "bad"}">${passed}/${results.length} 通过</span>` +
+    `<span>${allPass ? "四类回包都符合契约。" : "有 " + (results.length - passed) + " 条对不上，展开回包看细节。"}</span>`;
+
+  reportEl.value = buildReport(passed);
+  reportEl.hidden = false;
+  copyBtn.disabled = false;
+  clearBtn.disabled = false;
+  runBtn.disabled = false;
+  running = false;
+}
+
+function buildReport(passed) {
+  const lines = [
+    "VisualLab 公网验收",
+    `时间：${new Date().toLocaleString("zh-CN")}`,
+    `入口：${location.origin}${ENDPOINT}`,
+    `浏览器：${navigator.userAgent}`,
+    `结果：${passed}/${results.length} 通过`,
+    "",
+  ];
+  for (const item of results) {
+    lines.push(`${item.pass ? "[通过]" : "[未通过]"} ${item.label}`);
+    for (const [name, ok] of item.checks) lines.push(`  ${ok ? "ok  " : "fail"} ${name}`);
+    if (item.error) lines.push(`  error ${item.error}`);
+    if (item.body) lines.push(`  回包 ${JSON.stringify(item.body)}`);
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+runBtn.addEventListener("click", run);
+clearBtn.addEventListener("click", reset);
+copyBtn.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(reportEl.value);
+    copyBtn.textContent = "已复制";
+    setTimeout(() => { copyBtn.textContent = "复制验收报告"; }, 1600);
+  } catch {
+    reportEl.select();
+    document.execCommand("copy");
+  }
+});
+
+reset();
+</script>
+</body>
+</html>

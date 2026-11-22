@@ -16,6 +16,8 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  // functions/ 是 Deno 云函数，以前不在检查范围内，只能靠发布后才发现问题。
+  // 现在一并检查：它是纯 TS，不依赖 Node 内置模块。
+  "include": ["src", "functions"]
 }
 

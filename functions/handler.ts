@@ -12,6 +12,13 @@
  */
 
 import { SKILL_TEXT } from "./skill.ts";
+import { INLINE_API_KEY } from "./inline-key.ts";
+import { applyLegacyContract, outputContractFromEnv } from "./legacyBridge.ts";
+import type { ClientResult } from "./legacyBridge.ts";
+import { validateStagePlan } from "./stagePlan.ts";
+import { buildStagePlanResult } from "./stageStatus.ts";
+import { STAGE_HTTP_STATUS, isStagePlan } from "./stageTypes.ts";
+import type { StagePlanResult } from "./stageTypes.ts";
 
 declare const Deno: {
   env: { get(key: string): string | undefined };
@@ -184,6 +191,12 @@ type PlanResult =
   | { status: "needs_input"; reading: Reading | null; missingKeys: string[]; message: string; assumptions: string[] }
   | { status: "unsupported"; message: string };
 
+/**
+ * 对外回包：旧模板（templateId）或阶段计划（kind: "stage_plan"）。
+ * 与 Node 侧 `PlanResponse` 同一形状，前端按 `reading.kind` 分派。
+ */
+type PlanResponse = PlanResult | StagePlanResult;
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
@@ -319,6 +332,43 @@ function buildPlan(raw: unknown): PlanResult {
   return { status: "needs_input", reading, missingKeys, message: describeMissing(verdict.code, missingKeys), assumptions };
 }
 
+/**
+ * 识别接口的唯一入口（同 src/api/validate.ts 的 buildPlanResponse）。
+ *
+ * - `kind === "stage_plan"` → 剥保留字段 → validateStagePlan → 契约第 2 节状态映射
+ * - 其余 → 旧 templateId 路径，行为不变
+ *
+ * 这里与 Node 服务调用的是**同一份** stageStatus / stagePlan 代码
+ * （由 scripts/sync-functions.mjs 复制，非手写第二份），保证两端回包一致。
+ */
+function buildPlanResponse(raw: unknown): PlanResponse {
+  const data = asRecord(raw);
+
+  if (isStagePlan(data)) {
+    const assumptions = toStringList(data.assumptions);
+    return buildStagePlanResult(data, validateStagePlan, assumptions);
+  }
+
+  return buildPlan(data);
+}
+
+/**
+ * 判断回包是否来自阶段计划路径（同 src/api/plan.ts）。
+ *
+ * `unsupported` 与 `needs_input + reading:null` 两支与旧模板形状重叠，
+ * 但兼容桥对它们原样返回，判错不影响结果。
+ */
+function isStagePlanResult(result: PlanResponse): result is StagePlanResult {
+  if (result.status === "invalid_reading") return true;
+  if (!("reading" in result)) return false;
+  const reading = result.reading;
+  return (
+    reading !== null &&
+    typeof reading === "object" &&
+    (reading as Record<string, unknown>).kind === "stage_plan"
+  );
+}
+
 /* ============================ 百炼视觉模型（同 src/api/dashscope.ts） ============================ */
 
 type VisionFailure = "timeout" | "upstream" | "parse";
@@ -336,11 +386,18 @@ const DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const DEFAULT_MODEL = "qwen4-max";
 
 function env(name: string): string {
+  let fromRuntime = "";
   try {
-    return (Deno.env.get(name) ?? "").trim();
+    fromRuntime = (Deno.env.get(name) ?? "").trim();
   } catch {
-    return "";
+    fromRuntime = "";
   }
+  if (fromRuntime) return fromRuntime;
+
+  // 平台 Secret 未配置时的兜底：构建期注入，仓库中恒为空。
+  // 一旦在站点设置里填了 DASHSCOPE_API_KEY，上面的运行时值会优先，这里自动失效。
+  if (name === "DASHSCOPE_API_KEY") return INLINE_API_KEY.trim();
+  return "";
 }
 
 function timeoutMs(): number {
@@ -559,14 +616,23 @@ export async function handler(request: Request): Promise<Response> {
     });
   }
 
-  const result = buildPlan(vision.raw);
+  // 内部统一按 stage_plan 校验，对外形状由 API_CONTRACT_MODE 决定：
+  // 默认 legacy（A 的前端尚未接入），设成 stage_plan 才吐新契约。
+  const internal = buildPlanResponse(vision.raw);
+  const result: ClientResult =
+    isStagePlanResult(internal) && outputContractFromEnv(env("API_CONTRACT_MODE")) === "legacy"
+      ? applyLegacyContract(internal, validateReading, UNSUPPORTED_PREFIX)
+      : (internal as ClientResult);
   const elapsed = Date.now() - startedAt;
+
+  // 契约第 2 节：ok / needs_input / unsupported 都是 200，只有 invalid_reading 是 502
+  const status = result.status === "invalid_reading" ? STAGE_HTTP_STATUS.invalid_reading : 200;
 
   console.log(
     `[plan] ${requestId} ${result.status} ${elapsed}ms model=${vision.model} image=${imageBase64 ? "yes" : "no"} text=${text.length}`,
   );
 
-  return json(result, 200, {
+  return json(result, status, {
     "x-request-id": requestId,
     "x-elapsed-ms": String(elapsed),
     "x-vision-model": vision.model,
