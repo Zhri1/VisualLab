@@ -1,0 +1,51 @@
+{
+  "description": "圆弧契约的独立数值对照；时间从最低点 B 开始，非前段已实现的计时结果。",
+  "toleranceSI": 0.000001,
+  "fixedEnergyBeforeRoughSectionJ": 1.4,
+  "roughSectionKineticFrictionCoefficient": 0.2,
+  "cases": [
+    {
+      "readingFile": "vertical-arc-endpoint.reading.json",
+      "equivalentABM": 2,
+      "entryNormalForceN": 6,
+      "boundary": {
+        "kind": "arc_endpoint", "timeSeconds": 0.40378116399568226,
+        "angleDeg": 180, "xM": 0, "yM": 0.8,
+        "vxMps": -2, "vyMps": 0, "normalForceN": 0
+      },
+      "eventKinds": ["release", "arc_enter", "arc_endpoint", "projectile_launch", "land"],
+      "terminationReason": "landed",
+      "durationSeconds": 0.8037811639956822,
+      "final": { "xM": -0.8, "yM": 0, "vxMps": -2, "vyMps": -4, "springCompressionM": 0 }
+    },
+    {
+      "readingFile": "vertical-arc-contact-loss.reading.json",
+      "equivalentABM": 3,
+      "entryNormalForceN": 5,
+      "boundary": {
+        "kind": "arc_contact_lost", "timeSeconds": 0.3088969904844586,
+        "angleDeg": 131.81031489577862,
+        "xM": 0.2981423969999719, "yM": 0.6666666666666667,
+        "vxMps": -1.0886621079036347, "vyMps": 1.2171612389003688, "normalForceN": 0
+      },
+      "eventKinds": ["release", "arc_enter", "arc_contact_lost", "projectile_launch", "apex", "land"],
+      "terminationReason": "landed",
+      "durationSeconds": 0.8155132938342461,
+      "final": { "xM": -0.25339157570315496, "yM": 0, "vxMps": -1.0886621079036347, "vyMps": -3.8490017945975055, "springCompressionM": 0 }
+    },
+    {
+      "readingFile": "vertical-arc-return.reading.json",
+      "equivalentABM": 6,
+      "entryNormalForceN": 2,
+      "boundary": {
+        "kind": "arc_turn", "timeSeconds": 0.33715007096252214,
+        "angleDeg": 60, "xM": 0.3464101615137755, "yM": 0.2,
+        "vxMps": 0, "vyMps": 0, "normalForceN": 0.5
+      },
+      "eventKinds": ["release", "arc_enter", "arc_turn", "arc_return_entry"],
+      "terminationReason": "returned_to_entry",
+      "durationSeconds": 0.6743001419250443,
+      "final": { "xM": 0, "yM": 0, "vxMps": -2, "vyMps": 0, "springCompressionM": 0 }
+    }
+  ]
+}
