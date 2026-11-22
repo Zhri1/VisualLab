@@ -601,8 +601,16 @@ export async function handler(request: Request): Promise<Response> {
   }
 
   let vision: { raw: unknown; model: string };
+  let internal: ReturnType<typeof buildPlanResponse>;
   try {
-    vision = await callVisionModel({ imageBase64, mime, text });
+    const visionInput = { imageBase64, mime, text };
+    vision = await callVisionModel(visionInput);
+    internal = buildPlanResponse(vision.raw);
+    // 已解析但结构损坏时，用同一输入再识别一次；缺项和超范围不重试。
+    if (internal.status === "invalid_reading") {
+      vision = await callVisionModel(visionInput);
+      internal = buildPlanResponse(vision.raw);
+    }
   } catch (error) {
     const elapsed = Date.now() - startedAt;
     const failure = error instanceof VisionError ? error.kind : "upstream";
@@ -618,7 +626,6 @@ export async function handler(request: Request): Promise<Response> {
 
   // 内部统一按 stage_plan 校验，对外形状由 API_CONTRACT_MODE 决定：
   // 默认 legacy（A 的前端尚未接入），设成 stage_plan 才吐新契约。
-  const internal = buildPlanResponse(vision.raw);
   const result: ClientResult =
     isStagePlanResult(internal) && outputContractFromEnv(env("API_CONTRACT_MODE")) === "legacy"
       ? applyLegacyContract(internal, validateReading, UNSUPPORTED_PREFIX)

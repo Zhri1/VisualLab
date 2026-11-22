@@ -77,6 +77,7 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
   if (input.kind == null) missingKeys.push("/kind");
   else if (input.kind !== "stage_plan") issue("/kind", "UNSUPPORTED", "需要已登记的阶段计划。");
   if (input.schemaVersion == null) missingKeys.push("/schemaVersion");
+  else if (typeof input.schemaVersion !== "number") issue("/schemaVersion", "TYPE", "阶段计划版本必须为数字。");
   else if (input.schemaVersion !== 1) issue("/schemaVersion", "UNSUPPORTED", "仅支持阶段计划版本 1。");
   if (!Array.isArray(input.stages)) {
     if (input.stages == null) missingKeys.push("/stages");
@@ -166,6 +167,7 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       if (source.end == null) { stage.end = null; missingKeys.push(path + "/end"); }
       else if (!record(source.end)) issue(path + "/end", "TYPE", "结束条件应为对象。");
       else if (source.end.kind == null) { stage.end = { ...source.end, kind: null }; missingKeys.push(path + "/end/kind"); }
+      else if (typeof source.end.kind !== "string") issue(path + "/end/kind", "TYPE", "水平结束条件类型必须为字符串。");
       else if (source.end.kind === "distance") numberField(source.end, stage.end as Record<string, unknown>, "distanceM", path + "/end/distanceM", positive);
       else if (source.end.kind !== "stop") issue(path + "/end/kind", "UNSUPPORTED", "未登记的水平结束条件。");
       if (record(source.end) && source.end.kind === "stop" && source.kineticFrictionCoefficient === 0 && (i > 0 || (normalizedInitial.speedMps ?? 0) > 0)) {
