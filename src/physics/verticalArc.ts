@@ -1,6 +1,7 @@
 import type { MotionSample } from "./motion.ts";
 import type { Point } from "./scene.ts";
 import type { Stage } from "./stagePlan.ts";
+import { integrate } from './quadrature.ts';
 
 export type ArcConstraint = {
   kind: "vertical_arc"; stageIndex: number; angleDeg: number;
@@ -13,15 +14,6 @@ export type VerticalArcGeometry = {
   actualExit: { position: Point; angleDeg: number; reason: "endpoint" | "contact_lost" | "returned_to_entry" | "stationary" };
 };
 
-// 八点 Gauss-Legendre，仅用于光滑且有界的圆弧时间积分。
-const nodes = [0.1834346424956498, 0.525532409916329, 0.7966664774136267, 0.9602898564975363];
-const weights = [0.362683783378362, 0.3137066458778873, 0.2223810344533745, 0.1012285362903763];
-function integrate(f: (value: number) => number, a: number, b: number): number {
-  const mid = (a + b) / 2, half = (b - a) / 2;
-  let sum = 0;
-  for (let i = 0; i < nodes.length; i++) sum += weights[i] * (f(mid - half * nodes[i]) + f(mid + half * nodes[i]));
-  return half * sum;
-}
 function trig(phi: number) {
   if (phi === 0) return { sin: 0, cos: 1 };
   if (phi === Math.PI) return { sin: 0, cos: -1 };

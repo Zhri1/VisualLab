@@ -11,6 +11,9 @@ import type {
 } from "../types";
 
 const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "formula">> = {
+  pendulum_swing: { name:'轻绳摆',summary:'按真实非线性方程计算摆动与张力；转折后继续反向。',formula:'q² = q₀² + 2gL(cosθ − cosθ₀)，T = M(q²/L + gcosθ)' },
+  collision_1d: { name:'水平正碰',summary:'带符号速度与总动量确定碰后状态。',formula:'m₁u₁ + m₂u₂ = m₁v₁ + m₂v₂' },
+  parallel_motion: { name:'同步运动',summary:'两物体使用同一条物理时间轴。',formula:'t₁ = t₂' },
   spring_release: { name: "预压弹簧释放", summary: "弹簧推动滑块，释放阶段同时计入摩擦。", formula: "s = (c − μmg/k)(1 − cosωt)" },
   vertical_arc: {
     name: "竖直圆弧", summary: "光滑内轨上机械能守恒；法向力降为零时沿切线飞出，速度先降为零时沿轨回滑。",

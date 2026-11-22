@@ -18,6 +18,13 @@ const ROOT = resolve(__dirname, '../../..');
 
 /** 与 scripts/sync-functions.mjs 的 FILES 一致 */
 const FILES = [
+  { from: 'src/physics/geometryTypes.ts', to: 'functions/geometryTypes.ts' },
+  { from: 'src/physics/quadrature.ts', to: 'functions/quadrature.ts' },
+  { from: 'src/physics/kinematics.ts', to: 'functions/kinematics.ts' },
+  { from: 'src/physics/multiBodyTypes.ts', to: 'functions/multiBodyTypes.ts' },
+  { from: 'src/physics/pendulum.ts', to: 'functions/pendulum.ts' },
+  { from: 'src/physics/collision.ts', to: 'functions/collision.ts' },
+  { from: 'src/physics/multiBodyPlan.ts', to: 'functions/multiBodyPlan.ts' },
   { from: 'src/physics/springEnergy.ts', to: 'functions/springEnergy.ts' },
   { from: 'src/physics/stagePlan.ts', to: 'functions/stagePlan.ts' },
   { from: 'src/api/stageTypes.ts', to: 'functions/stageTypes.ts' },

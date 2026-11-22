@@ -1,4 +1,4 @@
-import type { MotionSample } from "./motion.ts";
+type MotionSample = { xM: number; yM: number; vxMps: number; vyMps: number; springCompressionM: number };
 
 export function linearState(xM: number, yM: number, vxMps: number, vyMps: number, axMps2: number, ayMps2: number, time: number): MotionSample {
   return {

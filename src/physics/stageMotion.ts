@@ -2,12 +2,14 @@ import { solveVerticalArc } from "./verticalArc.ts";
 import type { StageSample as MotionSample, VerticalArcGeometry } from "./verticalArc.ts";
 export type { StageSample, ArcConstraint, VerticalArcGeometry } from "./verticalArc.ts";
 import type { Point } from "./scene.ts";
-import type { ResolvedStagePlan, Stage, StageKind, StagePlanDraft, StagePlanFailure, PlaybackScope } from "./stagePlan.ts";
+import type { ResolvedStagePlan, Stage, SingleStage, StageKind, StagePlanDraft, StagePlanFailure, PlaybackScope } from "./stagePlan.ts";
+import type { BodyGeometry, BodySnapshot, MotionStatus } from './multiBodyTypes.ts';
+import { computeMultiBodyMotion } from './multiBodyMotion.ts';
 import { validateStagePlan } from "./stagePlan.ts";
 import { landingTime, linearState, springMetrics, springState } from "./kinematics.ts";
 
 type Velocity = { vxMps: number; vyMps: number };
-export type StageGeometry = {
+export type StageGeometry = BodyGeometry & {
   incline?: { start: Point; end: Point };
   horizontal?: { start: Point; plannedEnd: Point | null };
   spring?: { contact: Point; anchor: Point };
@@ -19,22 +21,26 @@ export type StageGeometry = {
   blockSizeM: number;
   positionReference: "front_bottom" | "particle";
 };
-export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release";
+export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary';
 export type StageEvent = {
+  bodyIds?: string[]; stagePath?: string;
+  bodyStatesBefore?: BodySnapshot['bodies']; bodyStatesAfter?: BodySnapshot['bodies'];
+  constraintsBefore?: BodySnapshot['constraints']; constraintsAfter?: BodySnapshot['constraints'];
   id: string; stageIndex: number; kind: string; timeSeconds: number; order: number;
   velocityBefore: Velocity; velocityAfter: Velocity; label: string; explanation: string;
   position?: Point; normalForceBeforeN?: number; normalForceAfterN?: number;
 };
 export type StageMotion = {
+  primaryBodyId?: string; motionStatus?: MotionStatus;
   timing?: PlaybackScope & { anchor: { label: string; position: Point }; absoluteStartSeconds: number | null; excludedStageIndices: number[] };
   calculations?: { quantity: string; value: number; unit: string; source: "given" | "user" | "derived"; rule?: string; inputPaths: string[] }[];
   geometry: StageGeometry;
   durationSeconds: number;
-  segments: { stageIndex: number; kind: StageKind; startSeconds: number; endSeconds: number }[];
+  segments: { stageIndex: number; kind: StageKind; startSeconds: number; endSeconds: number; bodyIds?: string[]; stagePath?: string }[];
   events: StageEvent[];
   termination: { reason: EndReason; eventId: string; stageIndex: number };
   readonly endReason: EndReason;
-  sampleAt(timeSeconds: number): MotionSample;
+  sampleAt(timeSeconds: number): MotionSample & Partial<BodySnapshot>;
 };
 export type StageScene = { kind: "stage_scene"; reading: ResolvedStagePlan; geometry: StageGeometry; motion: StageMotion };
 type EventState = { kind: string; time: number; before: MotionSample; after: MotionSample; label: string; explanation: string;
@@ -214,9 +220,10 @@ function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: Motion
 }
 
 function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | StagePlanFailure {
+  if (plan.bodies) return computeMultiBodyMotion(plan);
   const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage) => stage.kind === "vertical_arc" || stage.kind === "spring_release") ? "particle" : "front_bottom" };
   const first = plan.stages[0];
-  let state = "speedMps" in plan.initial ? moving(0, 0, plan.initial.speedMps) : moving(0, 0, plan.initial.vxMps, plan.initial.vyMps);
+  let state = "speedMps" in plan.initial ? moving(0, 0, plan.initial.speedMps) : "vxMps" in plan.initial ? moving(0, 0, plan.initial.vxMps, plan.initial.vyMps) : moving(0,0,plan.initial.tangentialSpeedMps);
   if (first.kind === "spring_release" && scope?.mode === "full") state.springCompressionM = first.initialCompressionM!;
   if (scope && scope.mode !== "full") state = moving(scope.xM!, 0, scope.vxMps!);
   const ref = plan.stages[1];
@@ -257,7 +264,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   const from = scope?.mode === "suffix" ? scope.startStageIndex : 0;
   append(event(scope?.mode === "state_only" ? "state_anchor" : scope?.mode === "suffix" ? "playback_start" : "release", 0, state, state, scope?.mode === "state_only" ? "已知状态" : scope?.mode === "suffix" ? "从B开始计时" : "释放", scope?.reason ?? "从题设初态开始运动。"), scope?.mode === "state_only" ? scope.startStageIndex : from, 0);
   if (scope?.mode === "state_only") reason = scope.stopReason ?? "prefix_end";
-  for (const [index, stage] of plan.stages.entries()) {
+  for (const [index, stage] of (plan.stages as SingleStage[]).entries()) {
     if (scope?.mode === "state_only") break;
     if (index < from) continue;
     let run: Run;
