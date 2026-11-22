@@ -18,6 +18,7 @@ const ROOT = resolve(__dirname, '../../..');
 
 /** 与 scripts/sync-functions.mjs 的 FILES 一致 */
 const FILES = [
+  { from: 'src/physics/springEnergy.ts', to: 'functions/springEnergy.ts' },
   { from: 'src/physics/stagePlan.ts', to: 'functions/stagePlan.ts' },
   { from: 'src/api/stageTypes.ts', to: 'functions/stageTypes.ts' },
   { from: 'src/api/stageStatus.ts', to: 'functions/stageStatus.ts' },

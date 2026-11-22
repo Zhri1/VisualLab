@@ -1,10 +1,14 @@
 // 由 scripts/sync-functions.mjs 从 src/physics/stagePlan.ts 复制生成，请勿手改。
 // 改动请改源文件后重新运行：node scripts/sync-functions.mjs
-export type StageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc";
+import { resolveSpringEnergy } from "./springEnergy.ts";
+export type Energy = { stageIndex: number; elasticEnergyJ: number; origin: "given" | "user" | "spring_parameters" | "critical_arc_top"; basis?: Record<string, number> };
+export type PlaybackScope = { mode: "full" | "suffix" | "state_only"; startStageIndex: number; unresolvedKeys: string[]; reason: string; xM?: number; vxMps?: number; stopReason?: "stop_at_target" | "stop_before_target" | "prefix_end" };
+export type StageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release";
 export type Stage =
   | { kind: "incline_slide"; lengthM: number; angleDeg: number; kineticFrictionCoefficient: number; slidesAfterRelease?: boolean | null }
   | { kind: "lossless_turn"; lossless: true }
-  | { kind: "horizontal_slide"; kineticFrictionCoefficient: number; end: { kind: "distance"; distanceM: number } | { kind: "stop" } }
+  | { kind: "horizontal_slide"; kineticFrictionCoefficient: number; end: { kind: "distance"; distanceM: number } | { kind: "stop" } | { kind: "distance_from_stage_start"; stageIndex: number; distanceM: number } }
+  | { kind: "spring_release"; springConstantNpm: number | null; initialCompressionM: number | null; kineticFrictionCoefficient: number; unattached: true; slidesAfterRelease: boolean; releaseCompleteByM?: number | null }
   | { kind: "spring_contact"; springConstantNpm: number; frictionless: true; unattached: true }
   | { kind: "vertical_arc"; radiusM: number; endAngleDeg: number; side: "inside"; frictionless: true }
   | ({ kind: "projectile" } & ({ dropHeightM: number; landingPlaneYM?: never } | { landingPlaneYM: number; dropHeightM?: never }));
@@ -16,6 +20,7 @@ export type ResolvedStagePlan = {
   massKg?: number;
   initial: { speedMps: number } | { vxMps: number; vyMps: number };
   stages: Stage[];
+  energy?: Energy;
 };
 export type StagePlanDraft = {
   kind: "stage_plan";
@@ -24,6 +29,8 @@ export type StagePlanDraft = {
   massKg?: number | null;
   initial: { speedMps: number | null } | { vxMps: number | null; vyMps: number | null };
   stages: Array<Record<string, unknown>>;
+  energy?: Energy;
+  constraints?: unknown;
 };
 export type StageFieldError = { path: string; code: string; message: string };
 export type StagePlanFailure = {
@@ -34,9 +41,9 @@ export type StagePlanFailure = {
   missingKeys: string[];
   fieldErrors: StageFieldError[];
 };
-export type StagePlanValidation = { ok: true; reading: ResolvedStagePlan } | StagePlanFailure;
+export type StagePlanValidation = { ok: true; reading: ResolvedStagePlan; playback?: PlaybackScope } | StagePlanFailure;
 
-const stageKinds: readonly string[] = ["incline_slide", "lossless_turn", "horizontal_slide", "spring_contact", "projectile", "vertical_arc"];
+const stageKinds: readonly string[] = ["incline_slide", "lossless_turn", "horizontal_slide", "spring_contact", "projectile", "vertical_arc", "spring_release"];
 const positive = (value: number) => value > 0;
 const nonnegative = (value: number) => value >= 0;
 const finite = (_value: number) => true;
@@ -45,6 +52,7 @@ const numericRules: Record<StageKind, Record<string, (value: number) => boolean>
   lossless_turn: {},
   horizontal_slide: { kineticFrictionCoefficient: nonnegative },
   spring_contact: { springConstantNpm: positive },
+  spring_release: { kineticFrictionCoefficient: nonnegative },
   projectile: {},
   vertical_arc: { radiusM: positive, endAngleDeg: (value) => value > 0 && value <= 180 },
 };
@@ -145,8 +153,8 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
     if (!initialKeys.includes(key) && key in initial) numberField(initial, normalizedInitial, key, "/initial/" + key, key === "speedMps" ? nonnegative : finite, false);
   }
   const needsGravity = stages.some((stage) => stage.kind === "incline_slide" || stage.kind === "projectile" || stage.kind === "vertical_arc"
-    || (stage.kind === "horizontal_slide" && typeof stage.kineticFrictionCoefficient === "number" && stage.kineticFrictionCoefficient > 0));
-  const needsMass = stages.some((stage) => stage.kind === "spring_contact" || stage.kind === "vertical_arc");
+    || ((stage.kind === "horizontal_slide" || stage.kind === "spring_release") && typeof stage.kineticFrictionCoefficient === "number" && stage.kineticFrictionCoefficient > 0));
+  const needsMass = stages.some((stage) => stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "spring_release");
   numberField(input, draft, "gravityMps2", "/gravityMps2", positive, needsGravity);
   numberField(input, draft, "massKg", "/massKg", positive, needsMass);
   for (const [i, source] of stages.entries()) {
@@ -159,6 +167,13 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       issue(path + "/slidesAfterRelease", "TYPE", "前提事实须为布尔值或 null。");
     }
     if (source.kind === "lossless_turn") fact(stage, "lossless", path + "/lossless");
+    if (source.kind === "spring_release") {
+      fact(stage, "unattached", path + "/unattached");
+      if (source.slidesAfterRelease == null) { stage.slidesAfterRelease = null; missingKeys.push(path + "/slidesAfterRelease"); }
+      else if (typeof source.slidesAfterRelease !== "boolean") issue(path + "/slidesAfterRelease", "TYPE", "起动前提须为布尔值。");
+      for (const key of ["springConstantNpm", "initialCompressionM", "releaseCompleteByM"]) numberField(source, stage, key, path + "/" + key, positive, false);
+      if (i !== 0 || normalizedInitial.speedMps !== 0) issue(path, "PRECONDITION_CONFLICT", "预压释放须为从静止开始的首段。");
+    }
     if (source.kind === "vertical_arc") {
       fact(stage, "frictionless", path + "/frictionless");
       if (source.side == null) { stage.side = null; missingKeys.push(path + "/side"); }
@@ -183,7 +198,13 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       if (source.end == null) { stage.end = null; missingKeys.push(path + "/end"); }
       else if (!record(source.end)) issue(path + "/end", "TYPE", "结束条件应为对象。");
       else if (source.end.kind == null) { stage.end = { ...source.end, kind: null }; missingKeys.push(path + "/end/kind"); }
-      else if (source.end.kind === "distance") numberField(source.end, stage.end as Record<string, unknown>, "distanceM", path + "/end/distanceM", positive);
+      else if (source.end.kind === "distance" || source.end.kind === "distance_from_stage_start") {
+        numberField(source.end, stage.end as Record<string, unknown>, "distanceM", path + "/end/distanceM", positive);
+        if (source.end.kind === "distance_from_stage_start") {
+          numberField(source.end, stage.end as Record<string, unknown>, "stageIndex", path + "/end/stageIndex", v => Number.isInteger(v) && v >= 0 && v < i);
+          if (typeof source.end.stageIndex === "number" && (source.end.stageIndex !== i - 1 || stages[i - 1]?.kind !== "spring_release")) issue(path + "/end/stageIndex", "PRECONDITION_CONFLICT", "距离引用须指向紧邻的预压释放阶段。");
+        }
+      }
       else if (source.end.kind !== "stop") issue(path + "/end/kind", "UNSUPPORTED", "未登记的水平结束条件。");
       if (record(source.end) && source.end.kind === "stop" && source.kineticFrictionCoefficient === 0 && (i > 0 || (normalizedInitial.speedMps ?? 0) > 0)) {
         issue(path + "/end", "PRECONDITION_CONFLICT", "光滑面上的正速运动无法因摩擦停止。");
@@ -196,6 +217,7 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       : previous === "lossless_turn" ? source.kind === "horizontal_slide" || source.kind === "spring_contact" || source.kind === "vertical_arc"
       : previous === "horizontal_slide" ? source.kind === "spring_contact" || source.kind === "projectile" || source.kind === "vertical_arc"
       : previous === "vertical_arc" ? source.kind === "projectile"
+      : previous === "spring_release" ? ["horizontal_slide", "spring_contact", "vertical_arc", "projectile"].includes(source.kind)
       : false;
     if (!permitted) issue(path + "/kind", "UNSUPPORTED", "当前版本不支持该阶段接续。");
     if (i > 0 && previous === "horizontal_slide") {
@@ -214,6 +236,7 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       issue("/stages/0/kineticFrictionCoefficient", "PRECONDITION_CONFLICT", "当前倾角与摩擦无法支持从静止开始下滑。");
     }
   }
+  const playback = resolveSpringEnergy(input, draft, missingKeys, issue, numberField);
   if (missingKeys.length || fieldErrors.length) return result();
   const resolved: ResolvedStagePlan = {
     kind: "stage_plan", schemaVersion: 1,
@@ -222,5 +245,6 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
   };
   if (typeof draft.gravityMps2 === "number") resolved.gravityMps2 = draft.gravityMps2;
   if (typeof draft.massKg === "number") resolved.massKg = draft.massKg;
-  return { ok: true, reading: resolved };
+  if (draft.energy) resolved.energy = draft.energy;
+  return { ok: true, reading: resolved, ...(playback ? { playback } : {}) };
 }

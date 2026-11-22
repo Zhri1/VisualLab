@@ -2,7 +2,7 @@ import { solveVerticalArc } from "./verticalArc.ts";
 import type { StageSample as MotionSample, VerticalArcGeometry } from "./verticalArc.ts";
 export type { StageSample, ArcConstraint, VerticalArcGeometry } from "./verticalArc.ts";
 import type { Point } from "./scene.ts";
-import type { ResolvedStagePlan, Stage, StageKind, StagePlanDraft, StagePlanFailure } from "./stagePlan.ts";
+import type { ResolvedStagePlan, Stage, StageKind, StagePlanDraft, StagePlanFailure, PlaybackScope } from "./stagePlan.ts";
 import { validateStagePlan } from "./stagePlan.ts";
 import { landingTime, linearState, springMetrics, springState } from "./kinematics.ts";
 
@@ -13,16 +13,21 @@ export type StageGeometry = {
   spring?: { contact: Point; anchor: Point };
   projectile?: { launch: Point; landingPlane: { yM: number } };
   verticalArc?: VerticalArcGeometry;
+  springRelease?: { stageIndex: number; start: Point; naturalContact: Point; initialCompressionM: number; anchor: Point | null };
+  landmarks?: { label: string; position: Point }[];
+  schematic?: { stageIndices: number[]; horizontal?: { start: Point; plannedEnd: Point }; springIconAt?: Point; verticalArc?: Omit<VerticalArcGeometry, "stageIndex" | "actualExit" | "startAngleDeg">; reason: string };
   blockSizeM: number;
   positionReference: "front_bottom" | "particle";
 };
-export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry";
+export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release";
 export type StageEvent = {
   id: string; stageIndex: number; kind: string; timeSeconds: number; order: number;
   velocityBefore: Velocity; velocityAfter: Velocity; label: string; explanation: string;
   position?: Point; normalForceBeforeN?: number; normalForceAfterN?: number;
 };
 export type StageMotion = {
+  timing?: PlaybackScope & { anchor: { label: string; position: Point }; absoluteStartSeconds: number | null; excludedStageIndices: number[] };
+  calculations?: { quantity: string; value: number; unit: string; source: "given" | "user" | "derived"; rule?: string; inputPaths: string[] }[];
   geometry: StageGeometry;
   durationSeconds: number;
   segments: { stageIndex: number; kind: StageKind; startSeconds: number; endSeconds: number }[];
@@ -103,9 +108,10 @@ function horizontal(stage: Extract<Stage, { kind: "horizontal_slide" }>, start: 
   const braking = stage.kineticFrictionCoefficient * gravity;
   geometry.horizontal = {
     start: point(start),
-    plannedEnd: stage.end.kind === "distance" ? { xM: start.xM + stage.end.distanceM, yM: start.yM } : null,
+    plannedEnd: stage.end.kind !== "stop" ? { xM: stage.end.kind === "distance_from_stage_start" ? stage.end.distanceM : start.xM + stage.end.distanceM, yM: start.yM } : null,
   };
-  const boundary = stage.end.kind === "distance" ? travel(speed, -braking, stage.end.distanceM) : {
+  const distance = stage.end.kind === "stop" ? 0 : stage.end.kind === "distance_from_stage_start" ? Math.max(0, stage.end.distanceM - start.xM) : stage.end.distanceM;
+  const boundary = stage.end.kind !== "stop" ? travel(speed, -braking, distance) : {
     duration: speed === 0 ? 0 : speed / braking,
     distance: speed === 0 ? 0 : speed * speed / (2 * braking),
     speed: 0, reason: "stopped" as EndReason,
@@ -119,6 +125,24 @@ function horizontal(stage: Extract<Stage, { kind: "horizontal_slide" }>, start: 
     duration: boundary.duration, end, reason: boundary.reason,
     events: [event(stopped ? "stop" : "reach_target", boundary.duration, end, end, stopped ? "停止" : "到达目标", explanation)],
     sampleAt: (time) => linearState(start.xM, start.yM, speed, 0, -braking, 0, time),
+  };
+}
+
+function release(stage: Extract<Stage, { kind: "spring_release" }>, start: MotionSample, mass: number, gravity: number, geometry: StageGeometry, continues: boolean): Run {
+  const c = stage.initialCompressionM!;
+  geometry.springRelease = { stageIndex: 0, start: point(start), naturalContact: { xM: start.xM + c, yM: start.yM }, initialCompressionM: c, anchor: null };
+  const initial = { ...start, springCompressionM: c };
+  if (!stage.slidesAfterRelease) return { duration: 0, end: initial, reason: "stopped", events: [event("stop", 0, initial, initial, "A点静止", "题设明确释放后未开始滑动。")], sampleAt: () => ({ ...initial }) };
+  const k = stage.springConstantNpm!, force = stage.kineticFrictionCoefficient * mass * gravity;
+  const D = c - force / k, w = Math.sqrt(k / mass), maximum = 2 * D;
+  const tolerance = 32 * Number.EPSILON * Math.max(c, maximum);
+  const stops = maximum <= c + tolerance, atNatural = Math.abs(maximum - c) <= tolerance;
+  const duration = stops ? Math.PI / w : Math.acos(1 - c / D) / w;
+  const end = { ...moving(start.xM + (stops && !atNatural ? maximum : c), start.yM, stops ? 0 : Math.sqrt((k * c * c - 2 * force * c) / mass)), springCompressionM: stops && !atNatural ? c - maximum : 0 };
+  return { duration, end, reason: stops ? atNatural ? "spring_stopped_at_release" : "spring_stopped_before_release" : continues ? undefined : "spring_released",
+    events: [event("spring_release_start", 0, initial, initial, "预压弹簧释放", "弹簧推动滑块，压缩阶段同时扣除动摩擦做功。"), event(stops ? "stop" : "spring_release_end", duration, end, end, stops ? atNatural ? "原长处停止" : "未释放完即停止" : "恢复原长并脱离", stops ? "速度第一次降为零，保留实际残余压缩量，后续阶段不执行。" : "弹簧恢复原长，继承正向速度继续运动。")],
+    sampleAt(t) { if (t <= 0) return { ...initial }; if (t >= duration) return { ...end }; const s = D * 2 * Math.sin(w * t / 2) ** 2;
+      return { ...moving(start.xM + s, start.yM, D * w * Math.sin(w * t)), springCompressionM: Math.max(0, c - s) }; },
   };
 }
 
@@ -189,10 +213,25 @@ function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: Motion
   return { duration, end, reason: "landed", events, sampleAt };
 }
 
-function compute(plan: ResolvedStagePlan): StageMotion | StagePlanFailure {
-  const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage) => stage.kind === "vertical_arc") ? "particle" : "front_bottom" };
+function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | StagePlanFailure {
+  const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage) => stage.kind === "vertical_arc" || stage.kind === "spring_release") ? "particle" : "front_bottom" };
   const first = plan.stages[0];
   let state = "speedMps" in plan.initial ? moving(0, 0, plan.initial.speedMps) : moving(0, 0, plan.initial.vxMps, plan.initial.vyMps);
+  if (first.kind === "spring_release" && scope?.mode === "full") state.springCompressionM = first.initialCompressionM!;
+  if (scope && scope.mode !== "full") state = moving(scope.xM!, 0, scope.vxMps!);
+  const ref = plan.stages[1];
+  const target = ref?.kind === "horizontal_slide" && ref.end.kind === "distance_from_stage_start" ? ref.end.distanceM : undefined;
+  if (scope) {
+    geometry.landmarks = [{ label: "A", position: { xM: 0, yM: 0 } }, ...(target === undefined ? [] : [{ label: "B", position: { xM: target, yM: 0 } }])];
+    const arcStage = plan.stages[2];
+    if (target !== undefined && arcStage?.kind === "vertical_arc") {
+      const phi = arcStage.endAngleDeg * Math.PI / 180;
+      const plannedEnd = { xM: target + arcStage.radiusM * (arcStage.endAngleDeg === 180 ? 0 : Math.sin(phi)), yM: arcStage.radiusM * (1 - Math.cos(phi)) };
+      geometry.landmarks.push({ label: arcStage.endAngleDeg === 180 ? "C" : "端点", position: plannedEnd });
+      if (scope.mode === "state_only") geometry.schematic = { stageIndices: plan.stages.map((_, i) => i), reason: scope.reason, verticalArc: { entry: { xM: target, yM: 0 }, center: { xM: target, yM: arcStage.radiusM }, radiusM: arcStage.radiusM, endAngleDeg: arcStage.endAngleDeg, plannedEnd } };
+    }
+    if (scope.mode !== "full") geometry.schematic = { ...geometry.schematic, stageIndices: scope.mode === "suffix" ? [0, 1] : plan.stages.map((_, i) => i), horizontal: { start: { xM: 0, yM: 0 }, plannedEnd: { xM: target!, yM: 0 } }, springIconAt: { xM: 0, yM: 0 }, reason: scope.reason };
+  }
   if (first.kind === "incline_slide") {
     const angle = first.angleDeg * Math.PI / 180;
     const speed = state.vxMps;
@@ -215,8 +254,12 @@ function compute(plan: ResolvedStagePlan): StageMotion | StagePlanFailure {
     });
     eventStates.push({ ...item.after });
   }
-  append(event("release", 0, state, state, "释放", "从题设初态开始运动。"), 0, 0);
+  const from = scope?.mode === "suffix" ? scope.startStageIndex : 0;
+  append(event(scope?.mode === "state_only" ? "state_anchor" : scope?.mode === "suffix" ? "playback_start" : "release", 0, state, state, scope?.mode === "state_only" ? "已知状态" : scope?.mode === "suffix" ? "从B开始计时" : "释放", scope?.reason ?? "从题设初态开始运动。"), scope?.mode === "state_only" ? scope.startStageIndex : from, 0);
+  if (scope?.mode === "state_only") reason = scope.stopReason ?? "prefix_end";
   for (const [index, stage] of plan.stages.entries()) {
+    if (scope?.mode === "state_only") break;
+    if (index < from) continue;
     let run: Run;
     const failure = (message: string, path = "/stages/" + index, code = "RANGE"): StagePlanFailure => ({
       ok: false, code: "INCONSISTENT_CONDITIONS", message, reading: plan as StagePlanDraft, missingKeys: [], fieldErrors: [{ path, code, message }],
@@ -230,6 +273,7 @@ function compute(plan: ResolvedStagePlan): StageMotion | StagePlanFailure {
       case "lossless_turn": run = turn(state); break;
       case "horizontal_slide": run = horizontal(stage, state, plan.gravityMps2 ?? 0, geometry); break;
       case "spring_contact": run = spring(stage, state, plan.massKg!, geometry); break;
+      case "spring_release": run = release(stage, state, plan.massKg!, plan.gravityMps2 ?? 0, geometry, index + 1 < plan.stages.length); break;
       case "projectile": run = projectile(stage, state, plan.gravityMps2!, geometry, plan.stages[index - 1]?.kind); break;
       case "vertical_arc": run = arc(stage, state, plan.gravityMps2!, plan.massKg!, geometry, index, plan.stages[index + 1]?.kind === "projectile"); break;
     } } catch (error) { if (error instanceof RangeError) return failure(error.message); throw error; }
@@ -259,6 +303,7 @@ function compute(plan: ResolvedStagePlan): StageMotion | StagePlanFailure {
   const last = events[events.length - 1];
   const termination = { reason, eventId: last.id, stageIndex: last.stageIndex };
   return {
+    ...(scope ? { timing: { ...scope, anchor: { label: scope.mode === "full" ? "A" : scope.mode === "suffix" || scope.stopReason === "prefix_end" ? "B" : "静止点", position: scope.mode === "full" ? { xM: 0, yM: 0 } : { xM: scope.xM!, yM: 0 } }, absoluteStartSeconds: scope.mode === "full" ? 0 : null, excludedStageIndices: scope.mode === "full" ? [] : scope.mode === "suffix" ? Array.from({ length: from }, (_, i) => i) : plan.stages.map((_, i) => i) }, calculations: plan.energy ? [{ quantity: "initial_elastic_energy", value: plan.energy.elasticEnergyJ, unit: "J", source: plan.energy.origin === "given" || plan.energy.origin === "user" ? plan.energy.origin : "derived" as const, rule: plan.energy.origin, inputPaths: ["/energy"] }] : [] } : {}),
     geometry, durationSeconds: time, segments, events, termination,
     get endReason() { return termination.reason; },
     sampleAt(timeSeconds) {
@@ -287,7 +332,7 @@ function compute(plan: ResolvedStagePlan): StageMotion | StagePlanFailure {
 export function assembleStageScene(input: unknown): { ok: true; scene: StageScene } | StagePlanFailure {
   const validation = validateStagePlan(input);
   if (!validation.ok) return validation;
-  const motion = compute(validation.reading);
+  const motion = compute(validation.reading, validation.playback);
   if ("ok" in motion) return motion;
   return { ok: true, scene: { kind: "stage_scene", reading: validation.reading, geometry: motion.geometry, motion } };
 }

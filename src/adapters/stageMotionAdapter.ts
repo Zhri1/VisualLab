@@ -11,6 +11,7 @@ import type {
 } from "../types";
 
 const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "formula">> = {
+  spring_release: { name: "预压弹簧释放", summary: "弹簧推动滑块，释放阶段同时计入摩擦。", formula: "s = (c − μmg/k)(1 − cosωt)" },
   vertical_arc: {
     name: "竖直圆弧", summary: "光滑内轨上机械能守恒；法向力降为零时沿切线飞出，速度先降为零时沿轨回滑。",
     formula: "v² = u² − 2gR(1 − cosφ)，N = m(v²/R + gcosφ)",
@@ -46,6 +47,7 @@ function segmentKind(kind: StageKind): SegmentKind {
   if (kind === "incline_slide") return "incline";
   if (kind === "horizontal_slide") return "horizontal";
   if (kind === "spring_contact") return "spring";
+  if (kind === "spring_release") return "spring";
   if (kind === "projectile") return "projectile";
   if (kind === "vertical_arc") return "vertical_arc";
   return "horizontal";
