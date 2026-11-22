@@ -46,6 +46,12 @@ Qoder Sites 发布技能要求 **static 产物**，但平台支持「静态站�
 5. 把站点访问范围改为 `public`（公开访问）。
 6. 拿到公开链接 `https://<id>.qoder.zone`。
 
+### ⚠️ 三条硬约束（2026-11-22 实测，踩过两次）
+
+1. **发布是整站快照，`functionDirectory` 不能省。** 它可选，但不传表示「这次部署没有云函数」：`get_site.functions` 会变 `[]`，接口立刻 `409 sites_gateway_supabase_not_ready`。只想更新前端时，让 `functions/` 内容与线上一致再带上该参数。
+2. **重新打包函数前必须 `key:inject`，打包后立刻 `key:restore`。** 站点 `secrets` 恒为 `[]`，密钥只存在于 `functions/inline-key.ts` 的构建期注入值里；忘了注入，线上函数就没有 `DASHSCOPE_API_KEY`。
+3. **`--input-file` 必须放在项目根目录内。** 路径会被 `tL()` 做包含校验，指到项目外一律报 `sites_current_session_required`（看起来像会话问题，其实是路径问题）。CLI 还需要一条本地会话记录（`~/.qoder-cn/sites/sessions/<sha256(sessionId)>.json`），WorkBuddy 侧不会自动生成。
+
 ## 5. 上线验收（必须做，不能只跑 mock）
 
 用**全新无 Cookie 的浏览器上下文**打开公开链接，模拟评委：
