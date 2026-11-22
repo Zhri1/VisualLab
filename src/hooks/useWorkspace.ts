@@ -5,14 +5,19 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { formatErrors, motionLibrary } from "../adapters";
 import { mockChatService } from "../services/chatService";
-import { requestPlan } from "../services/imageRecognition";
+import { requestPlan, requestStageCommand } from "../services/imageRecognition";
+import type { StagePlanDraft } from "../physics/stagePlan";
+import { segmentAt } from "../ui/components/workspace/playback";
+import { isStageReading } from "../types";
 import type {
   ChatMessage,
   ConditionChange,
   Conditions,
   FieldError,
   Motion,
+  MotionSegment,
   Reading,
+  WorkspaceReading,
 } from "../types";
 
 export type Phase = "home" | "workspace";
@@ -31,13 +36,16 @@ const uid = () => `m${++seq}`;
 export function useWorkspace() {
   const [phase, setPhase] = useState<Phase>("home");
 
-  const [reading, setReading] = useState<Reading | null>(null);
+  const [reading, setReading] = useState<WorkspaceReading | null>(null);
   const [motion, setMotion] = useState<Motion | null>(null);
   /** 当前有效 motion 对应的 reading，用于撤销 */
-  const [appliedReading, setAppliedReading] = useState<Reading | null>(null);
+  const [appliedReading, setAppliedReading] = useState<WorkspaceReading | null>(null);
 
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [autoPauseEvents, setAutoPauseEvents] = useState(false);
+  const [segmentPlayback, setSegmentPlayback] = useState<MotionSegment | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRecognizing, setIsRecognizing] = useState(false);
@@ -52,13 +60,13 @@ export function useWorkspace() {
 
   const revRef = useRef(0);
   /** 连续对话改值时，必须基于「最新已生效」的 reading，而不是闭包里的旧值 */
-  const latestAppliedRef = useRef<Reading | null>(null);
+  const latestAppliedRef = useRef<WorkspaceReading | null>(null);
   latestAppliedRef.current = appliedReading;
 
   /* ---------------- 核心：reading -> motion ---------------- */
 
   /** 装配 + 计算。成功返回 motion，失败返回错误，不改变已有状态。 */
-  const compute = useCallback((r: Reading) => {
+  const compute = useCallback((r: WorkspaceReading) => {
     const assembled = motionLibrary.assembleScene(r);
     if (!assembled.ok) return { ok: false as const, errors: assembled.errors };
 
@@ -74,7 +82,7 @@ export function useWorkspace() {
 
   /** 应用一份 reading：成功则整体切换并重置时间轴 */
   const applyReading = useCallback(
-    (r: Reading, opts?: { keepTime?: boolean; silent?: boolean }) => {
+    (r: WorkspaceReading, opts?: { keepTime?: boolean; silent?: boolean }) => {
       const res = compute(r);
       if (!res.ok) {
         if (!opts?.silent) {
@@ -85,12 +93,14 @@ export function useWorkspace() {
       setReading(r);
       setAppliedReading(r);
       setMotion(res.motion);
+      setSegmentPlayback(null);
+      if (segmentPlayback) setIsPlaying(false);
       setMissingKeys([]);
       if (!opts?.keepTime) setCurrentTime(0);
       if (!opts?.silent) setNotice(null);
       return { ok: true as const, motion: res.motion };
     },
-    [compute]
+    [compute, segmentPlayback]
   );
 
   /* ---------------- 识别 ---------------- */
@@ -140,7 +150,7 @@ export function useWorkspace() {
 
       if (res.status === "needs_input") {
         // 即使 reading 为 null，也给核对表一个可编辑的空壳，避免死路
-        const shell: Reading = res.reading ?? {
+        const shell: WorkspaceReading = res.reading ?? {
           templateId: "incline_spring",
           conditions: {
             gravityMps2: null,
@@ -167,7 +177,7 @@ export function useWorkspace() {
         setMissingKeys(res.missingKeys.length ? res.missingKeys : ["templateId"]);
         const hint =
           res.message || (res.reading ? "还有条件需要补齐，补全后即可生成动画。" : "没能识别出全部信息，请补齐条件。");
-        setNotice({ kind: "info", text: hint });
+        setNotice({ kind: "info", text: hint, fieldErrors: res.fieldErrors ?? [] });
         // 缺项助手消息也挂 assumptions：页面复用同一套假设胶囊，不必区分 ok/needs_input
         setMessages([
           { id: uid(), role: "assistant", text: hint, assumptions: res.assumptions ?? [] },
@@ -198,6 +208,7 @@ export function useWorkspace() {
   );
 
   const restartHome = useCallback(() => {
+    setSegmentPlayback(null);
     setPhase("home");
     setMotion(null);
     setReading(null);
@@ -219,9 +230,13 @@ export function useWorkspace() {
   const seek = useCallback(
     (t: number) => {
       if (!motion) return;
-      setCurrentTime(Math.min(Math.max(t, 0), motion.durationSeconds));
+      const time = Math.min(Math.max(t, 0), motion.durationSeconds);
+      if (segmentPlayback && (time < segmentPlayback.startSeconds || time > segmentPlayback.endSeconds)) {
+        setSegmentPlayback(null);
+      }
+      setCurrentTime(time);
     },
-    [motion]
+    [motion, segmentPlayback]
   );
 
   const seekEvent = useCallback(
@@ -229,31 +244,51 @@ export function useWorkspace() {
       if (!motion) return false;
       const ev = motion.events.find((e) => e.id === eventId);
       if (!ev) return false;
-      setCurrentTime(ev.timeSeconds);
+      seek(ev.timeSeconds);
       setIsPlaying(false);
       return true;
     },
-    [motion]
+    [motion, seek]
   );
 
   const nextEvent = useCallback(() => {
     if (!motion) return;
     const next = motion.events.find((e) => e.timeSeconds > currentTime + 1e-4);
-    setCurrentTime(next ? next.timeSeconds : motion.durationSeconds);
+    seek(next ? next.timeSeconds : motion.durationSeconds);
     setIsPlaying(false);
-  }, [motion, currentTime]);
+  }, [motion, currentTime, seek]);
 
   const togglePlay = useCallback(() => {
     if (!motion) return;
-    if (currentTime >= motion.durationSeconds - 1e-4) setCurrentTime(0);
+    if (segmentPlayback) {
+      if (!isPlaying && (currentTime < segmentPlayback.startSeconds || currentTime >= segmentPlayback.endSeconds)) {
+        setCurrentTime(segmentPlayback.startSeconds);
+      }
+    } else if (currentTime >= motion.durationSeconds - 1e-4) setCurrentTime(0);
     setIsPlaying((p) => !p);
-  }, [motion, currentTime]);
+  }, [motion, currentTime, isPlaying, segmentPlayback]);
 
   const replay = useCallback(() => {
     if (!motion) return;
+    setSegmentPlayback(null);
     setCurrentTime(0);
     setIsPlaying(true);
   }, [motion]);
+
+  const slowCurrentSegment = useCallback(() => {
+    if (!motion) return;
+    const segment = segmentAt(motion.segments, currentTime);
+    if (!segment) return;
+    setSegmentPlayback(segment);
+    setPlaybackRate(0.25);
+    setCurrentTime(segment.startSeconds);
+    setIsPlaying(true);
+  }, [motion, currentTime]);
+
+  const exitSegmentPlayback = useCallback(() => {
+    setSegmentPlayback(null);
+    setPlaybackRate(1);
+  }, []);
 
   /* ---------------- 对话 ---------------- */
 
@@ -271,12 +306,48 @@ export function useWorkspace() {
       pushMessage({ id: pendingId, role: "assistant", text: "", pending: true });
       setIsChatLoading(true);
 
+      const dropPending = () => setMessages((prev) => prev.filter((m) => m.id !== pendingId));
+      const isTruncateCommand = /只看|只算|只播|只显示|截断|截到|为止|停到|到坡底|到桌沿|前[一二两三四五六1-6]段/.test(trimmed);
+      if (isStageReading(reading) && isTruncateCommand) {
+        const base = latestAppliedRef.current;
+        if (!isStageReading(base)) {
+          setIsChatLoading(false);
+          dropPending();
+          pushMessage({ id: uid(), role: "assistant", text: "请先应用一组完整条件，再截取运动阶段。" });
+          return;
+        }
+        const response = await requestStageCommand(trimmed, base);
+        setIsChatLoading(false);
+        dropPending();
+        if (response.status !== "ok") {
+          pushMessage({ id: uid(), role: "assistant", text: response.message, error: response.status === "error" });
+          return;
+        }
+        const through = response.intent.throughStageIndex;
+        if (!Number.isInteger(through) || through < 0 || through >= base.stages.length) {
+          pushMessage({ id: uid(), role: "assistant", text: "返回的阶段下标无效，已保留原动画。", error: true });
+          return;
+        }
+        const nextPlan: StagePlanDraft = { ...base, stages: base.stages.slice(0, through + 1) };
+        const result = applyReading(nextPlan, { silent: true });
+        if (!result.ok) {
+          pushMessage({ id: uid(), role: "assistant", text: `截取失败：${formatErrors(result.errors)}。已保留原动画。`, error: true });
+          return;
+        }
+        setIsPlaying(false);
+        pushMessage({
+          id: uid(),
+          role: "assistant",
+          text: `已保留前 ${through + 1} 个阶段，时间轴在 ${result.motion.durationSeconds.toFixed(2)} s 结束。`,
+        });
+        return;
+      }
+
       const intent = await mockChatService.send(trimmed, {
         motion,
-        conditions: (reading?.conditions ?? {}) as Record<string, number | null>,
+        conditions: (isStageReading(reading) ? {} : (reading?.conditions ?? {})) as Record<string, number | null>,
       });
 
-      const dropPending = () => setMessages((prev) => prev.filter((m) => m.id !== pendingId));
       setIsChatLoading(false);
 
       if (intent.type === "answer") {
@@ -304,7 +375,7 @@ export function useWorkspace() {
 
       if (intent.type === "play") {
         dropPending();
-        setIsPlaying(true);
+        if (!isPlaying) togglePlay();
         pushMessage({ id: uid(), role: "assistant", text: "已开始播放。" });
         return;
       }
@@ -335,6 +406,14 @@ export function useWorkspace() {
           id: uid(),
           role: "assistant",
           text: "当前还没有可修改的题目，先上传或使用内置示例。",
+        });
+        return;
+      }
+      if (isStageReading(base)) {
+        pushMessage({
+          id: uid(),
+          role: "assistant",
+          text: "阶段计划的数值请在「查看原题」中修改；对话截断可输入「只看斜面」。",
         });
         return;
       }
@@ -378,7 +457,7 @@ export function useWorkspace() {
         text: intent.text + "动画与时间轴已同步更新。",
       });
     },
-    [applyReading, isChatLoading, motion, pushMessage, reading, replay, seekEvent]
+    [applyReading, isChatLoading, motion, pushMessage, reading, replay, seekEvent, isPlaying, togglePlay]
   );
 
   /** 撤销某次参数修改：回到该次修改前的 conditions */
@@ -386,7 +465,7 @@ export function useWorkspace() {
     (messageId: string) => {
       const msg = messages.find((m) => m.id === messageId);
       const current = latestAppliedRef.current;
-      if (!msg?.change || !current) return;
+      if (!msg?.change || !current || isStageReading(current)) return;
 
       // 撤销只回退这一张卡片改动的字段，其余保持当前值
       const target = { ...current, conditions: { ...current.conditions } };
@@ -420,7 +499,7 @@ export function useWorkspace() {
   /* ---------------- 核对表提交 ---------------- */
 
   const applyConditions = useCallback(
-    (next: Reading) => {
+    (next: WorkspaceReading) => {
       const res = applyReading(next);
       if (res.ok) {
         setNotice(null);
@@ -447,6 +526,9 @@ export function useWorkspace() {
       motion,
       currentTime,
       isPlaying,
+      playbackRate,
+      autoPauseEvents,
+      segmentPlayback,
       messages,
       isRecognizing,
       isChatLoading,
@@ -469,12 +551,16 @@ export function useWorkspace() {
       applyConditions,
       setNotice,
       setCurrentTime,
+      setPlaybackRate,
+      setAutoPauseEvents,
+      slowCurrentSegment,
+      exitSegmentPlayback,
     }),
     [
-      phase, reading, appliedReading, motion, currentTime, isPlaying, messages,
+      phase, reading, appliedReading, motion, currentTime, isPlaying, playbackRate, autoPauseEvents, segmentPlayback, messages,
       isRecognizing, isChatLoading, imageUrl, imageFile, notice, missingKeys,
       recognize, loadSample, restartHome, seek, seekEvent, nextEvent, togglePlay,
-      replay, sendChat, undoChange, applyConditions,
+      replay, sendChat, undoChange, applyConditions, slowCurrentSegment, exitSegmentPlayback,
     ]
   );
 }

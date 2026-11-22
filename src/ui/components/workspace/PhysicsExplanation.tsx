@@ -44,12 +44,16 @@ export function PhysicsExplanation({ motion, time }: Props) {
     [...motion.segments].reverse().find((s) => time >= s.startSeconds - 1e-6) ??
     motion.segments[0];
 
-  // 事件刚发生后的 0.6 s 内，展示事件字幕而不是阶段说明
-  const recent = [...motion.events]
+  // 末帧固定保留实际终止事件；停止、前缀结束不能被通用阶段说明覆盖。
+  const terminal = time >= motion.durationSeconds - 1e-6
+    ? motion.events.find((event) => event.id === motion.termination?.eventId) ?? motion.events[motion.events.length - 1]
+    : undefined;
+  const recent = terminal ?? [...motion.events]
     .reverse()
     .find((e) => time >= e.timeSeconds - 1e-6 && time - e.timeSeconds < 0.6);
 
-  const segIndex = motion.segments.findIndex((s) => s.kind === seg.kind) + 1;
+  // 同一种阶段可以重复出现，不能用 kind 反查阶段编号。
+  const segIndex = seg ? motion.segments.indexOf(seg) + 1 : 0;
 
   return (
     <div className={"explain" + (recent ? " is-event" : "")}>
@@ -60,11 +64,11 @@ export function PhysicsExplanation({ motion, time }: Props) {
           </span>
           {recent && <span className="event-flag">关键事件</span>}
         </div>
-        <p className="stage-name">{recent ? recent.label : seg.name}</p>
-        <p className="stage-desc">{recent ? recent.caption : seg.summary}</p>
+        <p className="stage-name">{recent?.label ?? seg?.name ?? "运动结束"}</p>
+        <p className="stage-desc">{recent?.caption ?? seg?.summary ?? "当前计划没有正时长运动段。"}</p>
       </div>
-      <div className="formula" title={seg.formula}>
-        <Formula text={seg.formula} />
+      <div className="formula" title={seg?.formula ?? "—"}>
+        <Formula text={seg?.formula ?? "—"} />
       </div>
     </div>
   );

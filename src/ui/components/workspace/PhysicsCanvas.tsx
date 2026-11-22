@@ -10,6 +10,8 @@
  */
 import { useCallback, useEffect, useRef } from "react";
 import type { Motion, Vec2 } from "../../../types";
+import { formatSpeed } from "./playback";
+import { StagePhysicsCanvas } from "./StagePhysicsCanvas";
 
 const INK = "#1c1c1c";
 const SOFT = "#8e8e88";
@@ -28,6 +30,7 @@ const SANS = '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-
 interface Props {
   motion: Motion | null;
   time: number;
+  isPlaying?: boolean;
 }
 
 interface Transform {
@@ -124,6 +127,8 @@ function drawScene(
 ) {
   const g = motion.geometry;
   const size = g.blockSizeM;
+  const activeSegment = motion.segments.find(({ endSeconds }) => time < endSeconds)
+    ?? motion.segments[motion.segments.length - 1];
 
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = PAPER;
@@ -180,6 +185,20 @@ function drawScene(
   ctx.lineJoin = "miter";
   ctx.stroke();
 
+  // 加粗当前支撑路段，路段编号和图例一一对应。
+  if (activeSegment?.kind === "incline" || activeSegment?.kind === "horizontal") {
+    ctx.lineWidth = W_EDGE + 0.8;
+    ctx.beginPath();
+    if (activeSegment.kind === "incline") {
+      ctx.moveTo(X(g.inclineTop.x), Y(g.inclineTop.y));
+      ctx.lineTo(X(0), Y(0));
+    } else {
+      ctx.moveTo(X(0), Y(0));
+      ctx.lineTo(X(g.springContactX), Y(0));
+    }
+    ctx.stroke();
+  }
+
   /* ---------- 高度尺寸线 ---------- */
   const hxW = g.inclineTop.x - size * 1.28;
   const hLine = X(hxW);
@@ -221,6 +240,16 @@ function drawScene(
 
   /* ---------- 倾角 ---------- */
   const theta = Math.atan2(g.inclineTop.y, -g.inclineTop.x);
+  ctx.fillStyle = INK;
+  ctx.textBaseline = "middle";
+  drawRich(
+    ctx,
+    [{ t: "AB" }],
+    X(g.inclineTop.x * 0.5) - Math.sin(theta) * 14,
+    Y(g.inclineTop.y * 0.5) + Math.cos(theta) * 14,
+    LBL
+  );
+
   const arcR = Math.min(0.85, Math.abs(g.inclineTop.x) * 0.42);
   ctx.strokeStyle = SOFT;
   ctx.lineWidth = W_HAIR;
@@ -333,7 +362,7 @@ function drawScene(
     drawRich(ctx, segs, (xa + xb) / 2, labelAbove ? yy - 6 : yy + 6, LBL);
   };
 
-  hDim(0, freeX, -size * 1.5, [{ t: `${freeX.toFixed(2)} m` }], 0, false);
+  hDim(0, freeX, -size * 1.5, [{ t: `BC · ${freeX.toFixed(2)} m` }], 0, false);
 
   /* ---------- 滑块 ---------- */
   const half = size / 2;
@@ -401,6 +430,7 @@ function drawScene(
   const vx = sample.velocity.x;
   const vy = sample.velocity.y;
   const speed = Math.hypot(vx, vy);
+  const speedText = formatSpeed(speed);
   if (speed > 0.08) {
     // 用全程最大速率做归一，箭头长度才在同一尺度上可比
     const vRef = Math.max(
@@ -438,16 +468,6 @@ function drawScene(
     ctx.fillStyle = "#3a3a36";
     arrowHead(ctx, p1x, p1y, ang, Math.max(7, S * 0.08), Math.max(3.2, S * 0.035));
 
-    // v 标签：沿箭头方向外移，避开箭头本体
-    ctx.fillStyle = "#3a3a36";
-    ctx.textBaseline = "bottom";
-    drawRich(
-      ctx,
-      [{ t: "v", symbol: true }],
-      p1x + ux * 13,
-      p1y + uy * 13 - 3,
-      LBL + 1
-    );
   }
 
   /* ---------- 压缩量 ---------- */
@@ -461,9 +481,45 @@ function drawScene(
       true
     );
   }
+
+  /* ---------- 随物体移动的速度读数 ---------- */
+  const speedLabel = [{ t: "v", symbol: true }, { t: ` ${speedText.startsWith("<") ? "" : "= "}${speedText} m/s` }];
+  const speedLabelPx = LBL + 1;
+  const labelHalfWidth = measureRich(ctx, speedLabel, speedLabelPx) / 2;
+  const blockExtent = half * S * (Math.abs(tx) + Math.abs(ty));
+  const blockX = X(centerX);
+  const blockY = Y(centerY);
+  const insetX = labelHalfWidth + 8;
+  const insetTop = speedLabelPx + 8;
+  const sideOffset = blockExtent + insetX;
+  // 弹簧上方留给压缩量。若顶部放不下，速度读数挪到滑块一侧。
+  let labelX = activeSegment?.kind === "spring" ? blockX - sideOffset : blockX;
+  let labelY = blockY - blockExtent - 8;
+  if (activeSegment?.kind === "spring") {
+    // 压缩量尺寸线有独立文字行，速度读数放在其上方，避免擦掉 x 标签。
+    labelY = Math.min(labelY, Y(coilH + size * 0.92) - LBL - 16);
+  }
+  if (labelY < insetTop) {
+    labelX = blockX + sideOffset <= W - insetX ? blockX + sideOffset : blockX - sideOffset;
+    labelY = blockY + speedLabelPx / 2;
+  }
+  labelX = Math.min(W - insetX, Math.max(insetX, labelX));
+  labelY = Math.min(H - 8, Math.max(insetTop, labelY));
+  ctx.fillStyle = PAPER;
+  ctx.fillRect(labelX - labelHalfWidth - 4, labelY - speedLabelPx - 2, 2 * labelHalfWidth + 8, speedLabelPx + 5);
+  ctx.fillStyle = INK;
+  ctx.textBaseline = "bottom";
+  drawRich(ctx, speedLabel, labelX, labelY, speedLabelPx);
 }
 
-export function PhysicsCanvas({ motion, time }: Props) {
+export function PhysicsCanvas(props: Props) {
+  if (props.motion?.stageGeometry) {
+    return <StagePhysicsCanvas motion={props.motion} time={props.time} isPlaying={props.isPlaying} />;
+  }
+  return <LegacyPhysicsCanvas {...props} />;
+}
+
+function LegacyPhysicsCanvas({ motion, time, isPlaying = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<number | null>(null);
   const sizeRef = useRef({ w: 0, h: 0 });
@@ -518,5 +574,15 @@ export function PhysicsCanvas({ motion, time }: Props) {
     };
   }, [motion, time, paint]);
 
-  return <canvas ref={canvasRef} aria-label="物理运动示意动画" role="img" />;
+  const velocity = motion?.sampleAt(time).velocity;
+  const speed = velocity ? Math.hypot(velocity.x, velocity.y) : 0;
+  const speedText = formatSpeed(speed);
+  return (
+    <figure className="physics-figure">
+      <canvas ref={canvasRef} aria-label="物理运动示意动画，AB 为斜面，BC 为光滑水平面" aria-describedby="player-speed" role="img" />
+      <figcaption id="player-speed" className="player-sr-only" aria-live={isPlaying ? "off" : "polite"}>
+        当前速度大小 {speedText.startsWith("<") ? "小于 0.01" : speedText} 米每秒
+      </figcaption>
+    </figure>
+  );
 }

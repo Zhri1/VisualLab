@@ -9,7 +9,9 @@
  * 回包四种状态（ok / needs_input / unsupported / 400·502·504）都已在此归一。
  */
 import { MOCK_LATENCY_MS, PLAN_ENDPOINT } from "../config/endpoints";
-import type { PlanResponse, Reading } from "../types";
+import { parseCommand, type CommandResult } from "../api/command";
+import type { StagePlanDraft } from "../physics/stagePlan";
+import type { FieldError, PlanResponse, Reading, WorkspaceReading } from "../types";
 
 /** 默认为 true，便于离线开发；接真实服务时设为 "false" */
 export const USE_MOCK_API =
@@ -150,7 +152,7 @@ export async function requestPlan(input: {
     if (res.ok && body?.status === "ok" && body.reading) {
       return {
         status: "ok",
-        reading: body.reading as Reading,
+        reading: body.reading as WorkspaceReading,
         message: typeof body.message === "string" ? body.message : undefined,
         assumptions: Array.isArray(body.assumptions) ? (body.assumptions as string[]) : undefined,
       };
@@ -158,8 +160,9 @@ export async function requestPlan(input: {
     if (res.ok && body?.status === "needs_input") {
       return {
         status: "needs_input",
-        reading: (body.reading ?? null) as Reading | null,
+        reading: (body.reading ?? null) as WorkspaceReading | null,
         missingKeys: (body.missingKeys ?? []) as string[],
+        fieldErrors: Array.isArray(body.fieldErrors) ? (body.fieldErrors as FieldError[]) : [],
         message: body.message ?? "请补全识别条件",
         // 与 ok 一致地透传假设条目；非数组视为旧服务，按「没有假设」处理
         assumptions: Array.isArray(body.assumptions) ? (body.assumptions as string[]) : undefined,
@@ -178,6 +181,47 @@ export async function requestPlan(input: {
             ? "识别超时，请重试"
             : "识别服务异常，请稍后重试";
     return { status: "error", httpStatus: res.status, message: body?.message ?? fallback };
+  } catch {
+    return { status: "error", message: "网络异常，请检查连接后重试" };
+  }
+}
+
+export type StageCommandResponse = CommandResult | { status: "error"; message: string; httpStatus?: number };
+
+/** 修改当前阶段计划。command 与识别新题的 text 严格分开，currentPlan 使用完整 JSON。 */
+export async function requestStageCommand(command: string, currentPlan: StagePlanDraft): Promise<StageCommandResponse> {
+  if (USE_MOCK_API) {
+    const [lo, hi] = MOCK_LATENCY_MS;
+    await sleep(lo + Math.random() * (hi - lo));
+    return parseCommand(command, {
+      stages: currentPlan.stages.map((stage) => ({ kind: String(stage.kind ?? "") })),
+    });
+  }
+
+  const form = new FormData();
+  form.append("command", command);
+  form.append("currentPlan", JSON.stringify(currentPlan));
+  try {
+    const res = await fetch(ENDPOINT, { method: "POST", body: form });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok && body?.status === "ok" && body.intent?.type === "truncate_stages") {
+      return { status: "ok", intent: { type: "truncate_stages", throughStageIndex: Number(body.intent.throughStageIndex) } };
+    }
+    if (res.ok && body?.status === "needs_input") {
+      return {
+        status: "needs_input",
+        message: body.message ?? "请说明要保留到哪一段",
+        missingKeys: Array.isArray(body.missingKeys) ? body.missingKeys : [],
+      };
+    }
+    if (res.ok && body?.status === "unsupported") {
+      return { status: "unsupported", message: body.message ?? "当前指令暂不支持" };
+    }
+    return {
+      status: "error",
+      httpStatus: res.status,
+      message: body?.message ?? (res.status === 504 ? "指令处理超时，请重试" : "指令服务异常，请稍后重试"),
+    };
   } catch {
     return { status: "error", message: "网络异常，请检查连接后重试" };
   }

@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Image as ImageIcon } from "lucide-react";
 import type { Workspace } from "../../../hooks/useWorkspace";
+import { isStageReading } from "../../../types";
 import { ChatPanel } from "../chat/ChatPanel";
 import { PhysicsCanvas } from "./PhysicsCanvas";
 import { PhysicsExplanation } from "./PhysicsExplanation";
 import { PlaybackControls } from "./PlaybackControls";
 import { OriginalProblemViewer } from "./OriginalProblemViewer";
+import { advancePlayback, segmentAt } from "./playback";
+import "./player.css";
 
 interface Props {
   ws: Workspace;
@@ -16,6 +19,28 @@ export function WorkspaceLayout({ ws }: Props) {
   const [viewerOpen, setViewerOpen] = useState(false);
   const rafRef = useRef<number | null>(null);
   const lastRef = useRef<number | null>(null);
+  const clockTimeRef = useRef(currentTime);
+  clockTimeRef.current = currentTime;
+  const activeSegment = motion ? segmentAt(motion.segments, currentTime) : undefined;
+  const stagePlan = isStageReading(ws.appliedReading) ? ws.appliedReading : null;
+  const legacyReading = ws.appliedReading && !isStageReading(ws.appliedReading) ? ws.appliedReading : null;
+  const stageLabels = {
+    incline_slide: "斜面",
+    lossless_turn: "转向",
+    horizontal_slide: "水平",
+    spring_contact: "弹簧",
+    projectile: "抛体",
+  } as const;
+  const title = stagePlan
+    ? stagePlan.stages.map((stage) => stageLabels[stage.kind as keyof typeof stageLabels] ?? "未知阶段").join(" · ")
+    : "斜面滑块与弹簧";
+  const subtitle = stagePlan
+    ? `共 ${stagePlan.stages.length} 个有序阶段，按实际事件播放；修改条件后重新装配。`
+    : "滑块自斜面顶端由静止下滑，经光滑水平面压缩弹簧并反弹。";
+  const explanationTimes = useMemo(() => motion ? [
+    ...motion.events.map((event) => event.timeSeconds),
+    ...motion.segments.map((segment) => (segment.startSeconds + segment.endSeconds) / 2),
+  ] : [], [motion]);
 
   // 播放循环不能依赖 ws 对象本身，否则每帧重建会重置 dt。
   const setTimeRef = useRef(ws.setCurrentTime);
@@ -37,16 +62,15 @@ export function WorkspaceLayout({ ws }: Props) {
       const dt = Math.min(0.06, (ts - lastRef.current) / 1000);
       lastRef.current = ts;
 
-      setTimeRef.current((prev) => {
-        const next = prev + dt;
-        if (next >= motion.durationSeconds) {
-          // 终点停在末尾并自动暂停，避免循环播放
-          setPlayingRef.current(false);
-          return motion.durationSeconds;
-        }
-        return next;
-      });
-      rafRef.current = requestAnimationFrame(tick);
+      const next = advancePlayback(
+        clockTimeRef.current, dt, ws.playbackRate,
+        ws.segmentPlayback?.endSeconds ?? motion.durationSeconds,
+        ws.autoPauseEvents ? motion.events : []
+      );
+      clockTimeRef.current = next.time;
+      setTimeRef.current(next.time);
+      if (next.pause) setPlayingRef.current(false);
+      else rafRef.current = requestAnimationFrame(tick);
     };
 
     rafRef.current = requestAnimationFrame(tick);
@@ -55,7 +79,7 @@ export function WorkspaceLayout({ ws }: Props) {
       rafRef.current = null;
       lastRef.current = null;
     };
-  }, [motion, isPlaying]);
+  }, [motion, isPlaying, ws.playbackRate, ws.autoPauseEvents, ws.segmentPlayback]);
 
   return (
     <>
@@ -83,10 +107,8 @@ export function WorkspaceLayout({ ws }: Props) {
 
           <div className="player-head">
             <div style={{ minWidth: 0 }}>
-              <h1 className="player-title">斜面滑块与弹簧</h1>
-              <p className="player-sub">
-                滑块自斜面顶端由静止下滑，经光滑水平面压缩弹簧并反弹。
-              </p>
+              <h1 className="player-title">{title}</h1>
+              <p className="player-sub">{subtitle}</p>
             </div>
             <button className="ghost-button" onClick={() => setViewerOpen(true)}>
               <ImageIcon size={14} strokeWidth={1.8} />
@@ -94,9 +116,34 @@ export function WorkspaceLayout({ ws }: Props) {
             </button>
           </div>
 
+          {motion && (
+            <ul className="scene-legend" aria-label="路段与动摩擦因数">
+              {stagePlan ? motion.segments.map((segment) => {
+                const stage = segment.stageIndex == null ? null : stagePlan.stages[segment.stageIndex];
+                const friction = stage && "kineticFrictionCoefficient" in stage && typeof stage.kineticFrictionCoefficient === "number"
+                  ? stage.kineticFrictionCoefficient
+                  : null;
+                return (
+                  <li key={`${segment.stageIndex}-${segment.kind}`} aria-current={activeSegment === segment ? "step" : undefined}>
+                    <b>{String((segment.stageIndex ?? 0) + 1).padStart(2, "0")}</b> {segment.name}
+                    {friction != null && <span>μ = {friction.toFixed(2)}</span>}
+                  </li>
+                );
+              }) : (
+                <>
+                  <li aria-current={activeSegment?.kind === "incline" ? "step" : undefined}>
+                    <b>AB</b> 斜面 <span>μ = {legacyReading?.conditions.kineticFrictionCoefficient?.toFixed(2)}</span>
+                  </li>
+                  <li aria-current={activeSegment?.kind !== "incline" ? "step" : undefined}>
+                    <b>BC</b> 水平面 <span>μ = 0</span>
+                  </li>
+                </>
+              )}
+            </ul>
+          )}
           <div className="canvas-frame">
             {motion ? (
-              <PhysicsCanvas motion={motion} time={currentTime} />
+              <PhysicsCanvas motion={motion} time={currentTime} isPlaying={isPlaying} />
             ) : (
               <div
                 style={{
@@ -124,8 +171,22 @@ export function WorkspaceLayout({ ws }: Props) {
                 onSeek={ws.seek}
                 onSeekEvent={ws.seekEvent}
                 onScrubStart={() => ws.setIsPlaying(false)}
+                playbackRate={ws.playbackRate}
+                onRateChange={ws.setPlaybackRate}
+                autoPauseEvents={ws.autoPauseEvents}
+                onAutoPauseChange={ws.setAutoPauseEvents}
+                segmentName={ws.segmentPlayback?.name}
+                onSlowSegment={ws.slowCurrentSegment}
+                onExitSegment={ws.exitSegmentPlayback}
               />
-              <PhysicsExplanation motion={motion} time={currentTime} />
+              <div className="explanation-slot">
+                <PhysicsExplanation motion={motion} time={currentTime} />
+                <div className="explanation-reserve" aria-hidden="true">
+                  {explanationTimes.map((time, index) => (
+                    <PhysicsExplanation key={index} motion={motion} time={time} />
+                  ))}
+                </div>
+              </div>
             </>
           ) : null}
         </section>

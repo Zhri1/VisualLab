@@ -60,7 +60,7 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
       if (e.key === "ArrowRight") onSeek(Math.min(duration, time + 0.05));
       if (e.key === "ArrowLeft") onSeek(Math.max(0, time - 0.05));
     };

@@ -1,0 +1,256 @@
+import type { StageKind, StagePlanDraft } from "../../../physics/stagePlan";
+import type { FieldError } from "../../../types";
+
+const STAGE_LABELS: Record<StageKind, string> = {
+  incline_slide: "斜面下滑",
+  lossless_turn: "无损转向",
+  horizontal_slide: "水平滑动",
+  spring_contact: "弹簧接触",
+  projectile: "抛体运动",
+};
+
+const STAGE_KINDS = Object.keys(STAGE_LABELS) as StageKind[];
+
+type NumberMeta = { key: string; label: string; unit: string; step?: number; hint?: string };
+const NUMBER_FIELDS: Partial<Record<StageKind, NumberMeta[]>> = {
+  incline_slide: [
+    { key: "lengthM", label: "斜面长度 L", unit: "m", step: 0.1 },
+    { key: "angleDeg", label: "斜面倾角 θ", unit: "°", step: 1, hint: "0° < θ < 90°" },
+    { key: "kineticFrictionCoefficient", label: "斜面动摩擦因数 μ", unit: "", step: 0.05 },
+  ],
+  horizontal_slide: [
+    { key: "kineticFrictionCoefficient", label: "水平动摩擦因数 μ", unit: "", step: 0.05 },
+  ],
+  spring_contact: [{ key: "springConstantNpm", label: "弹簧劲度系数 k", unit: "N/m", step: 10 }],
+  projectile: [{ key: "dropHeightM", label: "落地平面落差 h", unit: "m", step: 0.05 }],
+};
+
+interface Props {
+  draft: StagePlanDraft;
+  onChange: (next: StagePlanDraft) => void;
+  missingKeys: string[];
+  fieldErrors: FieldError[];
+}
+
+function asNumber(raw: string): number | null {
+  if (!raw.trim()) return null;
+  const value = Number(raw);
+  return Number.isNaN(value) ? null : value;
+}
+
+function displayNumber(value: unknown): string {
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+}
+
+function blankStage(kind: StageKind): Record<string, unknown> {
+  if (kind === "incline_slide") {
+    return { kind, lengthM: null, angleDeg: null, kineticFrictionCoefficient: null, slidesAfterRelease: null };
+  }
+  if (kind === "lossless_turn") return { kind, lossless: null };
+  if (kind === "horizontal_slide") {
+    return { kind, kineticFrictionCoefficient: null, end: { kind: "distance", distanceM: null } };
+  }
+  if (kind === "spring_contact") return { kind, springConstantNpm: null, frictionless: null, unattached: null };
+  return { kind, dropHeightM: null };
+}
+
+export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: Props) {
+  const errorMap = new Map(fieldErrors.filter((error) => error.path).map((error) => [error.path!, error.message]));
+  const flagged = (path: string) =>
+    errorMap.has(path) || missingKeys.some((key) => key === path || key.startsWith(path + "/") || path.startsWith(key + "/"));
+
+  const setTopNumber = (key: "gravityMps2" | "massKg", raw: string) => {
+    onChange({ ...draft, [key]: asNumber(raw) });
+  };
+  const setInitialNumber = (key: "speedMps" | "vxMps" | "vyMps", raw: string) => {
+    onChange({ ...draft, initial: { ...draft.initial, [key]: asNumber(raw) } as StagePlanDraft["initial"] });
+  };
+  const setStage = (index: number, stage: Record<string, unknown>) => {
+    const stages = [...draft.stages];
+    stages[index] = stage;
+    onChange({ ...draft, stages });
+  };
+  const setStageNumber = (index: number, key: string, raw: string) => {
+    setStage(index, { ...draft.stages[index], [key]: asNumber(raw) });
+  };
+  const setStageFact = (index: number, key: string, raw: string) => {
+    const value = raw === "" ? null : raw === "true";
+    setStage(index, { ...draft.stages[index], [key]: value });
+  };
+  const setEndKind = (index: number, raw: string) => {
+    const stage = draft.stages[index];
+    if (!raw) {
+      setStage(index, { ...stage, end: null });
+      return;
+    }
+    const oldEnd = stage.end && typeof stage.end === "object" ? stage.end as Record<string, unknown> : {};
+    setStage(index, {
+      ...stage,
+      end: raw === "distance" ? { kind: "distance", distanceM: oldEnd.distanceM ?? null } : { kind: "stop" },
+    });
+  };
+  const setDistance = (index: number, raw: string) => {
+    const stage = draft.stages[index];
+    const end = stage.end && typeof stage.end === "object" ? stage.end as Record<string, unknown> : { kind: "distance" };
+    setStage(index, { ...stage, end: { ...end, kind: "distance", distanceM: asNumber(raw) } });
+  };
+
+  const numberRow = (
+    meta: NumberMeta & { path: string; value: unknown; onChange: (raw: string) => void },
+  ) => {
+    const error = errorMap.get(meta.path);
+    const missing = meta.value == null || missingKeys.includes(meta.path);
+    const invalid = flagged(meta.path);
+    return (
+      <tr key={meta.path} data-field-path={meta.path}>
+        <td className="name">
+          {meta.label}
+          {meta.hint && <span className="hint">{meta.hint}</span>}
+        </td>
+        <td className="val">
+          <input
+            className={"num-input" + (invalid ? " invalid" : "")}
+            type="number"
+            step={meta.step ?? 0.1}
+            inputMode="decimal"
+            value={displayNumber(meta.value)}
+            placeholder="待补"
+            aria-label={meta.label}
+            aria-invalid={invalid}
+            data-field-path={meta.path}
+            onChange={(event) => meta.onChange(event.target.value)}
+          />
+          <span className="unit-tag">{meta.unit || "—"}</span>
+        </td>
+        <td style={{ fontSize: 12, color: error ? "#8a4b4b" : "var(--text-tertiary)" }}>
+          {error ? "需修正" : missing ? "缺失" : ""}
+        </td>
+      </tr>
+    );
+  };
+
+  const factRow = (stageIndex: number, key: string, label: string) => {
+    const path = `/stages/${stageIndex}/${key}`;
+    const value = draft.stages[stageIndex][key];
+    return (
+      <tr key={path} data-field-path={path}>
+        <td className="name">{label}</td>
+        <td className="val">
+          <select
+            className={"stage-select" + (flagged(path) ? " invalid" : "")}
+            value={value === true ? "true" : value === false ? "false" : ""}
+            aria-label={label}
+            aria-invalid={flagged(path)}
+            data-field-path={path}
+            onChange={(event) => setStageFact(stageIndex, key, event.target.value)}
+          >
+            <option value="">待确认</option>
+            <option value="true">是</option>
+            <option value="false">否</option>
+          </select>
+        </td>
+        <td style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{value == null ? "缺失" : ""}</td>
+      </tr>
+    );
+  };
+
+  const initial = draft.initial ?? { speedMps: null };
+  const firstKind = draft.stages[0]?.kind;
+  const components = firstKind === "projectile" || "vxMps" in initial || "vyMps" in initial;
+  const showMass = "massKg" in draft || missingKeys.includes("/massKg") || draft.stages.some((stage) => stage.kind === "spring_contact");
+
+  return (
+    <div className="stage-plan-editor" data-testid="stage-plan-editor">
+      <p className="section-label">共享条件</p>
+      <table className="cond-table">
+        <tbody>
+          {numberRow({ key: "gravityMps2", label: "重力加速度 g", unit: "m/s²", step: 0.1,
+            path: "/gravityMps2", value: draft.gravityMps2, onChange: (raw) => setTopNumber("gravityMps2", raw) })}
+          {showMass && numberRow({ key: "massKg", label: "滑块质量 m", unit: "kg", step: 0.1,
+            path: "/massKg", value: draft.massKg, onChange: (raw) => setTopNumber("massKg", raw) })}
+          {components ? (
+            <>
+              {numberRow({ key: "vxMps", label: "水平初速度 vₓ", unit: "m/s", step: 0.1,
+                path: "/initial/vxMps", value: "vxMps" in initial ? initial.vxMps : null, onChange: (raw) => setInitialNumber("vxMps", raw) })}
+              {numberRow({ key: "vyMps", label: "竖直初速度 vᵧ", unit: "m/s", step: 0.1,
+                path: "/initial/vyMps", value: "vyMps" in initial ? initial.vyMps : null, onChange: (raw) => setInitialNumber("vyMps", raw) })}
+            </>
+          ) : numberRow({ key: "speedMps", label: "初始速率 v₀", unit: "m/s", step: 0.1,
+            path: "/initial/speedMps", value: "speedMps" in initial ? initial.speedMps : null, onChange: (raw) => setInitialNumber("speedMps", raw) })}
+        </tbody>
+      </table>
+
+      <p className="section-label">有序运动阶段</p>
+      {draft.stages.length === 0 && <p className="placeholder">未识别出运动阶段，请重新上传或补充题面。</p>}
+      {draft.stages.map((stage, index) => {
+        const kind = typeof stage.kind === "string" ? stage.kind as StageKind : null;
+        const kindPath = `/stages/${index}/kind`;
+        const known = kind != null && STAGE_KINDS.includes(kind);
+        return (
+          <section className="stage-editor-card" data-stage-index={index} data-stage-kind={kind ?? ""} key={index}>
+            <div className="stage-editor-head">
+              <span className="stage-number">阶段 {index + 1}</span>
+              <select
+                className={"stage-select" + (flagged(kindPath) ? " invalid" : "")}
+                value={kind ?? ""}
+                aria-label={`阶段 ${index + 1} 类型`}
+                aria-invalid={flagged(kindPath)}
+                data-field-path={kindPath}
+                onChange={(event) => setStage(index, blankStage(event.target.value as StageKind))}
+              >
+                <option value="" disabled>选择阶段类型</option>
+                {known || !kind ? null : <option value={kind}>未登记：{kind}</option>}
+                {STAGE_KINDS.map((item) => <option value={item} key={item}>{STAGE_LABELS[item]}</option>)}
+              </select>
+            </div>
+            {known && (
+              <table className="cond-table">
+                <tbody>
+                  {(NUMBER_FIELDS[kind] ?? []).map((meta) => numberRow({
+                    ...meta,
+                    path: `/stages/${index}/${meta.key}`,
+                    value: stage[meta.key],
+                    onChange: (raw) => setStageNumber(index, meta.key, raw),
+                  }))}
+                  {kind === "incline_slide" && ("slidesAfterRelease" in stage || missingKeys.includes(`/stages/${index}/slidesAfterRelease`)
+                    || ("speedMps" in initial && initial.speedMps === 0)) && factRow(index, "slidesAfterRelease", "释放后下滑")}
+                  {kind === "lossless_turn" && factRow(index, "lossless", "无损转向")}
+                  {kind === "horizontal_slide" && (
+                    <>
+                      <tr data-field-path={`/stages/${index}/end`}>
+                        <td className="name">水平段结束条件</td>
+                        <td className="val">
+                          <select
+                            className={"stage-select" + (flagged(`/stages/${index}/end`) ? " invalid" : "")}
+                            value={stage.end && typeof stage.end === "object" && "kind" in stage.end ? String(stage.end.kind ?? "") : ""}
+                            aria-label={`阶段 ${index + 1} 结束条件`}
+                            data-field-path={`/stages/${index}/end/kind`}
+                            onChange={(event) => setEndKind(index, event.target.value)}
+                          >
+                            <option value="">待确认</option>
+                            <option value="distance">指定距离</option>
+                            <option value="stop">减速至停止</option>
+                          </select>
+                        </td>
+                        <td />
+                      </tr>
+                      {(!stage.end || (typeof stage.end === "object" && "kind" in stage.end && stage.end.kind === "distance")
+                        || missingKeys.includes(`/stages/${index}/end/distanceM`)) && numberRow({
+                        key: "distanceM", label: "计划距离 / 桌沿位置", unit: "m", step: 0.1,
+                        path: `/stages/${index}/end/distanceM`,
+                        value: stage.end && typeof stage.end === "object" && "distanceM" in stage.end ? stage.end.distanceM : null,
+                        onChange: (raw) => setDistance(index, raw),
+                      })}
+                    </>
+                  )}
+                  {kind === "spring_contact" && factRow(index, "frictionless", "接触面光滑")}
+                  {kind === "spring_contact" && factRow(index, "unattached", "滑块与弹簧不连接")}
+                </tbody>
+              </table>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
