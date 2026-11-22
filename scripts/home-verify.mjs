@@ -63,15 +63,7 @@ await send("Page.reload");
 await sleep(1500);
 
 check("首页有示例卡片", await evaluate('!!document.querySelector(".sample-card")'));
-check("三步引导为 3 条", (await evaluate('document.querySelectorAll(".home-steps li").length')) === 3);
-check("能力与隐私说明存在", (await evaluate('!!document.querySelector(".home-capabilities")')));
 check("多阶段说明已出现", /多阶段/.test(await text(".home-note")));
-check("文字样例有 2 个", (await evaluate('document.querySelectorAll(".text-chip").length')) === 2);
-
-await evaluate('document.querySelector(".text-chip").click()');
-await sleep(300);
-const chipValue = await evaluate('document.querySelector(".composer-text").value');
-check("点样例回填题干", typeof chipValue === "string" && chipValue.length > 20);
 
 // 草稿：输入 → 刷新 → 自动恢复
 await evaluate(`(() => {

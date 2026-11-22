@@ -203,7 +203,7 @@ export function PromptComposer({
               <Camera size={19} strokeWidth={1.7} />
             </button>
           )}
-          <span className="composer-hint">可粘贴截图 · 支持 JPG / PNG</span>
+          
         </div>
         <input
           ref={fileRef}
