@@ -1,5 +1,5 @@
 {
-  "description": "圆弧契约的独立数值对照；时间从最低点 B 开始，非前段已实现的计时结果。",
+  "description": "圆弧契约的独立数值对照；cases 从最低点 B 开始，compositionCases 从水平段起点开始，均非已实现函数的回包。",
   "toleranceSI": 0.000001,
   "fixedEnergyBeforeRoughSectionJ": 1.4,
   "roughSectionKineticFrictionCoefficient": 0.2,
@@ -46,6 +46,44 @@
       "terminationReason": "returned_to_entry",
       "durationSeconds": 0.6743001419250443,
       "final": { "xM": 0, "yM": 0, "vxMps": -2, "vyMps": 0, "springCompressionM": 0 }
+    }
+  ],
+  "compositionCases": [
+    {
+      "readingFile": "vertical-arc-composition.reading.json",
+      "description": "水平定距后从非零世界 x 位置入弧，入口及飞行点不得重置到原点。",
+      "handoff": {
+        "timeSeconds": 0.40968333356480086,
+        "xM": 2, "yM": 0, "vxMps": 4.47213595499958, "vyMps": 0,
+        "eventKinds": ["reach_target", "arc_enter"],
+        "eventOrders": [1, 2], "stageIndices": [0, 1],
+        "arcNormalForceBeforeN": 0, "arcNormalForceAfterN": 6
+      },
+      "arcGeometry": {
+        "stageIndex": 1,
+        "entry": { "xM": 2, "yM": 0 },
+        "center": { "xM": 2, "yM": 0.4 },
+        "plannedEnd": { "xM": 2, "yM": 0.8 }
+      },
+      "boundary": {
+        "kind": "arc_endpoint", "timeSeconds": 0.8134644975604831,
+        "xM": 2, "yM": 0.8, "vxMps": -2, "vyMps": 0, "normalForceN": 0
+      },
+      "eventKinds": ["release", "reach_target", "arc_enter", "arc_endpoint", "projectile_launch", "land"],
+      "terminationReason": "landed",
+      "durationSeconds": 1.2134644975604831,
+      "final": { "xM": 1.2, "yM": 0, "vxMps": -2, "vyMps": -4, "springCompressionM": 0 }
+    },
+    {
+      "readingFile": "vertical-arc-composition.reading.json",
+      "description": "仅将水平段距离改为 8 m，先停住，不进入圆弧或飞行。",
+      "overrides": { "/stages/0/end/distanceM": 8 },
+      "plannedHorizontalEnd": { "xM": 8, "yM": 0 },
+      "eventKinds": ["release", "stop"],
+      "absentGeometry": ["verticalArc", "projectile"],
+      "terminationReason": "stop_before_target",
+      "durationSeconds": 2.6457513110645907,
+      "final": { "xM": 7, "yM": 0, "vxMps": 0, "vyMps": 0, "springCompressionM": 0 }
     }
   ]
 }

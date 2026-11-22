@@ -149,9 +149,24 @@ normalForceAfterN?: number;
 
 除三样例外，B 实现验收还包括：独立圆弧无抛体后缀、零初速、`u² = 2gR` 在 90° 回滑、临界 5gR 两侧、端点提前截断、同刻事件顺序、缺半径/质量/重力/事实、非法或非有限数、落地平面冲突。现有斜面→桌面→平抛五类与旧 `incline_spring` 全量回归不得改变。
 
+### 5.1 非零世界坐标的阶段组合联调
+
+另加 [水平段接圆弧再飞行](fixtures/vertical-arc-composition.reading.json)，完整顺序为 `horizontal_slide → vertical_arc → projectile`。从水平起点 `(0, 0)` 以 √28 m/s 向右运动，μ = 0.2，水平段长 2 m；其他条件仍为 m = 0.1 kg、g = 10 m/s²、R = 0.4 m、圆弧到 180°，固定落地平面 `landingPlaneYM: 0`。该样例从已给定速度起算，不包含弹簧释放过程；原三条独立圆弧样例原样保留。
+
+能量给出 `vB² = 28 − 2×0.2×10×2 = 20`，水平用时 `2L/(vA + vB) ≈ 0.409683333565 s`。圆弧入口 B = `(2, 0)`，圆心 `(2, 0.4)`，最高点 C = `(2, 0.8)`；圆弧时长沿用独立样例的约 0.403781163996 s。约 0.813464497560 s 从 C 以 `(−2, 0)` m/s 发射，再飞 0.4 s，落在 `(1.2, 0)`，总时长约 1.213464497560 s。新增机器可读对照位于验收数据的 `compositionCases`，与原三条 `cases` 分开。
+
+契约合并后的实际接入测试必须通过 `validateStagePlan → assembleScene → buildMotion → sampleAt` 全链路断言：
+
+1. 在交接时刻 T，`reach_target` 属于 stageIndex = 0、order = 1，`arc_enter` 属于 stageIndex = 1、order = 2，两者 `timeSeconds` 同值。所有前后速度均为 `(√20, 0)`，入弧事件位置为 `(2, 0)`；不能生成 `leave_table`。入弧事件的圆轨道法向力从 0 变为 6 N。
+2. `sampleAt(T−ε)` 在水平面，`sampleAt(T)` 已含圆弧 `constraint`，`sampleAt(T+ε)` 位于以 `(2, 0.4)` 为圆心的圆上（ε = 1e-7 s）；三者位置、速度在交接处连续。所有阶段使用 `particle` 参考点，圆弧不得重置到 `(0, 0)`。抛体 launch 为 `(2, 0.8)`，固定地面为 y = 0。
+3. 完整事件顺序为 `release → reach_target → arc_enter → arc_endpoint → projectile_launch → land`。端点事件与发射事件同刻且依次发生。落地时间、位置、入射速度及越界钳制按 `compositionCases` 核对。
+4. 只把同一输入的水平距离改为 8 m：约 2.645751311065 s 停在 `(7, 0)`，计划水平目标仍为 `(8, 0)`，原因为 `stop_before_target`。实际事件只有 `release → stop`，不存在 `arc_enter`、任何圆弧后续事件或飞行事件；`geometry.verticalArc` 和 `geometry.projectile` 都不生成，末帧及越界样本静止。还可用距离 7 m 回归恰停优先、原因 `stop_at_target`。
+
+上述时间与几何属于独立计算的契约基准；本契约 PR 中的检查不代替圆弧实现后的全链路验收。
+
 ## 6. A、C 接入及提交顺序
 
-1. 本契约与三输入、验收数据单独 PR 联审合并；本 PR 不改变运行时支持范围。第 8 节规划的原链接提交为 `ac794b36f2abdd077d8a0fe725b4cdd10f64e5a6`，本契约不把尚未合入 main 的规划改动捎带进来。
+1. 本契约与三条独立输入、一条组合输入及验收数据单独 PR 联审合并；本 PR 不改变运行时支持范围。第 8 节规划的原链接提交为 `ac794b36f2abdd077d8a0fe725b4cdd10f64e5a6`，本契约不把尚未合入 main 的规划改动捎带进来。
 2. B 随后实现 `src/physics/stagePlan.ts` 的登记和校验、圆弧专用求解及 `stageMotion.ts` 的装配，继续从 `src/physics/index.ts` 导出公共入口。固定平面抛体复用现有重力公式；修正当前“任何非首段抛体都标记 leave_table”的假设。新增结构状态时，数值有效性检查须只检查数值字段，不能把约束对象送入 `Number.isFinite`。
 3. `StageKind` 扩展会影响 `src/adapters/stageMotionAdapter.ts` 的完整映射及 `src/ui/components/workspace/StagePlanEditor.tsx` 的标签表；A 需同步接入，不能仅放宽类型后误用水平阶段的兜底画面。`StagePhysicsCanvas.tsx` 需识别圆弧几何和 particle 参考点，适配层需透传约束和新事件元数据。B 纯计算提交与 A 类型接线的共同构建边界应在实现 PR 明示。
 4. C 需沿用 `validateStagePlan`，用现有 `scripts/sync-functions.mjs` 同步 `functions/stagePlan.ts`，更新 Skill 对新阶段、角度和固定落地平面的提取说明，Node 与 Qoder 用同一批输入。错误结构的重试继续由独立修复 PR #23 处理，本增量不合并或改写它。
