@@ -24,6 +24,8 @@ export type CommandResult =
 
 /** 关键词 → 阶段 kind。顺序即优先级，越具体的越靠前。 */
 const KEYWORDS: Array<{ kind: string; words: string[] }> = [
+  { kind:'collision_1d',words:['碰撞','正碰','粘连'] },
+  { kind:'pendulum_swing',words:['摆动','摆锤','单摆','轻绳','最低点'] },
   { kind: 'projectile', words: ['平抛', '抛体', '抛出', '飞出', '落地', '离桌'] },
   { kind: 'spring_contact', words: ['弹簧', '压缩', '反弹'] },
   { kind: 'lossless_turn', words: ['转向', '转弯', '圆弧', '拐弯'] },

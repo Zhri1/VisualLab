@@ -12,6 +12,7 @@
  */
 
 import { SKILL_TEXT } from "./skill.ts";
+import { dispatchStageCommand } from './stageCommand.ts';
 import { INLINE_API_KEY } from "./inline-key.ts";
 import { applyLegacyContract, outputContractFromEnv } from "./legacyBridge.ts";
 import type { ClientResult } from "./legacyBridge.ts";
@@ -577,6 +578,8 @@ export async function handler(request: Request): Promise<Response> {
     return json({ message: "无法解析上传内容，请重新选择图片" }, 400);
   }
 
+  const commandResult=dispatchStageCommand(form);
+  if(commandResult)return json(commandResult.body,commandResult.status);
   const rawText = form.get("text");
   const text = typeof rawText === "string" ? rawText.trim().slice(0, MAX_TEXT_CHARS) : "";
 

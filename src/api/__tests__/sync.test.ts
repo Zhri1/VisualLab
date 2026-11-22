@@ -18,6 +18,8 @@ const ROOT = resolve(__dirname, '../../..');
 
 /** 与 scripts/sync-functions.mjs 的 FILES 一致 */
 const FILES = [
+  { from: 'src/api/command.ts', to: 'functions/command.ts' },
+  { from: 'src/api/stageCommand.ts', to: 'functions/stageCommand.ts' },
   { from: 'src/physics/geometryTypes.ts', to: 'functions/geometryTypes.ts' },
   { from: 'src/physics/quadrature.ts', to: 'functions/quadrature.ts' },
   { from: 'src/physics/kinematics.ts', to: 'functions/kinematics.ts' },

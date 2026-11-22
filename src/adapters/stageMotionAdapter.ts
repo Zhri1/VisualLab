@@ -1,5 +1,7 @@
 import type { StageMotion, StagePlanFailure } from "../physics";
 import type { ResolvedStagePlan, StageKind } from "../physics/stagePlan";
+import type { BodyState } from '../physics/multiBodyTypes';
+import type { BodyMotionSample } from '../types';
 import type {
   FieldError,
   Motion,
@@ -47,6 +49,7 @@ const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "f
 };
 
 function segmentKind(kind: StageKind): SegmentKind {
+  if(kind==='pendulum_swing')return 'pendulum';
   if (kind === "incline_slide") return "incline";
   if (kind === "horizontal_slide") return "horizontal";
   if (kind === "spring_contact") return "spring";
@@ -90,6 +93,10 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
           ? "spring_contact"
           : "incline_slide";
     return {
+      bodyIds:event.bodyIds,stagePath:event.stagePath,
+      bodyStatesBefore:event.bodyStatesBefore?mapBodies(event.bodyStatesBefore):undefined,
+      bodyStatesAfter:event.bodyStatesAfter?mapBodies(event.bodyStatesAfter):undefined,
+      constraintsBefore:event.constraintsBefore,constraintsAfter:event.constraintsAfter,
       id: event.id,
       eventKind: event.kind,
       stageIndex: event.stageIndex,
@@ -106,6 +113,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
   });
 
   return {
+    primaryBodyId:source.primaryBodyId,motionStatus:source.motionStatus,
     timing: source.timing,
     calculations: source.calculations,
     geometry: legacyGeometry(source),
@@ -113,6 +121,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
     stagePlan: plan,
     durationSeconds: source.durationSeconds,
     segments: source.segments.map((segment) => ({
+      bodyIds:segment.bodyIds,stagePath:segment.stagePath,
       kind: segmentKind(segment.kind),
       stageKind: segment.kind,
       stageIndex: segment.stageIndex,
@@ -126,6 +135,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
     sampleAt(timeSeconds) {
       const sample = source.sampleAt(Number.isNaN(timeSeconds) ? 0 : timeSeconds);
       return {
+        ...(sample.bodies?{bodies:mapBodies(sample.bodies),constraints:sample.constraints}:{}),
         position: vec(sample.xM, sample.yM),
         velocity: vec(sample.vxMps, sample.vyMps),
         springCompressionM: sample.springCompressionM,
@@ -133,6 +143,10 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
       };
     },
   };
+}
+
+function mapBodies(bodies:Record<string,BodyState>):Record<string,BodyMotionSample>{
+  return Object.fromEntries(Object.entries(bodies).map(([id,b])=>{const{xM,yM,vxMps,vyMps,...rest}=b;return[id,{...rest,position:vec(xM,yM),velocity:vec(vxMps,vyMps)}];}));
 }
 
 export function stageFailureErrors(failure: StagePlanFailure): FieldError[] {

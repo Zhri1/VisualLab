@@ -5,6 +5,7 @@ import { isStageReading } from "../../../types";
 import { ChatPanel } from "../chat/ChatPanel";
 import { PhysicsCanvas } from "./PhysicsCanvas";
 import { PhysicsExplanation } from "./PhysicsExplanation";
+import { MultiBodyExplanation } from './MultiBodyExplanation';
 import { PlaybackControls } from "./PlaybackControls";
 import { OriginalProblemViewer } from "./OriginalProblemViewer";
 import { advancePlayback, segmentAt } from "./playback";
@@ -13,18 +14,25 @@ import "./player.css";
 interface Props {
   ws: Workspace;
 }
+export function stageForLegend(plan:{stages:unknown[]},stagePath:string|undefined,stageIndex:number|undefined):Record<string,unknown>|null{
+  const value=stagePath?stagePath.split('/').slice(1).reduce<unknown>((v,k)=>v!==null&&typeof v==='object'?(v as Record<string,unknown>)[k]:undefined,plan):plan.stages[stageIndex??-1];
+  return value!==null&&typeof value==='object'?value as Record<string,unknown>:null;
+}
 
 export function WorkspaceLayout({ ws }: Props) {
   const { motion, currentTime, isPlaying } = ws;
   const [viewerOpen, setViewerOpen] = useState(false);
+  const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primaryBodyId);
+  useEffect(()=>setTrackedBodyId(motion?.primaryBodyId),[motion]);
   const rafRef = useRef<number | null>(null);
   const lastRef = useRef<number | null>(null);
   const clockTimeRef = useRef(currentTime);
   clockTimeRef.current = currentTime;
   const activeSegment = motion ? segmentAt(motion.segments, currentTime) : undefined;
-  const stagePlan = isStageReading(ws.appliedReading) ? ws.appliedReading : null;
+  const stagePlan = isStageReading(ws.appliedReading) ? ws.appliedReading : isStageReading(ws.reading)?ws.reading:null;
   const legacyReading = ws.appliedReading && !isStageReading(ws.appliedReading) ? ws.appliedReading : null;
   const stageLabels = {
+    pendulum_swing:'轻绳摆',collision_1d:'正碰',parallel_motion:'同步运动',
     spring_release: "预压释放",
     incline_slide: "斜面",
     lossless_turn: "转向",
@@ -43,6 +51,7 @@ export function WorkspaceLayout({ ws }: Props) {
     ...motion.events.map((event) => event.timeSeconds),
     ...motion.segments.map((segment) => (segment.startSeconds + segment.endSeconds) / 2),
   ] : [], [motion]);
+  const Explanation=motion?.primaryBodyId?MultiBodyExplanation:PhysicsExplanation;
 
   // 播放循环不能依赖 ws 对象本身，否则每帧重建会重置 dt。
   const setTimeRef = useRef(ws.setCurrentTime);
@@ -86,7 +95,7 @@ export function WorkspaceLayout({ ws }: Props) {
   return (
     <>
       <div className="workspace">
-        <section className="panel player-panel">
+        <section className={'panel player-panel'+(motion?.primaryBodyId?' body-player-panel':'')}>
           {ws.notice && (
             <div className={`notice ${ws.notice.kind}`} style={{ marginBottom: 14 }}>
               <span style={{ flex: 1 }}>{ws.notice.text}</span>
@@ -120,16 +129,18 @@ export function WorkspaceLayout({ ws }: Props) {
 
           {motion?.timing && <div className="notice info" role="status"><span>{motion.timing.mode === "full" ? "全程精确播放" : motion.timing.mode === "suffix" ? "前段示意 · 从B精确计时" : "仅展示已知状态 · 用时未知"}：{motion.timing.reason}
             {motion.calculations?.map(c => <span key={c.quantity}>　{{ initial_elastic_energy: "初始弹性势能", release_speed: "脱离速度", arc_entry_speed: "入弧速度" }[c.quantity] ?? c.quantity} = {Number(c.value.toPrecision(6))} {c.unit}（{c.source === "derived" ? "物理推导" : "题设/用户给定"}）</span>)}</span></div>}
+          {motion?.motionStatus&&<div className="notice info" role="status"><span>{motion.motionStatus.state==='model_limit'?'有限求解范围':motion.motionStatus.state==='range_end'?'播放范围终点':'真实静止结局'}：{motion.motionStatus.message}</span></div>}
+          {motion?.primaryBodyId&&<label className="body-tracking">跟踪物体<select aria-label="跟踪物体" value={trackedBodyId??motion.primaryBodyId} onChange={e=>setTrackedBodyId(e.target.value)}>{motion.stageGeometry?.bodies?.map(b=><option value={b.bodyId} key={b.bodyId}>{b.bodyId}</option>)}</select><span>物体与绳共用同一物理时间</span></label>}
           {motion && (
-            <ul className="scene-legend" aria-label="路段与动摩擦因数">
+            <ul className={'scene-legend'+(motion.primaryBodyId?' body-scene-legend':'')} aria-label="路段与动摩擦因数">
               {stagePlan ? motion.segments.map((segment) => {
-                const stage = segment.stageIndex == null ? null : stagePlan.stages[segment.stageIndex];
+                const stage = stageForLegend(stagePlan,segment.stagePath,segment.stageIndex);
                 const friction = stage && "kineticFrictionCoefficient" in stage && typeof stage.kineticFrictionCoefficient === "number"
                   ? stage.kineticFrictionCoefficient
                   : null;
                 return (
-                  <li key={`${segment.stageIndex}-${segment.kind}`} aria-current={activeSegment === segment ? "step" : undefined}>
-                    <b>{String((segment.stageIndex ?? 0) + 1).padStart(2, "0")}</b> {segment.name}
+                  <li key={`${segment.stagePath??segment.stageIndex}-${segment.kind}-${segment.startSeconds}`} aria-current={activeSegment === segment ? "step" : undefined}>
+                    <b>{String((segment.stageIndex ?? 0) + 1).padStart(2, "0")}</b> {segment.bodyIds?.join(' + ')} {segment.name}
                     {friction != null && <span>μ = {friction.toFixed(2)}</span>}
                   </li>
                 );
@@ -145,9 +156,9 @@ export function WorkspaceLayout({ ws }: Props) {
               )}
             </ul>
           )}
-          <div className="canvas-frame">
+          <div className={'canvas-frame'+(motion?.primaryBodyId?' body-canvas-frame':'')}>
             {motion ? (
-              <PhysicsCanvas motion={motion} time={currentTime} isPlaying={isPlaying} />
+              <PhysicsCanvas motion={motion} time={currentTime} isPlaying={isPlaying} trackedBodyId={trackedBodyId} />
             ) : (
               <div
                 style={{
@@ -184,10 +195,10 @@ export function WorkspaceLayout({ ws }: Props) {
                 onExitSegment={ws.exitSegmentPlayback}
               />
               {motion.timing?.mode !== "state_only" && <div className="explanation-slot">
-                <PhysicsExplanation motion={motion} time={currentTime} />
+                <Explanation motion={motion} time={currentTime} />
                 <div className="explanation-reserve" aria-hidden="true">
                   {explanationTimes.map((time, index) => (
-                    <PhysicsExplanation key={index} motion={motion} time={time} />
+                    <Explanation key={index} motion={motion} time={time} />
                   ))}
                 </div>
               </div>}

@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Motion } from "../../../types";
+import { displayEventAt } from './playback';
 
 interface Props {
   motion: Motion;
@@ -68,7 +69,8 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
     return () => window.removeEventListener("keydown", onKey);
   }, [duration, onSeek, time]);
 
-  const activeEvent = [...motion.events].reverse().find((e) => e.timeSeconds <= time + 1e-6);
+  const activeEvent = displayEventAt(motion,time);
+  const passedAt=(seconds:number)=>motion.primaryBodyId?seconds<=time:time>=seconds-1e-6;
 
   return (
     <div className="timeline">
@@ -89,7 +91,7 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
         <div className="track-fill" style={{ width: `${ratio * 100}%` }} />
         {motion.events.map((ev) => {
           const p = (ev.timeSeconds / duration) * 100;
-          const done = time >= ev.timeSeconds - 1e-6;
+          const done = passedAt(ev.timeSeconds);
           const current = activeEvent?.id === ev.id;
           return (
             <span
@@ -110,7 +112,7 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
       <ol className="event-index" aria-label="关键事件">
         {motion.events.map((ev) => {
           const current = activeEvent?.id === ev.id;
-          const passed = time >= ev.timeSeconds - 1e-6;
+          const passed = passedAt(ev.timeSeconds);
           return (
             <li key={ev.id}>
               <button
