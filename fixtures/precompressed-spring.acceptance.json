@@ -1,0 +1,116 @@
+{
+  "description": "预压弹簧契约独立计算基准，不是新增运行时已实现的回包。suffix从B计时，state_only的0是显示锚点而非从A经过时间。",
+  "toleranceSI": 0.000001,
+  "complete": {
+    "readingFile": "precompressed-spring-complete.reading.json",
+    "mode": "full",
+    "initialElasticEnergyJ": 1.4,
+    "release": { "timeSeconds": 0.05991831436231742, "xM": 0.2, "vxMps": 5.21536192416212, "springCompressionM": 0 },
+    "entry": { "timeSeconds": 0.43153129894358716, "xM": 2, "yM": 0, "vxMps": 4.47213595499958, "normalForceN": 6 },
+    "top": { "timeSeconds": 0.8353124629392716, "xM": 2, "yM": 0.8, "vxMps": -2, "vyMps": 0 },
+    "durationSeconds": 1.2353124629392715,
+    "eventKinds": ["release", "spring_release_start", "spring_release_end", "reach_target", "arc_enter", "arc_endpoint", "projectile_launch", "land"],
+    "terminationReason": "landed",
+    "final": { "xM": 1.2, "yM": 0, "vxMps": -2, "vyMps": -4, "springCompressionM": 0 }
+  },
+  "criticalResolution": {
+    "inputFile": "precompressed-spring-critical.reading.json",
+    "canonicalReadingFile": "precompressed-spring-fixed-energy.reading.json",
+    "status": "ok", "initialElasticEnergyJ": 1.4,
+    "constraintsConsumed": true,
+    "springConstantNpm": null, "initialCompressionM": null
+  },
+  "fixedEnergyEdits": [
+    {
+      "ABM": 2, "status": "ok", "mode": "suffix", "startStageIndex": 2,
+      "anchor": { "label": "B", "position": { "xM": 2, "yM": 0 } },
+      "absoluteStartSeconds": null, "initialElasticEnergyJ": 1.4,
+      "initialState": { "xM": 2, "yM": 0, "vxMps": 4.47213595499958, "vyMps": 0 },
+      "durationSeconds": 0.8037811639956848,
+      "eventKinds": ["playback_start", "arc_enter", "arc_endpoint", "projectile_launch", "land"],
+      "terminationReason": "landed",
+      "final": { "xM": 1.2, "yM": 0, "vxMps": -2, "vyMps": -4, "springCompressionM": 0 }
+    },
+    {
+      "ABM": 3, "status": "ok", "mode": "suffix", "startStageIndex": 2,
+      "anchor": { "label": "B", "position": { "xM": 3, "yM": 0 } },
+      "absoluteStartSeconds": null, "initialElasticEnergyJ": 1.4,
+      "initialState": { "xM": 3, "yM": 0, "vxMps": 4, "vyMps": 0 },
+      "durationSeconds": 0.8155132938342478,
+      "eventKinds": ["playback_start", "arc_enter", "arc_contact_lost", "projectile_launch", "apex", "land"],
+      "terminationReason": "landed",
+      "final": { "xM": 2.746608424296845, "yM": 0, "vxMps": -1.088662107903635, "vyMps": -3.8490017945975055, "springCompressionM": 0 }
+    },
+    {
+      "ABM": 6, "status": "ok", "mode": "suffix", "startStageIndex": 2,
+      "anchor": { "label": "B", "position": { "xM": 6, "yM": 0 } },
+      "absoluteStartSeconds": null, "initialElasticEnergyJ": 1.4,
+      "initialState": { "xM": 6, "yM": 0, "vxMps": 2, "vyMps": 0 },
+      "durationSeconds": 0.6743001419250382,
+      "eventKinds": ["playback_start", "arc_enter", "arc_turn", "arc_return_entry"],
+      "terminationReason": "returned_to_entry",
+      "final": { "xM": 6, "yM": 0, "vxMps": -2, "vyMps": 0, "springCompressionM": 0 }
+    },
+    {
+      "ABM": 7, "status": "ok", "mode": "state_only", "startStageIndex": 1,
+      "absoluteStartSeconds": null, "durationSeconds": 0, "initialElasticEnergyJ": 1.4,
+      "eventKinds": ["state_anchor"], "segmentKinds": [],
+      "terminationReason": "stop_at_target",
+      "final": { "xM": 7, "yM": 0, "vxMps": 0, "vyMps": 0, "springCompressionM": 0 }
+    },
+    {
+      "ABM": 8, "status": "ok", "mode": "state_only", "startStageIndex": 1,
+      "absoluteStartSeconds": null, "durationSeconds": 0, "initialElasticEnergyJ": 1.4,
+      "eventKinds": ["state_anchor"], "segmentKinds": [],
+      "terminationReason": "stop_before_target",
+      "plannedB": { "xM": 8, "yM": 0 },
+      "final": { "xM": 7, "yM": 0, "vxMps": 0, "vyMps": 0, "springCompressionM": 0 }
+    },
+    {
+      "ABM": 1, "status": "needs_input", "mode": null,
+      "initialElasticEnergyJ": 1.4,
+      "missingKeys": ["/stages/0/initialCompressionM"],
+      "reason": "释放位置仅知c≤2，不能确认到1m的B点前已释放；可补c或有依据的更紧releaseCompleteByM。"
+    }
+  ],
+  "releaseBoundaries": [
+    {
+      "name": "still_compressed_stop",
+      "massKg": 1, "gravityMps2": 10, "springConstantNpm": 10, "initialCompressionM": 0.1, "kineticFrictionCoefficient": 0.075,
+      "durationSeconds": 0.99345882657961,
+      "terminationReason": "spring_stopped_before_release",
+      "final": { "xM": 0.05, "yM": 0, "vxMps": 0, "vyMps": 0, "springCompressionM": 0.05 }
+    },
+    {
+      "name": "zero_speed_at_natural_length",
+      "massKg": 1, "gravityMps2": 10, "springConstantNpm": 10, "initialCompressionM": 0.1, "kineticFrictionCoefficient": 0.05,
+      "durationSeconds": 0.99345882657961,
+      "terminationReason": "spring_stopped_at_release",
+      "final": { "xM": 0.1, "yM": 0, "vxMps": 0, "vyMps": 0, "springCompressionM": 0 }
+    },
+    {
+      "name": "natural_length_at_B",
+      "baseReadingFile": "precompressed-spring-complete.reading.json",
+      "overrides": { "/stages/1/end/distanceM": 0.2 },
+      "handoffTimeSeconds": 0.05991831436231742,
+      "handoffEventKinds": ["spring_release_end", "reach_target", "arc_enter"],
+      "handoffStageIndices": [0, 1, 2],
+      "positiveDurationStageIndices": [0, 2, 3],
+      "entry": { "xM": 0.2, "yM": 0, "vxMps": 5.21536192416212, "vyMps": 0 }
+    }
+  ],
+  "singleMissingParameter": {
+    "description": "活动临界条件，已知c=.2，释放区μ=.4、后水平μ=.2；只缺k仍可唯一反求，不把不同μ判为非法。",
+    "initialCompressionM": 0.2, "springKineticFrictionCoefficient": 0.4, "horizontalKineticFrictionCoefficient": 0.2,
+    "massKg": 0.1, "gravityMps2": 10, "ABM": 2, "radiusM": 0.4,
+    "derivedEnergyJ": 1.44, "derivedSpringConstantNpm": 72,
+    "mode": "full"
+  },
+  "unknownStopPosition": {
+    "description": "仅知E=.1J、c≤2；同μ=.2,m=.1,g=10，E/f=.5小于释放位置上界，不能确定真实停止点。",
+    "energy": { "elasticEnergyJ": 0.1, "origin": "user" },
+    "releaseCompleteByM": 2,
+    "status": "needs_input", "mode": null,
+    "mustNotClaimStopXM": 0.5
+  }
+}
