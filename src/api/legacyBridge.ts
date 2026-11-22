@@ -31,9 +31,16 @@ const LEGACY_SHAPES = [
 /** 对外输出契约：`legacy` 给旧前端，`stage_plan` 给接好的新前端 */
 export type OutputContract = 'legacy' | 'stage_plan';
 
-/** 读环境变量，默认 legacy（A 的前端尚未接入 stage_plan） */
+/**
+ * 读环境变量，默认 `stage_plan`。
+ *
+ * 2026-11-22 起 A 的前端（#19）已直接消费阶段计划，默认值随之切过来；
+ * 旧前端若还要用，显式设 `API_CONTRACT_MODE=legacy` 即可走兼容桥。
+ * 不设默认值靠部署时注入，是因为 Qoder 云函数的环境变量只能手填，
+ * 漏配就会静默退回旧形状 —— 默认值必须是新契约，配置错误才显性。
+ */
 export function outputContractFromEnv(value: string | undefined): OutputContract {
-  return value === 'stage_plan' ? 'stage_plan' : 'legacy';
+  return value === 'legacy' ? 'legacy' : 'stage_plan';
 }
 
 /** B 的 `validateReading` 结构，注入以避免 import */

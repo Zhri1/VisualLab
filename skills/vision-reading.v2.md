@@ -118,6 +118,21 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 `horizontal_slide` 接 `projectile` 时，`distanceM` 就是题设的**桌沿位置**；只有正速到达才产生离桌。
 
+### 4.1 省略水平段 = 断言「弹簧紧贴坡底」
+
+`incline_slide → lossless_turn → spring_contact` 是合法接续，但它表达的是
+**坡底到弹簧的距离为 0**，不是「这个距离未知」。
+
+题面没给这个距离时，必须保留水平段、把距离写 `null`：
+
+```json
+{ "kind": "horizontal_slide", "kineticFrictionCoefficient": 0,
+  "end": { "kind": "distance", "distanceM": null } }
+```
+
+省略水平段会让下游按「紧贴坡底」算，得到一个题面没说的结果 —— 这类错误不报错，
+只会静默算错。只有题面明确写「弹簧紧贴坡底」「出弯即接触弹簧」时才可以省略。
+
 ## 5. 读图规则
 
 ### 5.1 数值优先级
