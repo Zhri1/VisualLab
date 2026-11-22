@@ -2,7 +2,7 @@
  * 工作台状态机。整个应用只有这一处维护物理状态，
  * 动画、时间轴、字幕、AI 面板全部读同一份。
  */
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatErrors, motionLibrary } from "../adapters";
 import { mockChatService } from "../services/chatService";
 import { requestPlan, requestStageCommand } from "../services/imageRecognition";
@@ -62,6 +62,44 @@ export function useWorkspace() {
   /** 连续对话改值时，必须基于「最新已生效」的 reading，而不是闭包里的旧值 */
   const latestAppliedRef = useRef<WorkspaceReading | null>(null);
   latestAppliedRef.current = appliedReading;
+
+  /* ---------------- 浏览器历史：后退回到首页，前进恢复工作台 ---------------- */
+
+  const motionRef = useRef<Motion | null>(null);
+  motionRef.current = motion;
+
+  // 首次加载若停在 #/work 但无 motion（如刷新），归一化回首页，避免假工作台。
+  useEffect(() => {
+    const homeUrl = window.location.pathname + window.location.search;
+    if (window.location.hash === "#/work" && !motionRef.current) {
+      window.history.replaceState(null, "", homeUrl);
+    }
+    const onPop = () => {
+      if (window.location.hash === "#/work") {
+        if (motionRef.current) {
+          setPhase("workspace");
+        } else {
+          setPhase("home");
+          window.history.replaceState(null, "", homeUrl);
+        }
+      } else {
+        // 后退回首页：保留 motion 以便前进恢复，不清空状态。
+        setPhase("home");
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // phase 变化时写入历史，使浏览器后退/前进与页内视图一致。
+  useEffect(() => {
+    const homeUrl = window.location.pathname + window.location.search;
+    if (phase === "workspace" && window.location.hash !== "#/work") {
+      window.history.pushState(null, "", "#/work");
+    } else if (phase === "home" && window.location.hash === "#/work") {
+      window.history.pushState(null, "", homeUrl);
+    }
+  }, [phase]);
 
   /* ---------------- 核心：reading -> motion ---------------- */
 

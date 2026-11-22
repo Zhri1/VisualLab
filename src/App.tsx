@@ -1,4 +1,4 @@
-import { CircleHelp, Plus } from "lucide-react";
+import { ArrowLeft, CircleHelp } from "lucide-react";
 import { BrandMark } from "./ui/components/common/BrandMark";
 import { DevBar } from "./ui/components/common/DevBar";
 import { InitialScreen } from "./ui/components/home/InitialScreen";
@@ -18,10 +18,18 @@ export default function App() {
       <div className="app-wash" />
 
       <header className="topbar">
-        <div className="topbar-left">
+        <button
+          type="button"
+          className="topbar-left brand-button"
+          aria-label="返回首页"
+          title="返回首页"
+          onClick={() => {
+            if (ws.phase === "workspace") ws.restartHome();
+          }}
+        >
           <BrandMark size={30} />
           <span className="brand-name">{PRODUCT_NAME}</span>
-        </div>
+        </button>
 
         <div className="topbar-right">
           {ws.phase === "workspace" && (
@@ -31,8 +39,8 @@ export default function App() {
               </button>
               <div className="divider-v" />
               <button className="ghost-button" onClick={ws.restartHome}>
-                <Plus size={14} strokeWidth={2.2} />
-                新建题目
+                <ArrowLeft size={14} strokeWidth={2.2} />
+                返回首页
               </button>
             </>
           )}
