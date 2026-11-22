@@ -7,6 +7,7 @@ import { formatErrors, motionLibrary } from "../adapters";
 import { mockChatService } from "../services/chatService";
 import { requestPlan, requestStageCommand } from "../services/imageRecognition";
 import type { StagePlanDraft } from "../physics/stagePlan";
+import { truncateStagePlan } from '../physics/truncateStagePlan';
 import { segmentAt } from "../ui/components/workspace/playback";
 import { isStageReading } from "../types";
 import type {
@@ -366,7 +367,7 @@ export function useWorkspace() {
           pushMessage({ id: uid(), role: "assistant", text: "返回的阶段下标无效，已保留原动画。", error: true });
           return;
         }
-        const nextPlan: StagePlanDraft = { ...base, stages: base.stages.slice(0, through + 1) };
+        const nextPlan = truncateStagePlan(base,through);
         const result = applyReading(nextPlan, { silent: true });
         if (!result.ok) {
           pushMessage({ id: uid(), role: "assistant", text: `截取失败：${formatErrors(result.errors)}。已保留原动画。`, error: true });

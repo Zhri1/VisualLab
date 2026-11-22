@@ -1,8 +1,11 @@
 import { resolveSpringEnergy } from "./springEnergy.ts";
+import { validateMultiBodyPlan } from './multiBodyPlan.ts';
+import type { BodyDefinition, BodyStage } from './multiBodyTypes.ts';
 export type Energy = { stageIndex: number; elasticEnergyJ: number; origin: "given" | "user" | "spring_parameters" | "critical_arc_top"; basis?: Record<string, number> };
 export type PlaybackScope = { mode: "full" | "suffix" | "state_only"; startStageIndex: number; unresolvedKeys: string[]; reason: string; xM?: number; vxMps?: number; stopReason?: "stop_at_target" | "stop_before_target" | "prefix_end" };
-export type StageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release";
-export type Stage =
+export type SingleStageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release";
+export type StageKind = SingleStageKind | BodyStage['kind'];
+export type SingleStage =
   | { kind: "incline_slide"; lengthM: number; angleDeg: number; kineticFrictionCoefficient: number; slidesAfterRelease?: boolean | null }
   | { kind: "lossless_turn"; lossless: true }
   | { kind: "horizontal_slide"; kineticFrictionCoefficient: number; end: { kind: "distance"; distanceM: number } | { kind: "stop" } | { kind: "distance_from_stage_start"; stageIndex: number; distanceM: number } }
@@ -10,13 +13,16 @@ export type Stage =
   | { kind: "spring_contact"; springConstantNpm: number; frictionless: true; unattached: true }
   | { kind: "vertical_arc"; radiusM: number; endAngleDeg: number; side: "inside"; frictionless: true }
   | ({ kind: "projectile" } & ({ dropHeightM: number; landingPlaneYM?: never } | { landingPlaneYM: number; dropHeightM?: never }));
+export type Stage = SingleStage | BodyStage;
 
 export type ResolvedStagePlan = {
   kind: "stage_plan";
   schemaVersion: 1;
   gravityMps2?: number;
   massKg?: number;
-  initial: { speedMps: number } | { vxMps: number; vyMps: number };
+  initial: { speedMps: number } | { vxMps: number; vyMps: number } | { tangentialSpeedMps: number };
+  bodies?: BodyDefinition[];
+  primaryBodyId?: string;
   stages: Stage[];
   energy?: Energy;
 };
@@ -25,7 +31,9 @@ export type StagePlanDraft = {
   schemaVersion: 1;
   gravityMps2?: number | null;
   massKg?: number | null;
-  initial: { speedMps: number | null } | { vxMps: number | null; vyMps: number | null };
+  initial: { speedMps: number | null } | { vxMps: number | null; vyMps: number | null } | { tangentialSpeedMps: number | null };
+  bodies?: Array<{ bodyId: string | null; massKg: number | null }>;
+  primaryBodyId?: string | null;
   stages: Array<Record<string, unknown>>;
   energy?: Energy;
   constraints?: unknown;
@@ -46,6 +54,7 @@ const positive = (value: number) => value > 0;
 const nonnegative = (value: number) => value >= 0;
 const finite = (_value: number) => true;
 const numericRules: Record<StageKind, Record<string, (value: number) => boolean>> = {
+  pendulum_swing: {}, collision_1d: {}, parallel_motion: {},
   incline_slide: { lengthM: positive, angleDeg: (value) => value > 0 && value < 90, kineticFrictionCoefficient: nonnegative },
   lossless_turn: {},
   horizontal_slide: { kineticFrictionCoefficient: nonnegative },
@@ -60,6 +69,7 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 export function validateStagePlan(input: unknown): StagePlanValidation {
+  if (record(input) && ('bodies' in input || (Array.isArray(input.stages) && input.stages.some(s => record(s) && ['pendulum_swing','collision_1d','parallel_motion'].includes(String(s.kind)))))) return validateMultiBodyPlan(input, validateStagePlan);
   const missingKeys: string[] = [];
   const fieldErrors: StageFieldError[] = [];
   let damaged = false;

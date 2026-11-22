@@ -1,7 +1,9 @@
 import type { StageKind, StagePlanDraft } from "../../../physics/stagePlan";
 import type { FieldError } from "../../../types";
+import { MultiBodyPlanEditor } from './MultiBodyPlanEditor';
 
 const STAGE_LABELS: Record<StageKind, string> = {
+  pendulum_swing:'轻绳摆', collision_1d:'水平正碰', parallel_motion:'同步运动',
   spring_release: "预压弹簧释放",
   vertical_arc: "竖直圆弧",
   incline_slide: "斜面下滑",
@@ -89,6 +91,7 @@ export function updateStagePlanKind(draft: StagePlanDraft, index: number, kind: 
 }
 
 export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: Props) {
+  if(draft.bodies||draft.stages.some(s=>s.kind==='pendulum_swing'))return <MultiBodyPlanEditor draft={draft} onChange={onChange} missingKeys={missingKeys} fieldErrors={fieldErrors}/>;
   const errorMap = new Map(fieldErrors.filter((error) => error.path).map((error) => [error.path!, error.message]));
   const flagged = (path: string) =>
     errorMap.has(path) || missingKeys.some((key) => key === path || key.startsWith(path + "/") || path.startsWith(key + "/"));

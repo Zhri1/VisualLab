@@ -39,10 +39,11 @@ export function PlaybackControls({
   onSlowSegment,
   onExitSegment,
 }: Props) {
+  const unavailable=motion.timing?.mode==='state_only'||!!motion.primaryBodyId&&motion.durationSeconds===0;
   return (
     <div className="transport">
       <div className="transport-row">
-        <button className="tbtn" onClick={onReplay} title="从头重播" aria-label="从头重播" disabled={motion.timing?.mode === "state_only"}>
+        <button className="tbtn" onClick={onReplay} title="从头重播" aria-label="从头重播" disabled={unavailable}>
           <RotateCcw size={17} strokeWidth={1.9} />
         </button>
 
@@ -51,7 +52,7 @@ export function PlaybackControls({
           onClick={onTogglePlay}
           title={isPlaying ? "暂停" : "播放"}
           aria-label={isPlaying ? "暂停" : "播放"}
-          disabled={motion.timing?.mode === "state_only"}
+          disabled={unavailable}
         >
           {isPlaying ? (
             <Pause size={15} fill="currentColor" strokeWidth={0} />
@@ -65,7 +66,7 @@ export function PlaybackControls({
           onClick={onNextEvent}
           title="跳到下一关键事件"
           aria-label="跳到下一关键事件"
-          disabled={motion.timing?.mode === "state_only"}
+          disabled={unavailable}
         >
           <SkipForward size={17} strokeWidth={1.9} />
         </button>
@@ -75,14 +76,14 @@ export function PlaybackControls({
         </div>
       </div>
 
-      {motion.timing?.mode !== "state_only" && <EventTimeline
+      {!unavailable && <EventTimeline
         motion={motion}
         time={time}
         onSeek={onSeek}
         onSeekEvent={onSeekEvent}
         onScrubStart={onScrubStart}
       />}
-      {motion.timing?.mode !== "state_only" && <div className="playback-auxiliary" aria-label="辅助播放选项">
+      {!unavailable && <div className="playback-auxiliary" aria-label="辅助播放选项">
         <div className="playback-options">
           <label className="rate-control">
             播放倍率

@@ -10,6 +10,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { dispatchStageCommand } from './stageCommand';
 import { join } from 'node:path';
 
 import { callVisionModel, VisionError } from './dashscope';
@@ -136,6 +137,9 @@ export async function handlePlan(request: Request): Promise<Response> {
   } catch {
     return json({ message: '无法解析上传内容，请重新选择图片' }, 400, base);
   }
+
+  const commandResult=dispatchStageCommand(form);
+  if(commandResult)return json(commandResult.body,commandResult.status,base);
 
   // 文字模式：只输文字、不传图时 image 可以缺席（见 HANDOFF-C.md）
   const rawText = form.get('text');
