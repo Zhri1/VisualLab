@@ -76,11 +76,12 @@ function toClient(plan: Record<string, unknown>) {
 }
 
 describe('outputContractFromEnv', () => {
-  it('默认 legacy，只有显式 stage_plan 才切新契约', () => {
-    expect(outputContractFromEnv(undefined)).toBe('legacy');
-    expect(outputContractFromEnv('')).toBe('legacy');
-    expect(outputContractFromEnv('legacy')).toBe('legacy');
+  it('默认 stage_plan，只有显式 legacy 才走兼容桥', () => {
+    // 前端已接阶段计划（#19），默认值随之切换；漏配环境变量不应静默退回旧形状。
+    expect(outputContractFromEnv(undefined)).toBe('stage_plan');
+    expect(outputContractFromEnv('')).toBe('stage_plan');
     expect(outputContractFromEnv('stage_plan')).toBe('stage_plan');
+    expect(outputContractFromEnv('legacy')).toBe('legacy');
   });
 });
 

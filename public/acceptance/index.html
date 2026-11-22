@@ -111,37 +111,47 @@
     <b>为什么必须在浏览器里跑：</b>网关会校验请求来源必须是站点自身，并拦截无头浏览器与空 UA。
     这两条都是平台侧的防护，验收不做任何绕过 —— 真实浏览器本来就不受影响。
     <br />
-    <b>契约模式：</b>线上当前是 <code>legacy</code>（旧首题回包），所以断言看 <code>templateId</code> 与
-    <code>conditions</code>，不看 <code>stages</code>。
+    <b>契约模式：</b>线上是 <code>stage_plan</code>（阶段计划），断言看 <code>stages</code> 与
+    <code>schemaVersion</code>，不再看 <code>templateId</code>。
   </p>
 </div>
 
 <script>
 const ENDPOINT = "/functions/v1/app";
 
-/** 与 scripts/verify-live.mjs 同一组用例，断言改按线上实际的 legacy 契约写 */
+/** 与 scripts/verify-live.ts 同一组用例，断言按当前 stage_plan 契约写 */
 const CASES = [
   {
     label: "gap-1m 图",
     hint: "斜面弹簧，弹簧距坡底 1 m",
     request: () => imageForm("/acceptance/incline-spring-gap-1m.png"),
-    expect: (body) => [
-      ["status = ok", body.status === "ok"],
-      ["templateId = incline_spring", body.reading?.templateId === "incline_spring"],
-      ["springGapM = 1", body.reading?.conditions?.springGapM === 1],
-      ["不返回 stage_plan 形状", body.reading?.kind === undefined],
-    ],
+    expect: (body) => {
+      const stages = body.reading?.stages ?? [];
+      return [
+        ["status = ok", body.status === "ok"],
+        ["kind = stage_plan", body.reading?.kind === "stage_plan"],
+        ["schemaVersion = 1", body.reading?.schemaVersion === 1],
+        ["四段含水平段", stages.length === 4 && stages[2]?.kind === "horizontal_slide"],
+        ["distanceM = 1", stages[2]?.end?.distanceM === 1],
+        ["末段是弹簧", stages[3]?.kind === "spring_contact"],
+      ];
+    },
   },
   {
     label: "gap-2m 图",
     hint: "斜面弹簧，弹簧距坡底 2 m",
     request: () => imageForm("/acceptance/incline-spring-gap-2m.png"),
-    expect: (body) => [
-      ["status = ok", body.status === "ok"],
-      ["templateId = incline_spring", body.reading?.templateId === "incline_spring"],
-      ["springGapM = 2", body.reading?.conditions?.springGapM === 2],
-      ["不返回 stage_plan 形状", body.reading?.kind === undefined],
-    ],
+    expect: (body) => {
+      const stages = body.reading?.stages ?? [];
+      return [
+        ["status = ok", body.status === "ok"],
+        ["kind = stage_plan", body.reading?.kind === "stage_plan"],
+        ["schemaVersion = 1", body.reading?.schemaVersion === 1],
+        ["四段含水平段", stages.length === 4 && stages[2]?.kind === "horizontal_slide"],
+        ["distanceM = 2", stages[2]?.end?.distanceM === 2],
+        ["末段是弹簧", stages[3]?.kind === "spring_contact"],
+      ];
+    },
   },
   {
     label: "缺弹簧距离",
@@ -153,8 +163,7 @@ const CASES = [
     ),
     expect: (body) => [
       ["status = needs_input", body.status === "needs_input"],
-      ["缺项指向 springGapM", (body.missingKeys ?? []).includes("springGapM")],
-      ["缺项不混入 JSON Pointer", !(body.missingKeys ?? []).some((k) => k.startsWith("/"))],
+      ["缺项指向 /stages/2/end/distanceM", (body.missingKeys ?? []).includes("/stages/2/end/distanceM")],
       ["不带错误码", body.code === undefined],
     ],
   },

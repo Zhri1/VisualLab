@@ -2,6 +2,25 @@
 
 对照 PROJECT_PLAN_FINAL.md 第 7 节。功能与数值检查项已全部通过，无待判定项；第 2 节与第 4 节最后一行由 C 用真实模型实测。
 
+> **2026-11-22 10:40 契约切到 `stage_plan` 并统一发布**（actionId `3beb625e-319e-4e3a-8f9e-c4e62b4b198b`，`published: true`、`readiness: publication_completed`、`operation.committed: true`）：
+>
+> A 的前端 #19 已合入 main，识别回包默认切到 `stage_plan` —— `outputContractFromEnv` 的默认值由 `legacy` 改为 `stage_plan`，显式设 `API_CONTRACT_MODE=legacy` 仍可走兼容桥。默认值不靠部署时注入，是因为云函数环境变量只能手填，漏配会静默退回旧形状。
+>
+> 前端与云函数**同一次发布**：线上首页与本地 `dist` 是同一个 bundle（`index-DM_hyE7m.js`），验收页也同步改成断言 `stages`。
+>
+> 公网实测 `npm run verify:live`（4/4 通过，且每条 `ok` 都继续跑完计算与播放取样）：
+>
+> | 输入 | HTTP | 耗时 | status | 关键字段 | 计算 / 播放 |
+> |---|---|---|---|---|---|
+> | `incline-spring-gap-1m.png` | 200 | 5.4 s | `ok` | 四段，`stages[2].end.distanceM = 1` | 3 段 / 7 事件 / 2.393 s / `spring_detached`；`(-3.19, 2.41) → (1.00, 0.00)` |
+> | `incline-spring-gap-2m.png` | 200 | 5.9 s | `ok` | 四段，`distanceM = 2`（非套模板） | 3 段 / 7 事件 / 2.642 s / `spring_detached`；`→ (2.00, 0.00)` |
+> | 纯文字·弹簧题缺距离 | 200 | 6.1 s | `needs_input` | `missingKeys: ["/stages/2/end/distanceM"]` | — |
+> | 电磁场题 | 200 | 2.8 s | `unsupported` | 带电粒子圆周运动，不带 `reading` | — |
+>
+> 顺带修了一个静默算错的隐患：模型对「没给弹簧距离」的题会省略水平段（`incline_slide → lossless_turn → spring_contact`），而该接续在契约里表示**弹簧紧贴坡底**，等于替题面断言了一个没给的值。Skill 新增 4.1 节：没给距离时必须保留水平段、`distanceM` 写 `null`。上表第三行就是这条规则生效后的结果。
+>
+> `verify:live` 改为 `scripts/verify-live.ts`（`tsx` 运行）：HTTP 回包直接喂给前端的 `validateStagePlan / assembleScene / buildMotion`，再按播放器方式逐事件取样，识别 / 计算 / 播放任何一环对不上都会失败。
+
 > **部署平台迁移（2026-11-20，已完成）**：作品已发布到 **Qoder Sites** 并设为公开访问：<https://visuallab-physics-ecumfnqswpu.qoder.zone>（实测 HTTP 200、`text/html`、无登录墙）。此前 WorkBuddy Sites 链接已作废。
 >
 > **识图接口已上线（2026-11-21 22:59）**：完整版发布成功，`published: true`、`readiness: publication_completed`、`operation.committed: true`。发布 actionId `8c7a8b2f-0f41-42dd-a6c9-0ce8769889eb`，`publishOperationId` `01a1fe9f-f715-7ba1-88a9-dd86a9b7d457`。
