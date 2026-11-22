@@ -100,10 +100,13 @@ export function PromptComposer({
         }}
         onPaste={handlePaste}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            if (canSubmit) onSubmit();
-          }
+          if (e.key !== "Enter") return;
+          // 输入法回车是在确认候选词，不能当作发送
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+          // Shift+Enter 换行，便于多行题干
+          if (e.shiftKey) return;
+          e.preventDefault();
+          if (canSubmit) onSubmit();
         }}
         disabled={locked}
       />

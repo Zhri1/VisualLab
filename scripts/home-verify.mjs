@@ -109,6 +109,19 @@ await upload(fixture);
 await sleep(1200);
 check("有效题图出现预览", await evaluate('!!document.querySelector(".composer-preview img")'));
 
+const pressEnter = (extra) =>
+  evaluate(`document.querySelector(".composer-text").dispatchEvent(new KeyboardEvent("keydown", Object.assign({ key: "Enter", bubbles: true, cancelable: true }, ${extra})))`);
+
+await pressEnter("{ shiftKey: true }");
+await sleep(400);
+check("Shift+Enter 不发送", await evaluate('!document.querySelector(".notice") && !document.querySelector(".recognizing")'));
+await pressEnter("{ isComposing: true }");
+await sleep(400);
+check("输入法回车不发送", await evaluate('!document.querySelector(".notice") && !document.querySelector(".recognizing")'));
+await pressEnter("{}");
+await sleep(1800);
+check("Enter 直接发送", (await text(".notice")).length > 0 || (await evaluate('!!document.querySelector(".recognizing")')));
+
 await evaluate('document.querySelector(\'button[aria-label="开始识别"]\').click()');
 await sleep(1800);
 check("识别失败有提示", (await text(".notice")).length > 0);
