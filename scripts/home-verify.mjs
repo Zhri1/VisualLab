@@ -71,6 +71,22 @@ check(
 );
 check("保留一行能力说明", /单题/.test(await text(".home-note")));
 
+await evaluate('document.querySelector(".sample-button").click()');
+await sleep(250);
+check(
+  "点示例先弹出选择",
+  await evaluate('!!document.querySelector(".sample-picker") && document.querySelectorAll(".sample-option").length === 1'),
+);
+await evaluate('document.querySelector(".sample-option").click()');
+await sleep(1500);
+check("选中示例进入工作台", await evaluate('!!document.querySelector(".player-title")'));
+
+await send("Page.navigate", { url: base });
+await sleep(1200);
+await evaluate("localStorage.clear()");
+await send("Page.reload");
+await sleep(1500);
+
 await evaluate(`(() => {
   const ta = document.querySelector(".composer-text");
   const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;

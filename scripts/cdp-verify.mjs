@@ -92,6 +92,9 @@ await shot('01-home-1440');
 
 // 2. 内置示例 → 工作台
 await evaluate('document.querySelector(".sample-button").click()');
+await sleep(250);
+check('内置示例先弹出选择', await evaluate('!!document.querySelector(".sample-picker")'));
+await evaluate('document.querySelector(".sample-option").click()');
 await sleep(4000);
 check('进入工作台并画出画布', await evaluate('!!document.querySelector("canvas")'));
 const canvasBox = await evaluate(`(() => {

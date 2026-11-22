@@ -474,6 +474,60 @@ textarea {
   gap: 10px;
 }
 
+/* 内置示例选择器：点按钮后弹出，不改变首页常态排版 */
+.sample-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(17, 17, 17, 0.35);
+}
+.sample-picker {
+  width: min(420px, 92vw);
+  padding: 10px;
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  text-align: left;
+  animation: rise 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.sample-picker-head {
+  padding: 8px 10px 6px;
+  font-size: 12.5px;
+  color: var(--text-tertiary);
+}
+.sample-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sample-option {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: background 0.15s ease;
+}
+.sample-option:hover {
+  background: var(--paper);
+}
+.sample-option-title {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.sample-option-desc {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
 .home-note {
   margin-top: 16px;
   font-size: 12px;

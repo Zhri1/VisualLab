@@ -4,6 +4,7 @@ import { ArrowRight } from "lucide-react";
 import { PRODUCT_NAME, PRODUCT_TAGLINE } from "../../../config/brand";
 import type { Notice } from "../../../hooks/useWorkspace";
 import { PromptComposer } from "./PromptComposer";
+import { SamplePicker } from "./SamplePicker";
 import { loadDraftText, saveDraftText } from "./homeDraft";
 import { checkImageFile, prepareImageFile } from "./imageTools";
 
@@ -11,7 +12,7 @@ interface Props {
   busy: boolean;
   notice: Notice | null;
   onSubmit: (input: { file: File | null; text: string }) => void;
-  onSample: () => void;
+  onSample: (id?: string) => void;
 }
 
 export function InitialScreen({ busy, notice, onSubmit, onSample }: Props) {
@@ -20,6 +21,7 @@ export function InitialScreen({ busy, notice, onSubmit, onSample }: Props) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [sampleOpen, setSampleOpen] = useState(false);
   const previewRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -108,20 +110,30 @@ export function InitialScreen({ busy, notice, onSubmit, onSample }: Props) {
           >
             <span>{notice.text}</span>
             {notice.showSample && (
-              <button className="link" onClick={onSample} style={{ marginLeft: "auto" }}>
+              <button className="link" onClick={() => onSample()} style={{ marginLeft: "auto" }}>
                 用内置示例
               </button>
             )}
           </div>
         ) : (
-          <button className="sample-button" onClick={onSample} disabled={busy}>
+          <button className="sample-button" onClick={() => setSampleOpen(true)} disabled={busy}>
             内置示例
             <ArrowRight size={15} strokeWidth={2} />
           </button>
         )}
 
-        <p className="home-note">支持 JPG / PNG 单题图片 · 斜面 → 弹簧及多阶段</p>
+        <p className="home-note">支持 JPG / PNG 单题图片</p>
       </div>
+
+      {sampleOpen && (
+        <SamplePicker
+          onClose={() => setSampleOpen(false)}
+          onSelect={(id) => {
+            setSampleOpen(false);
+            onSample(id);
+          }}
+        />
+      )}
     </main>
   );
 }
