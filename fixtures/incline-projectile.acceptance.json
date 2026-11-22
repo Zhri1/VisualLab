@@ -1,0 +1,79 @@
+{
+  "description": "斜面直接斜抛契约期望；独立解析复算，不是当前生产入口回包。",
+  "toleranceSI": 0.000001,
+  "epsilonSeconds": 1e-7,
+  "cases": [
+    {
+      "readingFile": "incline-projectile.reading.json",
+      "accelerationAlongInclineMps2": 5,
+      "start": { "xM": -2, "yM": 1.5, "vxMps": 0, "vyMps": 0 },
+      "inclineEnd": { "xM": 0, "yM": 0 },
+      "landingPlaneYM": -1.95,
+      "handoff": {
+        "timeSeconds": 1,
+        "xM": 0, "yM": 0, "vxMps": 4, "vyMps": -3,
+        "eventKinds": ["reach_bottom", "projectile_launch"],
+        "eventOrders": [1, 2], "stageIndices": [0, 1]
+      },
+      "flightSeconds": 0.3928203230275509,
+      "durationSeconds": 1.3928203230275509,
+      "eventKinds": ["release", "reach_bottom", "projectile_launch", "land"],
+      "segmentKinds": ["incline_slide", "projectile"],
+      "terminationReason": "landed",
+      "terminationStageIndex": 1,
+      "positionReference": "particle",
+      "final": { "xM": 1.5712812921102037, "yM": -1.95, "vxMps": 4, "vyMps": -6.928203230275509, "springCompressionM": 0 },
+      "landingSpeedMps": 8
+    },
+    {
+      "readingFile": "incline-projectile-fixed-plane.reading.json",
+      "equivalentTo": "incline-projectile.reading.json",
+      "landingPlaneYM": -1.95
+    },
+    {
+      "readingFile": "incline-projectile-stop-before.reading.json",
+      "accelerationAlongInclineMps2": -2,
+      "start": { "xM": -2, "yM": 1.5, "vxMps": 1.6, "vyMps": -1.2 },
+      "inclineEnd": { "xM": 0, "yM": 0 },
+      "distanceAlongInclineM": 1,
+      "durationSeconds": 1,
+      "eventKinds": ["release", "stop"],
+      "segmentKinds": ["incline_slide"],
+      "terminationReason": "stop_before_target",
+      "terminationStageIndex": 0,
+      "positionReference": "particle",
+      "final": { "xM": -1.2, "yM": 0.9, "vxMps": 0, "vyMps": 0, "springCompressionM": 0 },
+      "hasProjectileGeometry": false
+    },
+    {
+      "readingFile": "incline-projectile-stop-at.reading.json",
+      "accelerationAlongInclineMps2": -2,
+      "start": { "xM": -0.8, "yM": 0.6, "vxMps": 1.6, "vyMps": -1.2 },
+      "inclineEnd": { "xM": 0, "yM": 0 },
+      "distanceAlongInclineM": 1,
+      "durationSeconds": 1,
+      "eventKinds": ["release", "stop"],
+      "segmentKinds": ["incline_slide"],
+      "terminationReason": "stop_at_target",
+      "terminationStageIndex": 0,
+      "positionReference": "particle",
+      "final": { "xM": 0, "yM": 0, "vxMps": 0, "vyMps": 0, "springCompressionM": 0 },
+      "hasProjectileGeometry": false
+    }
+  ],
+  "forbiddenEventKinds": ["lossless_turn", "leave_table", "apex"],
+  "handoffSamples": {
+    "timeSeconds": 1,
+    "before": { "xM": -3.9999998e-7, "yM": 2.99999985e-7, "vxMps": 3.9999996, "vyMps": -2.9999997 },
+    "at": { "xM": 0, "yM": 0, "vxMps": 4, "vyMps": -3 },
+    "after": { "xM": 4e-7, "yM": -3.0000005e-7, "vxMps": 4, "vyMps": -3.000001 }
+  },
+  "prefix": {
+    "throughStageIndex": 0,
+    "durationSeconds": 1,
+    "eventKinds": ["release", "reach_bottom"],
+    "terminationReason": "prefix_end",
+    "positionReference": "front_bottom",
+    "final": { "xM": 0, "yM": 0, "vxMps": 4, "vyMps": -3, "springCompressionM": 0 }
+  }
+}
