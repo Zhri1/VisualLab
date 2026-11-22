@@ -11,6 +11,7 @@
 
 import { validateReading } from '../physics/reading';
 import type { Reading } from '../physics/reading';
+import { validateStagePlan } from '../physics';
 
 import {
   CONDITION_KEYS,
@@ -23,6 +24,8 @@ import {
   labelOf,
   type FactKey,
 } from './contract';
+import { buildStagePlanResult } from './stageStatus';
+import { isStagePlan, type StagePlanResult } from './stageTypes';
 
 export interface PlanOk {
   status: 'ok';
@@ -46,6 +49,14 @@ export interface PlanUnsupported {
 }
 
 export type PlanResult = PlanOk | PlanNeedsInput | PlanUnsupported;
+
+/**
+ * 接口对外回包：旧模板（`templateId`）或阶段计划（`kind: "stage_plan"`）。
+ *
+ * 两者 status 取值有重叠，前端按 `reading.kind === "stage_plan"` 分派；
+ * `invalid_reading` 只可能来自阶段计划（契约第 2 节映射表）。
+ */
+export type PlanResponse = PlanResult | StagePlanResult;
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
@@ -124,7 +135,9 @@ function describeOk(assumptions: string[]): string {
 }
 
 /**
- * 校验并归一化模型输出。raw 是模型返回的 JSON 对象（已 parse）。
+ * 校验并归一化模型输出（旧模板路径）。raw 是模型返回的 JSON 对象（已 parse）。
+ *
+ * 只处理 `templateId` 形状，用于回放历史数据；新识别请走 `buildPlanResponse`。
  */
 export function buildPlan(raw: unknown): PlanResult {
   const data = asRecord(raw);
@@ -194,4 +207,24 @@ export function buildPlan(raw: unknown): PlanResult {
     message: describeMissing(verdict.code, missingKeys),
     assumptions,
   };
+}
+
+/**
+ * 识别接口的唯一入口：按 `kind` 分派到阶段计划或旧模板。
+ *
+ * - `kind === "stage_plan"` → 剥保留字段 → B 的 `validateStagePlan` → 契约第 2 节状态映射
+ * - 其余 → 旧 `templateId` 路径，保持历史行为不变
+ *
+ * Node 的 `handlePlan` 与 Qoder 云函数都调用本函数，两端只差 `validateStagePlan`
+ * 这一份实现（云函数内联同一份代码），保证 status / reading / missingKeys / fieldErrors 一致。
+ */
+export function buildPlanResponse(raw: unknown): PlanResponse {
+  const data = asRecord(raw);
+
+  if (isStagePlan(data)) {
+    const assumptions = toStringList(data.assumptions);
+    return buildStagePlanResult(data, validateStagePlan, assumptions);
+  }
+
+  return buildPlan(data);
 }

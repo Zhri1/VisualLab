@@ -6,3 +6,17 @@ artifacts/
 .env.*
 !.env.example
 !.env.production
+
+# 浏览器调试临时目录
+.cdp*/
+
+# vitest 沙箱临时目录
+.tmp/
+
+# Qoder Sites 发布临时文件
+.sites-*
+
+# 一次性 GitHub 操作脚本（不入库）
+.gh-*
+.pr-number
+.cdp*/

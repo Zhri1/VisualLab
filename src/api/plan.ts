@@ -13,7 +13,29 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { callVisionModel, VisionError } from './dashscope';
-import { buildPlan } from './validate';
+import { applyLegacyContract, outputContractFromEnv, type ClientResult } from './legacyBridge';
+import { STAGE_HTTP_STATUS } from './stageTypes';
+import type { StagePlanResult } from './stageTypes';
+import { buildPlanResponse, type PlanResponse } from './validate';
+import { UNSUPPORTED_PREFIX } from './contract';
+import { validateReading } from '../physics/reading';
+
+/**
+ * 判断回包是否来自阶段计划路径。
+ *
+ * `unsupported` 和 `needs_input + reading:null` 两支与旧模板形状重叠，
+ * 但兼容桥对它们原样返回，判错不影响结果。
+ */
+function isStagePlanResult(result: PlanResponse): result is StagePlanResult {
+  if (result.status === 'invalid_reading') return true;
+  if (!('reading' in result)) return false;
+  const reading = result.reading;
+  return (
+    reading !== null &&
+    typeof reading === 'object' &&
+    (reading as Record<string, unknown>).kind === 'stage_plan'
+  );
+}
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_EDGE_HINT = '单张图片请控制在 8 MB 以内';
@@ -36,14 +58,17 @@ function toBase64(bytes: Uint8Array): string {
 
 let cachedSkill: string | null = null;
 
-/** Skill 说明与代码分开放，改文案不用重新构建 */
+/**
+ * 默认发 v2（阶段组合版）。v1 只用于回放历史数据，不再作为默认。
+ * 云函数不走文件读取，而是内联常量（见 functions/skill.ts）。
+ */
 export function loadSkillText(): string {
   if (cachedSkill) return cachedSkill;
 
   const candidates = [
     process.env.SKILL_PATH,
-    join(process.cwd(), 'skills', 'vision-reading.v1.md'),
-    join(process.cwd(), '..', 'skills', 'vision-reading.v1.md'),
+    join(process.cwd(), 'skills', 'vision-reading.v2.md'),
+    join(process.cwd(), '..', 'skills', 'vision-reading.v2.md'),
   ].filter((item): item is string => Boolean(item));
 
   for (const path of candidates) {
@@ -55,7 +80,7 @@ export function loadSkillText(): string {
     }
   }
 
-  throw new Error('未找到 skills/vision-reading.v1.md，可用 SKILL_PATH 指定绝对路径');
+  throw new Error('未找到 skills/vision-reading.v2.md，可用 SKILL_PATH 指定绝对路径');
 }
 
 function corsHeaders(request: Request): Record<string, string> {
@@ -165,14 +190,23 @@ export async function handlePlan(request: Request): Promise<Response> {
     });
   }
 
-  const result = buildPlan(vision.raw);
+  // 内部统一按 stage_plan 校验，对外形状由 API_CONTRACT_MODE 决定：
+  // 默认 legacy（A 的前端尚未接入），设成 stage_plan 才吐新契约。
+  const internal = buildPlanResponse(vision.raw);
+  const result: ClientResult =
+    isStagePlanResult(internal) && outputContractFromEnv(process.env.API_CONTRACT_MODE) === 'legacy'
+      ? applyLegacyContract(internal, validateReading, UNSUPPORTED_PREFIX)
+      : (internal as ClientResult);
   const elapsed = Date.now() - startedAt;
+
+  // 契约第 2 节：ok / needs_input / unsupported 都是 200，只有 invalid_reading 是 502
+  const status = result.status === 'invalid_reading' ? STAGE_HTTP_STATUS.invalid_reading : 200;
 
   console.log(
     `[plan] ${requestId} ${result.status} ${elapsed}ms model=${vision.model} image=${imageBase64 ? 'yes' : 'no'} text=${text.length}`,
   );
 
-  return json(result, 200, {
+  return json(result, status, {
     ...base,
     'x-request-id': requestId,
     'x-elapsed-ms': String(elapsed),

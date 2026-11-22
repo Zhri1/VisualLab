@@ -127,12 +127,18 @@ export async function requestPlan(input: {
   /** 内置示例：跳过所有模拟失败 */
   isSample?: boolean;
 }): Promise<PlanResponse> {
-  // 内置示例在生产和离线环境都直接使用本地标准题。
-  if (input.isSample) return mockPlan(Boolean(input.file), true);
+  // 内置示例是兜底路径：不打网络，也不受联调开关影响。
+  // 线上 VITE_USE_MOCK_API=false 时，示例若走 fetch 就会被网关拦截，整页演示失败。
+  if (input.isSample) {
+    const [lo, hi] = MOCK_LATENCY_MS;
+    await sleep((lo + Math.random() * (hi - lo)) * 0.35);
+    return mockPlan(Boolean(input.file), true);
+  }
+
   if (USE_MOCK_API) {
     const [lo, hi] = MOCK_LATENCY_MS;
     await sleep(lo + Math.random() * (hi - lo));
-    return mockPlan(Boolean(input.file));
+    return mockPlan(Boolean(input.file), false);
   }
 
   const form = new FormData();
@@ -169,9 +175,11 @@ export async function requestPlan(input: {
     const fallback =
       res.status === 400
         ? "图片格式无效，请上传 JPG 或 PNG"
-        : res.status === 504
-          ? "识别超时，请重试"
-          : "识别服务异常，请稍后重试";
+        : res.status === 403
+          ? "平台网关拦截了本次请求，请用普通浏览器窗口打开页面重试"
+          : res.status === 504
+            ? "识别超时，请重试"
+            : "识别服务异常，请稍后重试";
     return { status: "error", httpStatus: res.status, message: body?.message ?? fallback };
   } catch {
     return { status: "error", message: "网络异常，请检查连接后重试" };
