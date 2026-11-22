@@ -52,6 +52,21 @@ describe("动态有序阶段组合", () => {
     expect(motion.events.map((item) => item.kind)).toEqual(["release", "reach_bottom", "lossless_turn", "reach_target", "leave_table", "land"]);
   });
 
+  it("十进制时刻落在事件时刻1 ulp内时仍取事件状态", () => {
+    // 事件时刻由各段时长累加得到，这里实际是 1.2000000000000002；
+    // 播放进度按十进制 1.2 推进，严格相等会错过转向、停在坡底前一瞬。
+    const motion = run(complete);
+    const turn = event(motion, "lossless_turn");
+    expect(Math.abs(turn.timeSeconds - 1.2)).toBeLessThanOrEqual(1e-9);
+    const atDecimal = motion.sampleAt(1.2);
+    close(atDecimal.vxMps, 6);
+    expect(atDecimal.vyMps).toBe(0);
+    expect(atDecimal).toEqual(motion.sampleAt(turn.timeSeconds));
+    // 容差只吸收浮点误差，不吞掉事件前的采样
+    close(motion.sampleAt(1.2 - 1e-7).vxMps, 3 * Math.sqrt(3), 1e-6);
+    expect(motion.sampleAt(1.2 - 1e-7).vyMps).toBeLessThan(0);
+  });
+
   it("完整链与斜面前缀在t−ε、t、t+ε取不同且连续的末态", () => {
     const full = run(complete);
     const prefix = run({ ...complete, stages: complete.stages.slice(0, 1) });
