@@ -1,4 +1,6 @@
-import type { MotionSample } from "./motion.ts";
+import { solveVerticalArc } from "./verticalArc.ts";
+import type { StageSample as MotionSample, VerticalArcGeometry } from "./verticalArc.ts";
+export type { StageSample, ArcConstraint, VerticalArcGeometry } from "./verticalArc.ts";
 import type { Point } from "./scene.ts";
 import type { ResolvedStagePlan, Stage, StageKind, StagePlanDraft, StagePlanFailure } from "./stagePlan.ts";
 import { validateStagePlan } from "./stagePlan.ts";
@@ -10,13 +12,15 @@ export type StageGeometry = {
   horizontal?: { start: Point; plannedEnd: Point | null };
   spring?: { contact: Point; anchor: Point };
   projectile?: { launch: Point; landingPlane: { yM: number } };
+  verticalArc?: VerticalArcGeometry;
   blockSizeM: number;
-  positionReference: "front_bottom";
+  positionReference: "front_bottom" | "particle";
 };
-export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "spring_detached" | "prefix_end";
+export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry";
 export type StageEvent = {
   id: string; stageIndex: number; kind: string; timeSeconds: number; order: number;
   velocityBefore: Velocity; velocityAfter: Velocity; label: string; explanation: string;
+  position?: Point; normalForceBeforeN?: number; normalForceAfterN?: number;
 };
 export type StageMotion = {
   geometry: StageGeometry;
@@ -28,7 +32,8 @@ export type StageMotion = {
   sampleAt(timeSeconds: number): MotionSample;
 };
 export type StageScene = { kind: "stage_scene"; reading: ResolvedStagePlan; geometry: StageGeometry; motion: StageMotion };
-type EventState = { kind: string; time: number; before: MotionSample; after: MotionSample; label: string; explanation: string };
+type EventState = { kind: string; time: number; before: MotionSample; after: MotionSample; label: string; explanation: string;
+  position?: Point; normalForceBeforeN?: number; normalForceAfterN?: number };
 type Run = {
   duration: number; end: MotionSample; events: EventState[];
   reason?: EndReason;
@@ -141,14 +146,40 @@ function spring(stage: Extract<Stage, { kind: "spring_contact" }>, start: Motion
   };
 }
 
-function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: MotionSample, gravity: number, geometry: StageGeometry, fromTable: boolean): Run {
-  const duration = landingTime(stage.dropHeightM, start.vyMps, gravity);
-  const planeYM = start.yM - stage.dropHeightM;
+function arc(stage: Extract<Stage, { kind: "vertical_arc" }>, start: MotionSample, gravity: number, mass: number, geometry: StageGeometry, index: number, continues: boolean): Run {
+  const solved = solveVerticalArc(stage, start, gravity, mass, index);
+  geometry.verticalArc = solved.geometry;
+  const arcEvent = (kind: string, time: number, before: MotionSample, after: MotionSample, label: string, explanation: string): EventState => ({
+    ...event(kind, time, before, after, label, explanation), position: point(after),
+    normalForceBeforeN: before.constraint?.normalForceN ?? 0,
+    normalForceAfterN: after.constraint?.normalForceN ?? 0,
+  });
+  const events = [arcEvent("arc_enter", 0, index === 0 ? solved.entry : start, solved.entry, "进入圆弧", `从最低点沿切线入弧，圆轨道法向力约 ${solved.entry.constraint!.normalForceN.toFixed(4)} N。`)];
+  if (solved.geometry.actualExit.reason === "stationary") {
+    events.push(arcEvent("stop", 0, solved.entry, solved.end, "最低点静止", "最低点初速度为零，重力与支持力平衡。"));
+    return { ...solved, events, reason: "stopped" };
+  }
+  if (solved.returns) {
+    events.push(arcEvent("arc_turn", solved.ascentSeconds, solved.boundary, solved.boundary, "停下并回滑", "此刻速度为零，沿切线的重力分量使滑块反向，随后沿圆弧返回。"));
+    const before = { ...solved.end, constraint: { ...solved.entry.constraint!, angularVelocityRadps: -start.vxMps / stage.radiusM } };
+    events.push(arcEvent("arc_return_entry", solved.duration, before, solved.end, "返回圆弧入口", "沿原轨道返回最低点，速度水平向左；本次计算在入口结束，保留返回速度。"));
+    return { ...solved, events, reason: "returned_to_entry" };
+  }
+  const lost = solved.geometry.actualExit.reason === "contact_lost";
+  events.push(arcEvent(lost ? "arc_contact_lost" : "arc_endpoint", solved.duration, solved.boundary, solved.end,
+    lost ? "失去接触" : "到达圆弧端点", lost ? "圆轨道法向力降为零，滑块沿此处的实际切线飞出。" : "到达计划端点，离开轨道后保持切向速度。"));
+  return { ...solved, events, reason: continues ? undefined : "arc_detached" };
+}
+
+function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: MotionSample, gravity: number, geometry: StageGeometry, from: StageKind | undefined): Run {
+  const planeYM = stage.landingPlaneYM ?? start.yM - stage.dropHeightM!;
+  const duration = landingTime(start.yM - planeYM, start.vyMps, gravity);
   geometry.projectile = { launch: point(start), landingPlane: { yM: planeYM } };
   const sampleAt = (time: number) => linearState(start.xM, start.yM, start.vxMps, start.vyMps, 0, -gravity, time);
   const end = { ...sampleAt(duration), yM: planeYM };
   const events: EventState[] = [];
-  if (fromTable) events.push(event("leave_table", 0, start, start, "离开桌沿", "以正水平速度到达桌沿，开始平抛。"));
+  if (from === "horizontal_slide") events.push(event("leave_table", 0, start, start, "离开桌沿", "以正水平速度到达桌沿，开始平抛。"));
+  if (from === "vertical_arc") events.push(event("projectile_launch", 0, start, start, "沿切线飞出", "以实际离弧位置和切向速度开始抛体运动，落地平面保持固定。"));
   const apexTime = start.vyMps / gravity;
   if (apexTime > 0 && apexTime < duration) {
     const maximum = { ...sampleAt(apexTime), vyMps: 0 };
@@ -159,7 +190,7 @@ function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: Motion
 }
 
 function compute(plan: ResolvedStagePlan): StageMotion | StagePlanFailure {
-  const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: "front_bottom" };
+  const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage) => stage.kind === "vertical_arc") ? "particle" : "front_bottom" };
   const first = plan.stages[0];
   let state = "speedMps" in plan.initial ? moving(0, 0, plan.initial.speedMps) : moving(0, 0, plan.initial.vxMps, plan.initial.vyMps);
   if (first.kind === "incline_slide") {
@@ -180,21 +211,33 @@ function compute(plan: ResolvedStagePlan): StageMotion | StagePlanFailure {
       timeSeconds: startTime + item.time, order,
       velocityBefore: velocity(item.before), velocityAfter: velocity(item.after),
       label: item.label, explanation: item.explanation,
+      ...(item.position ? { position: item.position, normalForceBeforeN: item.normalForceBeforeN, normalForceAfterN: item.normalForceAfterN } : {}),
     });
     eventStates.push({ ...item.after });
   }
   append(event("release", 0, state, state, "释放", "从题设初态开始运动。"), 0, 0);
   for (const [index, stage] of plan.stages.entries()) {
     let run: Run;
-    switch (stage.kind) {
+    const failure = (message: string, path = "/stages/" + index, code = "RANGE"): StagePlanFailure => ({
+      ok: false, code: "INCONSISTENT_CONDITIONS", message, reading: plan as StagePlanDraft, missingKeys: [], fieldErrors: [{ path, code, message }],
+    });
+    if (stage.kind === "projectile" && stage.landingPlaneYM !== undefined && stage.landingPlaneYM > state.yM) {
+      return failure("固定落地平面不能高于实际发射点。", "/stages/" + index + "/landingPlaneYM", "PRECONDITION_CONFLICT");
+    }
+    if (stage.kind === "vertical_arc" && (state.vxMps < 0 || state.vyMps !== 0)) return failure("圆弧入口需要水平向右的切向速度。", "/stages/" + index, "PRECONDITION_CONFLICT");
+    try { switch (stage.kind) {
       case "incline_slide": run = incline(stage, state, plan.gravityMps2!, geometry); break;
       case "lossless_turn": run = turn(state); break;
       case "horizontal_slide": run = horizontal(stage, state, plan.gravityMps2 ?? 0, geometry); break;
       case "spring_contact": run = spring(stage, state, plan.massKg!, geometry); break;
-      case "projectile": run = projectile(stage, state, plan.gravityMps2!, geometry, index > 0); break;
-    }
+      case "projectile": run = projectile(stage, state, plan.gravityMps2!, geometry, plan.stages[index - 1]?.kind); break;
+      case "vertical_arc": run = arc(stage, state, plan.gravityMps2!, plan.massKg!, geometry, index, plan.stages[index + 1]?.kind === "projectile"); break;
+    } } catch (error) { if (error instanceof RangeError) return failure(error.message); throw error; }
     const nextTime = time + run.duration;
-    const numbers = [run.duration, nextTime, ...Object.values(run.end), ...Object.values(run.sampleAt(run.duration / 2)), ...run.events.flatMap((item) => [time + item.time, ...Object.values(item.after)])];
+    const sampleNumbers = (s: MotionSample) => [s.xM, s.yM, s.vxMps, s.vyMps, s.springCompressionM,
+      ...(s.constraint ? [s.constraint.angleDeg, s.constraint.angularVelocityRadps, s.constraint.normalForceN] : [])];
+    const numbers = [run.duration, nextTime, ...sampleNumbers(run.end), ...sampleNumbers(run.sampleAt(run.duration / 2)), ...run.events.flatMap((item) => [time + item.time, ...sampleNumbers(item.after)])];
+    if (geometry.verticalArc) numbers.push(...Object.values(geometry.verticalArc.center), ...Object.values(geometry.verticalArc.plannedEnd));
     if (geometry.spring) numbers.push(geometry.spring.anchor.xM);
     const springTimes = stage.kind !== "spring_contact" || (run.duration > 0
       && time + run.events[1].time > time && time + run.events[1].time < nextTime);
@@ -221,12 +264,22 @@ function compute(plan: ResolvedStagePlan): StageMotion | StagePlanFailure {
     sampleAt(timeSeconds) {
       const t = Number.isNaN(timeSeconds) ? 0 : Math.min(time, Math.max(0, timeSeconds));
       // 同刻的最后一个事件状态优先，确保转向、接触和零时长终止可精确停靠。
-      // 事件时刻由累加得到，常与十进制字面量差 1 ulp（如 1.2000000000000002 与 1.2），
-      // 播放进度按十进制推进时严格相等会错过事件、停在事件前一瞬。这里只吸收这一级误差：
-      // 容差 1e-9 s 远小于采样步长（前端按 1e-7 s 取事件前后状态），不改变「事件前」语义。
-      for (let i = events.length - 1; i >= 0; i--) if (Math.abs(events[i].timeSeconds - t) <= 1e-9) return { ...eventStates[i] };
+      // 吸收累加时刻和十进制播放值的 ulp 误差，按物理时刻缩放。
+      // 固定绝对容差会把极短圆弧的离弧事件错误吸附到 t=0。
+      const copy = (s: MotionSample): MotionSample => ({ ...s, ...(s.constraint ? { constraint: { ...s.constraint } } : {}) });
+      let nearestIndex = -1, nearestDistance = Infinity;
+      for (let i = events.length - 1; i >= 0; i--) {
+        const eventTime = events[i].timeSeconds;
+        // 精确时刻优先。逆序保留同刻最后事件，近似命中不能抢走另一精确时刻。
+        if (eventTime === t) return copy(eventStates[i]);
+        const distance = Math.abs(eventTime - t);
+        const tolerance = 8 * Number.EPSILON * Math.max(Math.abs(eventTime), Math.abs(t), Number.MIN_VALUE);
+        if (distance <= tolerance && distance < nearestDistance) { nearestIndex = i; nearestDistance = distance; }
+      }
+      // 只有无精确命中时才选最近事件；等距不覆盖，沿用逆序的最后事件优先。
+      if (nearestIndex >= 0) return copy(eventStates[nearestIndex]);
       const active = runs.find((item) => t >= item.start && t < item.end);
-      return active ? active.run.sampleAt(t - active.start) : { ...final };
+      return copy(active ? active.run.sampleAt(t - active.start) : final);
     },
   };
 }

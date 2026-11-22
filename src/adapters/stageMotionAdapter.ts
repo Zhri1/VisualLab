@@ -11,6 +11,10 @@ import type {
 } from "../types";
 
 const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "formula">> = {
+  vertical_arc: {
+    name: "竖直圆弧", summary: "光滑内轨上机械能守恒；法向力降为零时沿切线飞出，速度先降为零时沿轨回滑。",
+    formula: "v² = u² − 2gR(1 − cosφ)，N = m(v²/R + gcosφ)",
+  },
   incline_slide: {
     name: "斜面下滑",
     summary: "滑块沿斜面运动，重力沿坡分力与滑动摩擦共同决定加速度。",
@@ -43,6 +47,7 @@ function segmentKind(kind: StageKind): SegmentKind {
   if (kind === "horizontal_slide") return "horizontal";
   if (kind === "spring_contact") return "spring";
   if (kind === "projectile") return "projectile";
+  if (kind === "vertical_arc") return "vertical_arc";
   return "horizontal";
 }
 
@@ -88,9 +93,10 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
       label: event.label,
       caption: event.explanation,
       detail: event.explanation,
-      segment: segmentKind(owner?.kind ?? fallback),
+      segment: segmentKind(owner?.kind ?? plan?.stages[event.stageIndex]?.kind ?? fallback),
       velocityBefore: vec(event.velocityBefore.vxMps, event.velocityBefore.vyMps),
       velocityAfter: vec(event.velocityAfter.vxMps, event.velocityAfter.vyMps),
+      ...(event.position ? { position: vec(event.position.xM, event.position.yM), normalForceBeforeN: event.normalForceBeforeN, normalForceAfterN: event.normalForceAfterN } : {}),
     };
   });
 
@@ -116,6 +122,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
         position: vec(sample.xM, sample.yM),
         velocity: vec(sample.vxMps, sample.vyMps),
         springCompressionM: sample.springCompressionM,
+        ...(sample.constraint ? { constraint: { ...sample.constraint } } : {}),
       };
     },
   };

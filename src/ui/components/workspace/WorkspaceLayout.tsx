@@ -30,6 +30,7 @@ export function WorkspaceLayout({ ws }: Props) {
     horizontal_slide: "水平",
     spring_contact: "弹簧",
     projectile: "抛体",
+    vertical_arc: "圆弧",
   } as const;
   const title = stagePlan
     ? stagePlan.stages.map((stage) => stageLabels[stage.kind as keyof typeof stageLabels] ?? "未知阶段").join(" · ")

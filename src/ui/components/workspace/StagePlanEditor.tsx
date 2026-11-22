@@ -2,6 +2,7 @@ import type { StageKind, StagePlanDraft } from "../../../physics/stagePlan";
 import type { FieldError } from "../../../types";
 
 const STAGE_LABELS: Record<StageKind, string> = {
+  vertical_arc: "竖直圆弧",
   incline_slide: "斜面下滑",
   lossless_turn: "无损转向",
   horizontal_slide: "水平滑动",
@@ -22,7 +23,10 @@ const NUMBER_FIELDS: Partial<Record<StageKind, NumberMeta[]>> = {
     { key: "kineticFrictionCoefficient", label: "水平动摩擦因数 μ", unit: "", step: 0.05 },
   ],
   spring_contact: [{ key: "springConstantNpm", label: "弹簧劲度系数 k", unit: "N/m", step: 10 }],
-  projectile: [{ key: "dropHeightM", label: "落地平面落差 h", unit: "m", step: 0.05 }],
+  vertical_arc: [
+    { key: "radiusM", label: "圆弧半径 R", unit: "m", step: 0.05, hint: "质点轨迹半径，大于 0" },
+    { key: "endAngleDeg", label: "圆弧端点角 φ", unit: "°", step: 1, hint: "从最低点量起，0° < φ ≤ 180°" },
+  ],
 };
 
 interface Props {
@@ -51,6 +55,7 @@ function blankStage(kind: StageKind): Record<string, unknown> {
     return { kind, kineticFrictionCoefficient: null, end: { kind: "distance", distanceM: null } };
   }
   if (kind === "spring_contact") return { kind, springConstantNpm: null, frictionless: null, unattached: null };
+  if (kind === "vertical_arc") return { kind, radiusM: null, endAngleDeg: null, side: null, frictionless: null };
   return { kind, dropHeightM: null };
 }
 
@@ -157,7 +162,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
   const initial = draft.initial ?? { speedMps: null };
   const firstKind = draft.stages[0]?.kind;
   const components = firstKind === "projectile" || "vxMps" in initial || "vyMps" in initial;
-  const showMass = "massKg" in draft || missingKeys.includes("/massKg") || draft.stages.some((stage) => stage.kind === "spring_contact");
+  const showMass = "massKg" in draft || missingKeys.includes("/massKg") || draft.stages.some((stage) => stage.kind === "spring_contact" || stage.kind === "vertical_arc");
 
   return (
     <div className="stage-plan-editor" data-testid="stage-plan-editor">
@@ -196,7 +201,8 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                 aria-label={`阶段 ${index + 1} 类型`}
                 aria-invalid={flagged(kindPath)}
                 data-field-path={kindPath}
-                onChange={(event) => setStage(index, blankStage(event.target.value as StageKind))}
+                onChange={(event) => setStage(index, event.target.value === "projectile" && draft.stages[index - 1]?.kind === "vertical_arc"
+                  ? { kind: "projectile", landingPlaneYM: null } : blankStage(event.target.value as StageKind))}
               >
                 <option value="" disabled>选择阶段类型</option>
                 {known || !kind ? null : <option value={kind}>未登记：{kind}</option>}
@@ -215,6 +221,37 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                   {kind === "incline_slide" && ("slidesAfterRelease" in stage || missingKeys.includes(`/stages/${index}/slidesAfterRelease`)
                     || ("speedMps" in initial && initial.speedMps === 0)) && factRow(index, "slidesAfterRelease", "释放后下滑")}
                   {kind === "lossless_turn" && factRow(index, "lossless", "无损转向")}
+                  {kind === "vertical_arc" && (
+                    <>
+                      <tr data-field-path={`/stages/${index}/side`}>
+                        <td className="name">圆轨道接触侧</td>
+                        <td className="val"><select className={"stage-select" + (flagged(`/stages/${index}/side`) ? " invalid" : "")}
+                          aria-label={`阶段 ${index + 1} 圆轨道接触侧`} aria-invalid={flagged(`/stages/${index}/side`)}
+                          value={typeof stage.side === "string" ? stage.side : ""}
+                          onChange={(event) => setStage(index, { ...stage, side: event.target.value || null })}>
+                          <option value="">待确认</option><option value="inside">内侧</option><option value="outside">外侧（暂不支持）</option>
+                        </select></td><td />
+                      </tr>
+                      {factRow(index, "frictionless", "圆轨道光滑")}
+                    </>
+                  )}
+                  {kind === "projectile" && (() => {
+                    const fixed = "landingPlaneYM" in stage || (!("dropHeightM" in stage) && draft.stages[index - 1]?.kind === "vertical_arc");
+                    const key = fixed ? "landingPlaneYM" : "dropHeightM";
+                    return <>
+                      <tr data-field-path={`/stages/${index}`}><td className="name">落地基准</td><td className="val">
+                        <select className="stage-select" aria-label={`阶段 ${index + 1} 落地基准`} value={fixed ? "plane" : "drop"}
+                          onChange={(event) => {
+                            const next = { ...stage }; delete next.dropHeightM; delete next.landingPlaneYM;
+                            next[event.target.value === "plane" ? "landingPlaneYM" : "dropHeightM"] = null; setStage(index, next);
+                          }}>
+                          <option value="drop">相对发射点的落差</option><option value="plane">固定世界高度</option>
+                        </select></td><td /></tr>
+                      {numberRow({ key, label: fixed ? "落地平面高度 y" : "落地平面落差 h", unit: "m", step: .05,
+                        hint: fixed ? "与场景共用坐标原点；圆弧后必须固定地面" : "非负落差，圆弧后请切换为固定高度",
+                        path: `/stages/${index}/${key}`, value: stage[key], onChange: raw => setStageNumber(index, key, raw) })}
+                    </>;
+                  })()}
                   {kind === "horizontal_slide" && (
                     <>
                       <tr data-field-path={`/stages/${index}/end`}>
