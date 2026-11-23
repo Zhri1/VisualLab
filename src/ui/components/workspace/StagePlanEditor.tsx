@@ -268,6 +268,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                     </>
                   )}
                   {kind === "projectile" && (() => {
+                    const fromIncline = draft.stages[index - 1]?.kind === "incline_slide";
                     const fixed = "landingPlaneYM" in stage || (!("dropHeightM" in stage) && draft.stages[index - 1]?.kind === "vertical_arc");
                     const key = fixed ? "landingPlaneYM" : "dropHeightM";
                     return <>
@@ -279,8 +280,8 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                           }}>
                           <option value="drop">相对发射点的落差</option><option value="plane">固定世界高度</option>
                         </select></td><td /></tr>
-                      {numberRow({ key, label: fixed ? "落地平面高度 y" : "落地平面落差 h", unit: "m", step: .05,
-                        hint: fixed ? "与场景共用坐标原点；圆弧后必须固定地面" : "非负落差，圆弧后请切换为固定高度",
+                      {numberRow({ key, label: fixed ? "落地平面高度 y" : fromIncline ? "檐口到地面高度 h" : "落地平面落差 h", unit: "m", step: .05,
+                        hint: fromIncline ? fixed ? "以檐口为(0,0)，地面y≤0" : "从檐口量到地面，不从坡顶量高度" : fixed ? "与场景共用坐标原点；圆弧后必须固定地面" : "非负落差，圆弧后请切换为固定高度",
                         path: `/stages/${index}/${key}`, value: stage[key], onChange: raw => setStageNumber(index, key, raw) })}
                     </>;
                   })()}
