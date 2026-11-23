@@ -1,0 +1,33 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "massKg": 0.1,
+  "initial": {
+    "speedMps": 4.471688719041163
+  },
+  "stages": [
+    {
+      "kind": "vertical_arc",
+      "radiusM": 0.4,
+      "side": "inside",
+      "frictionless": true,
+      "path": {
+        "center": {
+          "xM": 0,
+          "yM": 0.4
+        },
+        "startAngleDeg": 0,
+        "direction": "positive",
+        "end": {
+          "kind": "observation",
+          "sweepAngleDeg": 360
+        }
+      }
+    },
+    {
+      "kind": "projectile",
+      "landingPlaneYM": 0
+    }
+  ]
+}
