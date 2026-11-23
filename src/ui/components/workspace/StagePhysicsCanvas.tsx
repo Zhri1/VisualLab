@@ -10,6 +10,11 @@ const FILL = "#eaeae6";
 const MATH = '"Cambria", "Cambria Math", Georgia, serif';
 const SANS = '-apple-system, "Segoe UI", "PingFang SC", sans-serif';
 
+function hasInclineLaunch(motion: Motion): boolean {
+  return !!motion.stagePlan?.stages.some((stage, i, stages) => stage.kind === "incline_slide" && stages[i + 1]?.kind === "projectile");
+}
+const componentText = (value: number) => Math.abs(value) < .005 ? "0" : value.toFixed(2);
+
 interface Props {
   motion: Motion;
   time: number;
@@ -20,6 +25,7 @@ type Bounds = { x1: number; x2: number; y1: number; y2: number };
 
 export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: number, motion: Motion, time: number) {
   const g = motion.stageGeometry!;
+  const inclineLaunch = hasInclineLaunch(motion);
   const displayArc = g.verticalArc ?? g.schematic?.verticalArc;
   const size = g.blockSizeM;
   const sample = motion.sampleAt(time);
@@ -98,6 +104,10 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
     ctx.fillText("AB", X((start.xM + end.xM) / 2), Y((start.yM + end.yM) / 2) - 10);
+    if (inclineLaunch) {
+      ctx.textAlign = "right";
+      ctx.fillText("檐口 B", X(end.xM) - 10, Y(end.yM) + 20);
+    }
   }
 
   // 水平支撑总是延伸到题设目标，提前停住也不裁掉桌沿。
@@ -177,7 +187,7 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
 
   // 只有实际进入抛体阶段才画轨迹与落地面。
   const projectileSegment = motion.segments.find((segment) => segment.kind === "projectile");
-  if (g.projectile && projectileSegment) {
+  if (g.projectile && (projectileSegment || inclineLaunch)) {
     const floorY = g.projectile.landingPlane.yM;
     ctx.strokeStyle = INK;
     ctx.lineWidth = 1.6;
@@ -185,12 +195,19 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.moveTo(X(Math.min(g.projectile.launch.xM, last.position.x) - size), Y(floorY));
     ctx.lineTo(X(Math.max(g.projectile.launch.xM, last.position.x) + size), Y(floorY));
     ctx.stroke();
+    if (inclineLaunch) {
+      const launch = g.projectile.launch;
+      ctx.save(); ctx.setLineDash([3, 4]); ctx.strokeStyle = HAIR; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(X(launch.xM), Y(launch.yM)); ctx.lineTo(X(launch.xM), Y(floorY)); ctx.stroke(); ctx.restore();
+      ctx.font = `12px ${SANS}`; ctx.fillStyle = SOFT; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+      ctx.fillText(`h = ${Number((launch.yM - floorY).toPrecision(6))} m`, X(launch.xM) - 8, Y((launch.yM + floorY) / 2));
+    }
     ctx.save();
     ctx.setLineDash([4, 5]);
     ctx.strokeStyle = HAIR;
     ctx.lineWidth = 1.2;
     ctx.beginPath();
-    for (let index = 0; index <= 36; index += 1) {
+    for (let index = 0; projectileSegment && index <= 36; index += 1) {
       const t = projectileSegment.startSeconds
         + (projectileSegment.endSeconds - projectileSegment.startSeconds) * (index / 36);
       const point = motion.sampleAt(t).position;
@@ -333,6 +350,10 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   if (sample.constraint) {
     ctx.fillStyle = SOFT; ctx.fillText(`N = ${sample.constraint.normalForceN.toFixed(2)} N`, labelX, labelY + 18);
   }
+  if (inclineLaunch) {
+    ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = SOFT;
+    ctx.fillText(`vₓ = ${componentText(sample.velocity.x)}，vᵧ = ${componentText(sample.velocity.y)} m/s`, 12, 12);
+  }
 }
 
 export function StagePhysicsCanvas({ motion, time, isPlaying = false }: Props) {
@@ -386,6 +407,7 @@ export function StagePhysicsCanvas({ motion, time, isPlaying = false }: Props) {
       <canvas ref={canvasRef} aria-label="有序物理阶段动画" aria-describedby="player-speed" role="img" />
       <figcaption id="player-speed" className="player-sr-only" aria-live={isPlaying ? "off" : "polite"}>
         当前速度大小 {speedText.startsWith("<") ? "小于 0.01" : speedText} 米每秒；
+        {hasInclineLaunch(motion) && `檐口为坐标原点；水平速度 ${componentText(velocity.x)}，竖直速度 ${componentText(velocity.y)} 米每秒；`}
         {constraint && `圆弧角度 ${constraint.angleDeg.toFixed(2)} 度，法向力 ${constraint.normalForceN.toFixed(2)} 牛顿；`}
         结束原因 {motion.endReason ?? "进行中"}
       </figcaption>

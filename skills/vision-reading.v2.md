@@ -1,7 +1,7 @@
 # Skill：物理题图 → Reading v2（阶段组合）
 
 > 后端发给视觉模型的完整说明（system prompt）。改字段、改单位、加阶段时，先改 `STAGE_COMPOSITION.md`，再改本文件，最后同步 `src/api/contract.ts` 与 `fixtures/`。
-> 版本：v2 · 输出形态：`stage_plan` · 对应契约：`STAGE_COMPOSITION.md` 第 1–3 节及 `VERTICAL_ARC.md`。
+> 版本：v2 · 输出形态：`stage_plan` · 对应契约：`STAGE_COMPOSITION.md` 及 `VERTICAL_ARC.md`、`INCLINE_PROJECTILE.md`。
 
 轻绳摆和最低点两物体正碰另按第9节输出，使用body表，不套旧顶层massKg。
 
@@ -110,7 +110,7 @@
 
 V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
-1. `incline_slide` → `lossless_turn`
+1. `incline_slide` → `lossless_turn`，或题面明确到檐口沿坡切线飞出时直接接 `projectile`（见下方及样例D）
 2. `lossless_turn` → `horizontal_slide`、`spring_contact` 或 `vertical_arc`
 3. `horizontal_slide`（定距） → `spring_contact`、`projectile` 或 `vertical_arc`
 4. `vertical_arc` → `projectile`，后者使用固定 `landingPlaneYM`；实际到端点、先脱轨或回滑由物理库判定，不由模型预先删段
@@ -122,7 +122,6 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 **不支持**（按超范围处理）：
 
-- 斜面直接接抛体（中间缺水平段）
 - 斜面直接接弹簧（中间缺转向）
 - 弹簧之后再接任何段
 - 抛体之后再接任何段
@@ -130,6 +129,8 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - 转向之后直接抛体（缺水平段）
 
 `horizontal_slide` 接 `projectile` 时，`distanceM` 就是题设的**桌沿位置**；只有正速到达才产生离桌。
+
+`incline_slide → projectile` 表示斜面末端（檐口）沿真实切线飞出；不补转向或水平段，不在后段写发射速度分量，不预先因会停下而删掉计划后缀，B会计算是否实际离檐。檐口为世界原点(0,0)，`dropHeightM`从檐口量到地面，不能用坡顶到地面的高度冒填；固定地面可用互斥的`landingPlaneYM`，本组合实际发射时地面y≤0。仅知坡顶总高却不能确定檐口高度时保留待补，不按图像比例或运动答案反推。若题面又要求到斜面末端瞬间变成水平速度、却未给转向机制，应保留真实题面并说明矛盾，不能暗添光滑转向来凑答案。
 
 `horizontal_slide` 接 `vertical_arc` 时，`distanceM` 是到圆弧最低点的距离。坐标原点仍是全场景第一段起点（斜面起始时沿用坡底原点），圆弧入口不得重置到0。只有无高度差的短光滑过渡才用 `lossless_turn`；给出半径且高度变化不可忽略的竖直圆轨道必须用 `vertical_arc`。外侧、双面卡槽、粗糙或超过半圈暂不支持。预压释放和临界能量条件见第8节；不要伪造初速、劲度系数或压缩量。
 
@@ -168,7 +169,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 | N/cm → N/m | ×100 | 4 N/cm → `400` |
 | kN/m → N/m | ×1000 | 0.4 kN/m → `400` |
 | km/h → m/s | ÷3.6 | 36 km/h → `10` |
-| 三角函数给角 | 反三角成度，保留 1 位小数 | sinθ=0.6 → `36.9` |
+| 三角函数给角 | 反三角成度，保留足够精度，不粗舍入题给关系 | sinθ=0.6 或 tanθ=3/4 → `36.86989764584402` |
 
 保留题面有效数字，不自行取整。
 
@@ -191,7 +192,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 - 电磁学、未登记的圆周轨道、天体、第9节以外的碰撞/连接体、传送带、浮力热学、光学原子物理、机械波；第9节的轻绳摆与最低点正碰已支持
 - 不符合第8节前提的预压释放/能量题
-- 斜面直接接抛体或直接接弹簧
+- 斜面直接接弹簧（缺题设支持的转向）；斜面沿切向直接抛出已支持
 - 弹簧与滑块连接、转向有明显能量损失
 - 水平面明确光滑却要求非零初速物体依靠摩擦停止（前提冲突）
 - 图片不是物理题、模糊到无法辨认、包含多道无关题
@@ -259,9 +260,9 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 }
 ```
 
-### 样例 D · 超范围（斜面直接接抛体）
+### 样例 D · 斜面末端直接斜抛（檐口离地高度）
 
-> 滑块从长 2 m、倾角 30° 的光滑斜面顶端由静止下滑，到达坡底时正好是桌面边缘，随即水平飞出。桌面离地 1.2 m，g 取 10 m/s²。
+> 积雪沿长2.5 m、tanθ=3/4的屋顶从静止下滑，动摩擦因数0.125；到檐口后沿坡面方向飞出。檐口离地1.95 m，g=10 m/s²。
 
 ```json
 {
@@ -269,13 +270,15 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
   "schemaVersion": 1,
   "gravityMps2": 10,
   "initial": { "speedMps": 0 },
-  "stages": [],
-  "assumptions": [],
-  "unsupportedReason": "斜面直接接抛体，中间缺少水平段，V1 不支持该接续"
+  "stages": [
+    { "kind": "incline_slide", "lengthM": 2.5, "angleDeg": 36.86989764584402, "kineticFrictionCoefficient": 0.125, "slidesAfterRelease": true },
+    { "kind": "projectile", "dropHeightM": 1.95 }
+  ],
+  "assumptions": []
 }
 ```
 
-判定依据：第 4 节只允许 `incline_slide → lossless_turn → horizontal_slide → projectile`。坡底直接飞出属于「斜面接抛体」，缺转向与水平段，因此超范围。
+这是合法的两段组合，不要求水平段。若改用固定世界地面，最后一段只能写`{ "kind": "projectile", "landingPlaneYM": -1.95 }`，不同时保留dropHeightM。若檐口高度未知，将所选地面字段置null；不要填写离檐时间、速度或落点，均由B求解。改摩擦后可能提前停或恰停，计划仍保留两段。
 
 > 对比：单独的平抛题（桌面边缘以 v₀ 水平抛出）是**合法**的单段 `projectile`，应正常输出 `stages: [{ "kind": "projectile", "dropHeightM": 1.25 }]` 与 `initial: { "vxMps": 4, "vyMps": 0 }`，不要误判为超范围。
 
@@ -356,3 +359,4 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 8. `assumptions` 每条是否都是你真的做过的假设？
 9. 超范围时 `stages` 是否为 `[]` 且 `unsupportedReason` 非空？
 10. 摆/碰撞是否按bodyId绑定各质量、碰前带符号速度与碰后轨道？是否误填旧顶层massKg或AI自算的时刻/速度？
+11. 斜面沿切向离檐是否直接接projectile，檐口高度是否从正确参考点量起？是否误加转向/水平段或自算水平发射速度？
