@@ -76,7 +76,7 @@ export function PlaybackControls({
         </div>
       </div>
 
-      {!unavailable && <EventTimeline
+      {motion.timing?.mode !== 'state_only' && <EventTimeline
         motion={motion}
         time={time}
         onSeek={onSeek}

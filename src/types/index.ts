@@ -134,6 +134,7 @@ export type EventId =
   | "detach_spring";
 
 export interface MotionEvent {
+  collision?:import('../physics').CollisionValues;
   bodyIds?:string[]; stagePath?:string;
   bodyStatesBefore?:Record<string,BodyMotionSample>; bodyStatesAfter?:Record<string,BodyMotionSample>;
   constraintsBefore?:Record<string,StringState>; constraintsAfter?:Record<string,StringState>;

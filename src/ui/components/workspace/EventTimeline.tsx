@@ -24,6 +24,7 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
   const [dragging, setDragging] = useState(false);
 
   const duration = Math.max(motion.durationSeconds, 0.001);
+  const zeroDuration = motion.durationSeconds === 0;
   const ratio = Math.min(1, Math.max(0, time / duration));
 
   const posToTime = useCallback(
@@ -38,6 +39,7 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
   );
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (zeroDuration) return;
     onScrubStart();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     setDragging(true);
@@ -61,13 +63,14 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (zeroDuration) return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
       if (e.key === "ArrowRight") onSeek(Math.min(duration, time + 0.05));
       if (e.key === "ArrowLeft") onSeek(Math.max(0, time - 0.05));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [duration, onSeek, time]);
+  }, [duration, onSeek, time, zeroDuration]);
 
   const activeEvent = displayEventAt(motion,time);
   const passedAt=(seconds:number)=>motion.primaryBodyId?seconds<=time:time>=seconds-1e-6;
@@ -82,7 +85,8 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         role="slider"
-        tabIndex={0}
+        tabIndex={zeroDuration ? -1 : 0}
+        aria-disabled={zeroDuration || undefined}
         aria-label="播放进度"
         aria-valuemin={0}
         aria-valuemax={Math.round(duration * 100) / 100}

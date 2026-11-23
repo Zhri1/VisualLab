@@ -13,6 +13,7 @@ import type {
 } from "../types";
 
 const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "formula">> = {
+  horizontal_approach: {name:'水平接近',summary:'各物体按题给初位、带符号速度和各自摩擦同钟运动。',formula:'xᵢ = xᵢ₀ + vᵢ₀t + aᵢt²/2'},
   pendulum_swing: { name:'轻绳摆',summary:'按真实非线性方程计算摆动与张力；转折后继续反向。',formula:'q² = q₀² + 2gL(cosθ − cosθ₀)，T = M(q²/L + gcosθ)' },
   collision_1d: { name:'水平正碰',summary:'带符号速度与总动量确定碰后状态。',formula:'m₁u₁ + m₂u₂ = m₁v₁ + m₂v₂' },
   parallel_motion: { name:'同步运动',summary:'两物体使用同一条物理时间轴。',formula:'t₁ = t₂' },
@@ -93,6 +94,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
           ? "spring_contact"
           : "incline_slide";
     return {
+      collision:event.collision,
       bodyIds:event.bodyIds,stagePath:event.stagePath,
       bodyStatesBefore:event.bodyStatesBefore?mapBodies(event.bodyStatesBefore):undefined,
       bodyStatesAfter:event.bodyStatesAfter?mapBodies(event.bodyStatesAfter):undefined,

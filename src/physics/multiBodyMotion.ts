@@ -1,3 +1,6 @@
+import {computeHorizontalMotion} from './horizontalMotion.ts';
+import {linearBodyTrack} from './bodyTrack.ts';
+import {BodyPlanError as PlanError} from './bodyPlanError.ts';
 import type { ResolvedStagePlan, StagePlanDraft, StagePlanFailure, StageKind } from './stagePlan.ts';
 import type { StageMotion, StageEvent, EndReason } from './stageMotion.ts';
 import type { BodyState, BodySnapshot, BodyDefinition, StringState, MotionStatus, PendulumStage, CollisionStage, ParallelStage, BodyTrackStage } from './multiBodyTypes.ts';
@@ -20,13 +23,9 @@ const text: Record<string,[string,string]> = {
   string_retaut_boundary:['到达再次张紧边界','此处保留再次张紧前的入射状态；尚未求径向冲量和后续运动。'],stop:['停止','此物体因摩擦真正停止，其他物体是否仍运动须分别查看。'],
   reach_target:['到达目标','按实际位移到达题设距离目标。'],leave_table:['离开桌沿','以实际非零水平速度离桌，另一物体继续按同一时钟取样。'],land:['落地','首次到达题定地面，保留接地瞬间的入射速度。'],
 };
-class PlanError extends Error {
-  readonly path:string; readonly missing:boolean;
-  constructor(path:string,message:string,missing=false){super(message);this.path=path;this.missing=missing;}
-}
 
 export function computeMultiBodyMotion(plan: ResolvedStagePlan): StageMotion | StagePlanFailure {
-  try { return solve(plan); } catch(error) {
+  try { return 'bodies'in plan.initial ? computeHorizontalMotion(plan) : solve(plan); } catch(error) {
     if(!(error instanceof PlanError)&&!(error instanceof RangeError))throw error;
     const path=error instanceof PlanError?error.path:'/initial', missing=error instanceof PlanError&&error.missing;
     return {ok:false,code:missing?'NEEDS_INPUT':'INCONSISTENT_CONDITIONS',reading:plan as StagePlanDraft,message:error.message,missingKeys:missing?[path]:[],fieldErrors:missing?[]:[{path,code:error instanceof RangeError?'RANGE':'PRECONDITION_CONFLICT',message:error.message}]};
@@ -161,38 +160,6 @@ function solve(plan: ResolvedStagePlan): StageMotion {
   function project(s:BodySnapshot){const copy=structuredClone(s),b=copy.bodies[primary];return {xM:b.xM,yM:b.yM,vxMps:b.vxMps,vyMps:b.vyMps,springCompressionM:0,...copy};}
 
   function linearTrack(stages:BodyTrackStage[],speed:number,id:string,track:number){
-    const segs:StageMotion['segments']=[],es:{time:number;kind:string;path:string;before?:Scalar;after?:Scalar}[]=[],geoms:{start:number;value:NonNullable<StageMotion['geometry']['bodyTracks']>[number]}[]=[],runs:{start:number;end:number;at:(t:number)=>Scalar}[]=[];
-    let t=0,current:Scalar={...linearState(0,0,speed,0,0,0,0),status:speed===0?'resting':'moving'},reason:EndReason='prefix_end';
-    for(const [i,stage]of stages.entries()){
-      const path=`/stages/2/tracks/${track}/stages/${i}`,start={...current};let dt=0,end:Scalar,at:(t:number)=>Scalar;
-      if(stage.kind==='horizontal_slide'){
-        const u=Math.abs(current.vxMps),sign=Math.sign(current.vxMps),a=stage.kineticFrictionCoefficient*g;
-        const distance=stage.end.kind==='distance'?stage.end.distanceM:null,stopDistance=a>0?u*u/(2*a):Infinity;
-        const stops=u===0||distance===null||stopDistance<distance||close(stopDistance,distance);
-        if(distance===null&&a===0&&u>0)throw new PlanError(path+'/end','光滑面上的非零速度不能因摩擦停止。');
-        const travelled=stops?(u===0?0:stopDistance):distance!;
-        dt=stops?(u===0?0:u/a):2*travelled/(u+Math.sqrt(Math.max(0,u*u-2*a*travelled)));
-        if(!Number.isFinite(dt))throw new RangeError('水平阶段时长无法表示。');
-        at=x=>({...linearState(start.xM,start.yM,start.vxMps,0,-sign*a,0,x),status:stops&&x>=dt?'resting':'moving'});
-        end={...at(dt),xM:start.xM+sign*travelled,...(stops?{vxMps:0,vyMps:0,status:'resting' as const}:{})};
-        geoms.push({start:t,value:{bodyIds:[id],stagePath:path,horizontal:{start:pos(start),plannedEnd:distance===null||sign===0?null:{xM:start.xM+sign*distance,yM:start.yM}}}});
-        es.push({time:t+dt,kind:stops?'stop':'reach_target',path,before:{...end,status:dt>0?'moving':end.status},after:{...end}});
-        reason=stops?(distance===null?'stopped':close(stopDistance,distance)?'stop_at_target':'stop_before_target'):'prefix_end';
-      }else if(stage.kind==='projectile'){
-        if(stage.landingPlaneYM>start.yM)throw new PlanError(path+'/landingPlaneYM','落地平面不能高于实际发射点。');
-        dt=landingTime(start.yM-stage.landingPlaneYM,start.vyMps,g);
-        at=x=>({...linearState(start.xM,start.yM,start.vxMps,start.vyMps,0,-g,x),status:x>=dt?'landed':'moving'});
-        end={...at(dt),yM:stage.landingPlaneYM,status:'landed'};
-        es.push({time:t,kind:i===0?'projectile_launch':'leave_table',path,before:{...start},after:{...start,status:'moving'}});
-        const apex=start.vyMps/g;if(apex>0&&apex<dt)es.push({time:t+apex,kind:'apex',path});
-        es.push({time:t+dt,kind:'land',path,before:{...end,status:'moving'},after:{...end}});reason='landed';
-        geoms.push({start:t,value:{bodyIds:[id],stagePath:path,projectile:{launch:pos(start),landingPlane:{yM:stage.landingPlaneYM}}}});
-      }else throw new PlanError(path,'目标轨道模块不支持。');
-      if(dt>0){segs.push({kind:stage.kind as StageKind,bodyIds:[id],stagePath:path,stageIndex:2,startSeconds:t,endSeconds:t+dt});runs.push({start:t,end:t+dt,at});}
-      t+=dt;current=end;
-      if(current.status==='resting'||current.status==='landed')break;
-    }
-    const final={...current};
-    return {duration:t,reason,track,segments:segs,events:es,geometry:geoms,at(age:number):Scalar{if(age>=t)return {...final};const r=runs.find(r=>age>=r.start&&age<r.end);return r?r.at(age-r.start):{...final};}};
+    return linearBodyTrack(stages,{...linearState(0,0,speed,0,0,0,0),status:speed===0?'resting':'moving'},[id],track,g);
   }
 }
