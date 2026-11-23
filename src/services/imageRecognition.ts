@@ -76,6 +76,7 @@ export function mockPlan(hasImage: boolean, isSample = false, sampleId?: string)
       message: sample.message,
       assumptions: [...sample.assumptions],
       problemText: sample.problemText,
+      sampleId: sample.id,
     };
   }
   const scenario = forcedScenario ?? "ok";

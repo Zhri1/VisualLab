@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Image as ImageIcon } from "lucide-react";
+import { ChevronDown, Image as ImageIcon, Repeat } from "lucide-react";
 import type { Workspace } from "../../../hooks/useWorkspace";
 import { isStageReading } from "../../../types";
 import { ChatPanel } from "../chat/ChatPanel";
@@ -191,6 +191,20 @@ export function WorkspaceLayout({ ws }: Props) {
               <h1 className="player-title">{title}</h1>
               <p className="player-sub">{subtitle}</p>
             </div>
+            {ws.sampleCompare && (
+              <button
+                className="ghost-button compare-toggle"
+                onClick={ws.toggleSampleCompare}
+                aria-pressed={ws.compareOn}
+                aria-label={ws.compareOn ? ws.sampleCompare.backLabel : ws.sampleCompare.label}
+                title={ws.compareOn ? ws.sampleCompare.backLabel : ws.sampleCompare.label}
+              >
+                <Repeat size={14} strokeWidth={1.8} />
+                <span className="btn-label">
+                  {ws.compareOn ? ws.sampleCompare.backLabel : ws.sampleCompare.label}
+                </span>
+              </button>
+            )}
             <button className="ghost-button" onClick={() => setViewerOpen(true)} aria-label="查看原题">
               <ImageIcon size={14} strokeWidth={1.8} />
               <span className="btn-label">查看原题</span>

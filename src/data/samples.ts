@@ -13,6 +13,7 @@ import inclineSpring from "../../fixtures/incline-spring.reading.json";
 import collisionPendulum from "../../fixtures/horizontal-collision-pendulum.reading.json";
 import collisionCatch from "../../fixtures/horizontal-collision-catch-after-stop.reading.json";
 import roofProjectile from "../../fixtures/incline-projectile.reading.json";
+import collisionFlight from "../../fixtures/horizontal-collision-flight.reading.json";
 
 export type SampleDifficulty = "基础" | "中档" | "压轴";
 
@@ -22,11 +23,73 @@ export interface Sample {
   description: string;
   difficulty: SampleDifficulty;
   tags: string[];
+  /** 同一道题的第二组条件：点「对照」切换。 */
+  compare?: { label: string; backLabel: string; reading: WorkspaceReading };
   problemText: string;
   message: string;
   assumptions: string[];
   reading: WorkspaceReading;
 }
+
+/** 两物块粘连：碰后共速，一起在粗糙面上滑到停。 */
+const stickyPair: WorkspaceReading = {
+  kind: "stage_plan",
+  schemaVersion: 1,
+  gravityMps2: 10,
+  bodies: [
+    { bodyId: "one", massKg: 1 },
+    { bodyId: "two", massKg: 1 },
+  ],
+  primaryBodyId: "one",
+  initial: {
+    bodies: [
+      { bodyId: "one", xM: 0, vxMps: 5 },
+      { bodyId: "two", xM: 6, vxMps: -1 },
+    ],
+  },
+  stages: [
+    {
+      kind: "horizontal_approach",
+      tracks: [
+        { bodyId: "one", kineticFrictionCoefficient: 0 },
+        { bodyId: "two", kineticFrictionCoefficient: 0 },
+      ],
+      end: { kind: "contact_or_rest" },
+    },
+    {
+      kind: "collision_1d",
+      bodyIds: ["one", "two"],
+      mode: "perfectly_inelastic",
+      contact: { kind: "horizontal_meeting", approachStageIndex: 0 },
+      externalImpulseNegligible: true,
+    },
+    {
+      kind: "parallel_motion",
+      tracks: [
+        {
+          bodyIds: ["one", "two"],
+          stages: [
+            { kind: "horizontal_slide", kineticFrictionCoefficient: 0.2, end: { kind: "stop" } },
+          ],
+        },
+      ],
+      end: { kind: "all_finite_tracks" },
+    },
+  ],
+} as WorkspaceReading;
+
+/** 圆轨临界对照：默认恰好过顶，可一键切到差一点。 */
+const circularCritical: WorkspaceReading = {
+  kind: "stage_plan",
+  schemaVersion: 1,
+  gravityMps2: 10,
+  massKg: 0.1,
+  initial: { speedMps: 4.47213595499958 },
+  stages: [
+    { kind: "vertical_arc", radiusM: 0.4, endAngleDeg: 180, side: "inside", frictionless: true },
+    { kind: "projectile", landingPlaneYM: 0 },
+  ],
+} as WorkspaceReading;
 
 /** 弹簧枪：给定 k 与压缩量，完整播放“释放→滑行→圆轨→平抛”。 */
 const springCriticalFull: WorkspaceReading = {
@@ -169,6 +232,47 @@ export const SAMPLES: Sample[] = [
     message: "沿坡下滑后从檐口斜抛：切向初速由斜面摩擦决定，落点由抛出高度决定",
     assumptions: ["g=10 m/s²", "沿屋面切向飞出"],
     reading: roofProjectile as WorkspaceReading,
+  },
+  {
+    id: "sticky-collision",
+    title: "两物块粘连·共速滑行",
+    description: "等质量相向碰撞，粘连后一起减速到停",
+    difficulty: "中档",
+    tags: ["碰撞", "动量", "摩擦"],
+    problemText:
+      "质量 1 kg 的物块 A 以 5 m/s 在光滑水平面向右运动，前方 6 m 处质量 1 kg 的物块 B 以 1 m/s 向左运动，两物块碰撞后粘在一起。碰后整体进入动摩擦因数 0.2 的粗糙面，g 取 10 m/s²。求碰后共同速度、碰后滑行的距离。",
+    message: "完全非弹性碰撞：动量守恒得到共同速度，随后整体在粗糙面上减速到停",
+    assumptions: ["g=10 m/s²", "碰撞时间极短"],
+    reading: stickyPair,
+  },
+  {
+    id: "collision-flight",
+    title: "碰后飞出桌面·平抛",
+    description: "弹性碰撞后一物飞出桌沿，落点由桌高决定",
+    difficulty: "压轴",
+    tags: ["碰撞", "平抛", "动量"],
+    problemText:
+      "质量 1 kg 的物块 A 以 5 m/s 在光滑桌面向右运动，前方 4 m 处质量 3 kg 的物块 B 以 1 m/s 同向运动，桌面右沿在 x=5 m，桌面离地 1.25 m。两物块发生弹性正碰，g 取 10 m/s²。求碰后 A、B 的速度；B 飞出桌沿后的落地时间与水平位移；A 碰后向哪个方向运动？",
+    message: "碰后 B 从桌沿飞出做平抛，A 反弹向左滑行，两条轨道同时播放",
+    assumptions: ["g=10 m/s²", "碰撞外冲量可忽略"],
+    reading: collisionFlight as WorkspaceReading,
+  },
+  {
+    id: "circular-compare",
+    title: "圆轨临界·对照",
+    description: "同一圆轨：恰好过顶 vs 差一点脱轨",
+    difficulty: "压轴",
+    tags: ["圆轨", "临界", "对照"],
+    compare: {
+      label: "切到差一点",
+      backLabel: "切回恰好过顶",
+      reading: circularNearMiss,
+    },
+    problemText:
+      "小物块从最低点进入半径 0.4 m 的光滑竖直圆轨道内侧，g 取 10 m/s²。(1) 若入口速度为 √20 m/s，求最高点速度并判断能否通过；(2) 若入口速度换成 4.2 m/s，物块还能到最高点吗？点右上角「切到差一点」对照两种情况。",
+    message: "恰好过顶时最高点速度 2.00 m/s、弹力为零；切到 4.2 m/s 会在最高点前脱轨",
+    assumptions: ["g=10 m/s²", "圆轨内侧光滑"],
+    reading: circularCritical,
   },
 ];
 

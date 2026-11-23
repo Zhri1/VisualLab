@@ -203,6 +203,8 @@ export type PlanResponse =
       assumptions?: string[];
       /** 内置示例的完整题面；识别接口不回传该字段。 */
       problemText?: string;
+      /** 命中的内置示例 id，用于题内对照切换。 */
+      sampleId?: string;
     }
   | {
       status: "needs_input";
