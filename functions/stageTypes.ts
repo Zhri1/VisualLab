@@ -18,7 +18,8 @@ export interface StagePlanDraft {
   initial:
     | { speedMps: number | null }
     | { vxMps: number | null; vyMps: number | null }
-    | { tangentialSpeedMps: number | null };
+    | { tangentialSpeedMps: number | null }
+    | { bodies: Array<Record<string, unknown>> };
   bodies?: Array<{ bodyId: string | null; massKg: number | null }>;
   primaryBodyId?: string | null;
   stages: Array<Record<string, unknown>>;

@@ -1,3 +1,4 @@
+import type {HorizontalInitial} from './horizontalTypes.ts';
 import { resolveSpringEnergy } from "./springEnergy.ts";
 import { validateMultiBodyPlan } from './multiBodyPlan.ts';
 import type { BodyDefinition, BodyStage } from './multiBodyTypes.ts';
@@ -20,7 +21,7 @@ export type ResolvedStagePlan = {
   schemaVersion: 1;
   gravityMps2?: number;
   massKg?: number;
-  initial: { speedMps: number } | { vxMps: number; vyMps: number } | { tangentialSpeedMps: number };
+  initial: { speedMps: number } | { vxMps: number; vyMps: number } | { tangentialSpeedMps: number } | HorizontalInitial;
   bodies?: BodyDefinition[];
   primaryBodyId?: string;
   stages: Stage[];
@@ -31,7 +32,7 @@ export type StagePlanDraft = {
   schemaVersion: 1;
   gravityMps2?: number | null;
   massKg?: number | null;
-  initial: { speedMps: number | null } | { vxMps: number | null; vyMps: number | null } | { tangentialSpeedMps: number | null };
+  initial: { speedMps: number | null } | { vxMps: number | null; vyMps: number | null } | { tangentialSpeedMps: number | null } | { bodies: Array<Record<string, unknown>> };
   bodies?: Array<{ bodyId: string | null; massKg: number | null }>;
   primaryBodyId?: string | null;
   stages: Array<Record<string, unknown>>;
@@ -54,7 +55,7 @@ const positive = (value: number) => value > 0;
 const nonnegative = (value: number) => value >= 0;
 const finite = (_value: number) => true;
 const numericRules: Record<StageKind, Record<string, (value: number) => boolean>> = {
-  pendulum_swing: {}, collision_1d: {}, parallel_motion: {},
+  horizontal_approach: {}, pendulum_swing: {}, collision_1d: {}, parallel_motion: {},
   incline_slide: { lengthM: positive, angleDeg: (value) => value > 0 && value < 90, kineticFrictionCoefficient: nonnegative },
   lossless_turn: {},
   horizontal_slide: { kineticFrictionCoefficient: nonnegative },
@@ -69,7 +70,7 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 export function validateStagePlan(input: unknown): StagePlanValidation {
-  if (record(input) && ('bodies' in input || (Array.isArray(input.stages) && input.stages.some(s => record(s) && ['pendulum_swing','collision_1d','parallel_motion'].includes(String(s.kind)))))) return validateMultiBodyPlan(input, validateStagePlan);
+  if (record(input) && ('bodies' in input || (Array.isArray(input.stages) && input.stages.some(s => record(s) && ['pendulum_swing','collision_1d','parallel_motion','horizontal_approach'].includes(String(s.kind)))))) return validateMultiBodyPlan(input, validateStagePlan);
   const missingKeys: string[] = [];
   const fieldErrors: StageFieldError[] = [];
   let damaged = false;

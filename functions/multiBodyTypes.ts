@@ -19,6 +19,7 @@ export type PendulumStage = {
   kind: 'pendulum_swing'; bodyIds?: string[]; lengthM?: number; initialAngleDeg?: number;
   initialStringState?: 'taut' | 'released_at_length'; pivotFixed?: true; lightInextensibleString?: true;
   airResistanceNegligible?: true; inheritFromStageIndex?: number;
+  inheritFromBodyId?: string;
   end: { kind: PendulumEnd }; slackContinuation?: { kind: 'free_flight_until_retaut' };
 };
 export type CollisionStage = {
@@ -29,12 +30,12 @@ export type CollisionStage = {
 };
 export type BodyTrackStage = PendulumStage
   | { kind: 'horizontal_slide'; kineticFrictionCoefficient: number; end: { kind: 'distance'; distanceM: number } | { kind: 'stop' } }
-  | { kind: 'projectile'; landingPlaneYM: number };
+  | { kind: 'projectile'; landingPlaneYM: number; supportAbsentAtStart?: true; supportBoundary?: {edgeXM:number;supportedSide:'left'|'right'} };
 export type ParallelStage = {
   kind: 'parallel_motion'; tracks: { bodyIds: string[]; stages: BodyTrackStage[] }[];
   end: { kind: 'all_finite_tracks' } | { kind: 'pendulum_turn'; bodyId: string };
 };
-export type BodyStage = PendulumStage | CollisionStage | ParallelStage;
+export type BodyStage = PendulumStage | CollisionStage | ParallelStage | import('./horizontalTypes.ts').HorizontalApproach | import('./horizontalTypes.ts').HorizontalCollision;
 export type BodyGeometry = {
   bodies?: BodyDefinition[];
   pendulums?: { constraintId: string; bodyIds: string[]; definitionStageIndex: number; pivot: Point; lowestPoint: Point; lengthM: number; initialPosition: Point }[];

@@ -18,6 +18,12 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** 源文件 → 云函数文件。顺序即依赖顺序，便于阅读。 */
 const FILES = [
+  { from: "src/physics/bodyPlanError.ts", to: "functions/bodyPlanError.ts" },
+  { from: "src/physics/horizontalKinematics.ts", to: "functions/horizontalKinematics.ts" },
+  { from: "src/physics/horizontalTypes.ts", to: "functions/horizontalTypes.ts" },
+  { from: "src/physics/bodyTrack.ts", to: "functions/bodyTrack.ts" },
+  { from: "src/physics/horizontalDynamics.ts", to: "functions/horizontalDynamics.ts" },
+  { from: "src/physics/horizontalPlan.ts", to: "functions/horizontalPlan.ts" },
   { from: "src/api/command.ts", to: "functions/command.ts" },
   { from: "src/api/stageCommand.ts", to: "functions/stageCommand.ts" },
   { from: "src/physics/geometryTypes.ts", to: "functions/geometryTypes.ts" },

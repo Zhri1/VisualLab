@@ -18,6 +18,12 @@ const ROOT = resolve(__dirname, '../../..');
 
 /** 与 scripts/sync-functions.mjs 的 FILES 一致 */
 const FILES = [
+  { from: 'src/physics/bodyPlanError.ts', to: 'functions/bodyPlanError.ts' },
+  { from: 'src/physics/horizontalKinematics.ts', to: 'functions/horizontalKinematics.ts' },
+  { from: 'src/physics/horizontalTypes.ts', to: 'functions/horizontalTypes.ts' },
+  { from: 'src/physics/bodyTrack.ts', to: 'functions/bodyTrack.ts' },
+  { from: 'src/physics/horizontalDynamics.ts', to: 'functions/horizontalDynamics.ts' },
+  { from: 'src/physics/horizontalPlan.ts', to: 'functions/horizontalPlan.ts' },
   { from: 'src/api/command.ts', to: 'functions/command.ts' },
   { from: 'src/api/stageCommand.ts', to: 'functions/stageCommand.ts' },
   { from: 'src/physics/geometryTypes.ts', to: 'functions/geometryTypes.ts' },
