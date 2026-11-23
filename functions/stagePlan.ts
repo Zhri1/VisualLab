@@ -2,6 +2,7 @@
 // 改动请改源文件后重新运行：node scripts/sync-functions.mjs
 import type {HorizontalInitial} from './horizontalTypes.ts';
 import { resolveSpringEnergy } from "./springEnergy.ts";
+import { solveRoughSpring } from "./roughSpring.ts";
 import { circularEntry, circularGeometry, type ExplicitArcPath } from './circularArc.ts';
 import { validateMultiBodyPlan } from './multiBodyPlan.ts';
 import type { BodyDefinition, BodyStage } from './multiBodyTypes.ts';
@@ -14,7 +15,8 @@ export type SingleStage =
   | { kind: "lossless_turn"; lossless: true }
   | { kind: "horizontal_slide"; kineticFrictionCoefficient: number; end: { kind: "distance"; distanceM: number } | { kind: "stop" } | { kind: "distance_from_stage_start"; stageIndex: number; distanceM: number } }
   | { kind: "spring_release"; springConstantNpm: number | null; initialCompressionM: number | null; kineticFrictionCoefficient: number; unattached: true; slidesAfterRelease: boolean; releaseCompleteByM?: number | null }
-  | { kind: "spring_contact"; springConstantNpm: number; frictionless: true; unattached: true }
+  | { kind: "spring_contact"; springConstantNpm: number; frictionless: true; unattached: true; kineticFrictionCoefficient?: never; staticFrictionCoefficient?: never; reboundAtMaxCompression?: never }
+  | { kind: "spring_contact"; springConstantNpm: number; kineticFrictionCoefficient: number; staticFrictionCoefficient?: number | null; reboundAtMaxCompression?: boolean | null; unattached: true; frictionless?: never }
   | { kind: "vertical_arc"; radiusM: number; endAngleDeg?: number; path?: ExplicitArcPath; side: "inside"; frictionless: true }
   | ({ kind: "projectile" } & ({ dropHeightM: number; landingPlaneYM?: never } | { landingPlaneYM: number; dropHeightM?: never }));
 export type Stage = SingleStage | BodyStage;
@@ -164,7 +166,7 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
   for (const key of ["speedMps", "vxMps", "vyMps"]) {
     if (!initialKeys.includes(key) && key in initial) numberField(initial, normalizedInitial, key, "/initial/" + key, key === "speedMps" ? nonnegative : finite, false);
   }
-  const needsGravity = stages.some((stage) => stage.kind === "incline_slide" || stage.kind === "projectile" || stage.kind === "vertical_arc"
+  const needsGravity = stages.some((stage) => stage.kind === "incline_slide" || stage.kind === "projectile" || stage.kind === "vertical_arc" || (stage.kind === "spring_contact" && Object.prototype.hasOwnProperty.call(stage, "kineticFrictionCoefficient"))
     || ((stage.kind === "horizontal_slide" || stage.kind === "spring_release") && typeof stage.kineticFrictionCoefficient === "number" && stage.kineticFrictionCoefficient > 0));
   const needsMass = stages.some((stage) => stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "spring_release");
   numberField(input, draft, "gravityMps2", "/gravityMps2", positive, needsGravity);
@@ -232,7 +234,23 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       if (hasPlane || (fromArc && !hasDrop)) numberField(source, stage, "landingPlaneYM", path + "/landingPlaneYM", finite);
     }
     if (source.kind === "spring_contact") {
-      fact(stage, "frictionless", path + "/frictionless");
+      const rough = Object.prototype.hasOwnProperty.call(source, "kineticFrictionCoefficient");
+      if (rough) {
+        if (Object.prototype.hasOwnProperty.call(source, "frictionless")) issue(path, "PRECONDITION_CONFLICT", "粗糙接触（动摩擦因数）与 frictionless 互斥，请保留一种。");
+        numberField(source, stage, "kineticFrictionCoefficient", path + "/kineticFrictionCoefficient", nonnegative);
+        numberField(source, stage, "staticFrictionCoefficient", path + "/staticFrictionCoefficient", nonnegative, false);
+        const rebound = source.reboundAtMaxCompression;
+        if (rebound != null && typeof rebound !== "boolean") issue(path + "/reboundAtMaxCompression", "TYPE", "回弹事实须为布尔值或 null。");
+        else if (rebound === undefined || rebound === null) stage.reboundAtMaxCompression = null;
+        if (source.staticFrictionCoefficient == null && rebound == null) missingKeys.push(path + "/staticFrictionCoefficient");
+        const mus = stage.staticFrictionCoefficient, muk = stage.kineticFrictionCoefficient;
+        if (typeof mus === "number" && typeof muk === "number" && mus < muk) issue(path + "/staticFrictionCoefficient", "RANGE", "静摩擦因数不应小于动摩擦因数。");
+      } else {
+        fact(stage, "frictionless", path + "/frictionless");
+        if (Object.prototype.hasOwnProperty.call(source, "staticFrictionCoefficient") || Object.prototype.hasOwnProperty.call(source, "reboundAtMaxCompression")) {
+          issue(path, "PRECONDITION_CONFLICT", "光滑弹簧接触不能同时携带静摩擦因数或回弹事实，请改用粗糙接触。");
+        }
+      }
       fact(stage, "unattached", path + "/unattached");
       if (i === 0 && normalizedInitial.speedMps === 0) issue("/initial/speedMps", "PRECONDITION_CONFLICT", "弹簧接触需要水平正速入射。");
     }
@@ -287,6 +305,19 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
     try { circularEntry(draft.stages[0] as unknown as Extract<Stage,{kind:'vertical_arc'}> & {path:ExplicitArcPath}, normalizedInitial.speedMps!, draft.gravityMps2!, draft.massKg!, 0); }
     catch (e) { issue('/stages/0' + ((e as {field?:string}).field??('/path' + (e instanceof Error && e.message.includes('方向') ? '/direction' : ''))), e instanceof RangeError ? 'RANGE' : 'PRECONDITION_CONFLICT', (e as Error).message); }
   }
+  if (!missingKeys.length && !fieldErrors.length && draft.stages[0].kind === 'spring_contact' && Object.prototype.hasOwnProperty.call(draft.stages[0], 'kineticFrictionCoefficient')) {
+    const s = draft.stages[0];
+    const checked = solveRoughSpring({
+      speedMps: normalizedInitial.speedMps!,
+      massKg: draft.massKg!,
+      gravityMps2: draft.gravityMps2!,
+      springConstantNpm: s.springConstantNpm as number,
+      kineticFrictionCoefficient: s.kineticFrictionCoefficient as number,
+      staticFrictionCoefficient: s.staticFrictionCoefficient as number | null | undefined,
+      reboundAtMaxCompression: s.reboundAtMaxCompression as boolean | null | undefined,
+    });
+    if ('conflict' in checked) issue('/stages/0' + checked.path, 'PRECONDITION_CONFLICT', checked.conflict);
+  }
   if (missingKeys.length || fieldErrors.length) return result();
   const resolved: ResolvedStagePlan = {
     kind: "stage_plan", schemaVersion: 1,
@@ -298,3 +329,4 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
   if (draft.energy) resolved.energy = draft.energy;
   return { ok: true, reading: resolved, ...(playback ? { playback } : {}) };
 }
+

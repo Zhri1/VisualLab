@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { Motion, Vec2 } from "../../../types";
 import { formatSpeed } from "./playback";
+import { EnergyReadout, energyText, showsEnergy } from "./EnergyReadout";
 
 const INK = "#1c1c1c";
 const SOFT = "#8e8e88";
@@ -41,7 +42,15 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     if (g.horizontal.plannedEnd) points.push({ x: g.horizontal.plannedEnd.xM, y: g.horizontal.plannedEnd.yM });
   }
   if (g.spring) points.push({ x: g.spring.contact.xM, y: g.spring.contact.yM }, { x: g.spring.anchor.xM, y: g.spring.anchor.yM });
-  if (g.projectile) points.push({ x: g.projectile.launch.xM, y: g.projectile.launch.yM }, { x: last.position.x, y: g.projectile.landingPlane.yM });
+  if (g.projectile) {
+    points.push({ x: g.projectile.launch.xM, y: g.projectile.launch.yM }, { x: last.position.x, y: g.projectile.landingPlane.yM });
+    const projSeg = motion.segments.find((s) => s.kind === "projectile");
+    if (projSeg) {
+      for (let i = 1; i < 6; i += 1) {
+        points.push(motion.sampleAt(projSeg.startSeconds + (projSeg.endSeconds - projSeg.startSeconds) * (i / 6)).position);
+      }
+    }
+  }
   if (displayArc) {
     const arc = displayArc;
     points.push({ x: arc.entry.xM, y: arc.entry.yM }, { x: arc.plannedEnd.xM, y: arc.plannedEnd.yM });
@@ -175,19 +184,23 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke(); ctx.restore();
+    const fullCircle = explicitArc && Math.abs(Math.abs(arc.endAngleDeg - (arc.startAngleDeg ?? 0)) - 360) < 1e-9;
+    const radiusRad = (!explicitArc || fullCircle ? 90 : ((arc.startAngleDeg ?? 0) + arc.endAngleDeg) / 2) * Math.PI / 180;
+    const radEndX = arc.center.xM + arc.radiusM * Math.sin(radiusRad);
+    const radEndY = arc.center.yM - arc.radiusM * Math.cos(radiusRad);
     ctx.save(); ctx.setLineDash([3, 4]); ctx.strokeStyle = HAIR; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(X(arc.center.xM), Y(arc.center.yM));
-    ctx.lineTo(X(arc.center.xM + arc.radiusM), Y(arc.center.yM)); ctx.stroke(); ctx.restore();
+    ctx.lineTo(X(radEndX), Y(radEndY)); ctx.stroke(); ctx.restore();
     ctx.font = `500 12px ${SANS}`; ctx.fillStyle = SOFT; ctx.textAlign = "center";
-    ctx.fillText("R", X(arc.center.xM + arc.radiusM / 2), Y(arc.center.yM) - 7);
-    const fullObservation=explicitArc&&arc.endMode==='observation'&&Math.abs(arc.endAngleDeg-(arc.startAngleDeg??0))===360;
+    ctx.fillText("R", X((arc.center.xM + radEndX) / 2), Y((arc.center.yM + radEndY) / 2) - 7);
+    const fullObservation = fullCircle && arc.endMode === "observation";
     if (!g.landmarks?.length) ctx.fillText(fullObservation?'入口 · 观察一圈':explicitArc?arc.endMode==='observation'?'观察终点':'实体端点':arc.endAngleDeg === 180 ? "C" : "端点", X(arc.plannedEnd.xM) - (fullObservation?0:10), Y(arc.plannedEnd.yM) + (fullObservation?22:-12));
     if(explicitArc&&g.verticalArc?.actualExit.reason==='contact_lost'){
       const end=g.verticalArc.actualExit.position;ctx.fillStyle=SOFT;ctx.fillText('实际脱轨',X(end.xM)+12,Y(end.yM)+20);
     }
   }
   const arcEntry = g.verticalArc?.entry ?? (hasPlannedArc ? plannedEnd : undefined);
-  if (arcEntry && !g.landmarks?.length && !(explicitArc&&displayArc?.endMode==='observation'&&Math.abs(displayArc.endAngleDeg-(displayArc.startAngleDeg??0))===360)) {
+  if (arcEntry && !g.landmarks?.length && !(explicitArc&&displayArc?.endMode==='observation'&&Math.abs(Math.abs(displayArc.endAngleDeg-(displayArc.startAngleDeg??0))-360)<1e-9)) {
     ctx.font = `500 12px ${SANS}`; ctx.fillStyle = SOFT; ctx.textAlign = "center";
     ctx.fillText(explicitArc?"入口":"B", X(arcEntry.xM), Y(arcEntry.yM) + 19);
     if (g.horizontal) ctx.fillText("A", X(g.horizontal.start.xM), Y(g.horizontal.start.yM) + 19);
@@ -307,7 +320,7 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
 
   if(explicitArc&&sample.constraint?.normalDirection&&sample.constraint.normalForceN>0){
     const n=sample.constraint.normalDirection,len=30,sx=X(center.x)+n.x*10,sy=Y(center.y)-n.y*10,ex=sx+n.x*len,ey=sy-n.y*len,a=Math.atan2(ey-sy,ex-sx);
-    ctx.save();ctx.strokeStyle='#386e8a';ctx.fillStyle='#386e8a';ctx.lineWidth=1.6;ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(ex,ey);ctx.moveTo(ex-6*Math.cos(a-.45),ey-6*Math.sin(a-.45));ctx.lineTo(ex,ey);ctx.lineTo(ex-6*Math.cos(a+.45),ey-6*Math.sin(a+.45));ctx.stroke();ctx.font=`12px ${SANS}`;ctx.fillText('N',ex+7,ey);ctx.restore();
+    ctx.save();ctx.strokeStyle='#386e8a';ctx.fillStyle='#386e8a';ctx.lineWidth=1.6;ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(ex,ey);ctx.moveTo(ex-6*Math.cos(a-.45),ey-6*Math.sin(a-.45));ctx.lineTo(ex,ey);ctx.lineTo(ex-6*Math.cos(a+.45),ey-6*Math.sin(a+.45));ctx.stroke();ctx.font=`12px ${SANS}`;ctx.textAlign='left';ctx.textBaseline='middle';ctx.fillText('N',ex+7,ey);ctx.restore();
   }
 
   // 末帧停止点与 plannedEnd 分开标记。
@@ -323,8 +336,8 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   if (speed > 0.08) {
     const ux = sample.velocity.x / speed;
     const uy = sample.velocity.y / speed;
-    const length = Math.min(1.4, 0.45 + speed * 0.08,explicitArc?38/S:Infinity);
-    const offset=explicitArc?9/S:size*.8;
+    const length = Math.min(1.4, 0.45 + speed * 0.08, displayArc ? 38 / S : Infinity);
+    const offset = displayArc ? 9 / S : size * 0.8;
     const startX = center.x + ux * offset;
     const startY = center.y + uy * offset;
     const endX = startX + ux * length;
@@ -420,11 +433,13 @@ export function StagePhysicsCanvas({ motion, time, isPlaying = false }: Props) {
   return (
     <figure className="physics-figure" data-renderer="stage">
       <canvas ref={canvasRef} aria-label="有序物理阶段动画" aria-describedby="player-speed" role="img" />
+      <EnergyReadout motion={motion} time={time} />
       <figcaption id="player-speed" className="player-sr-only" aria-live={isPlaying ? "off" : "polite"}>
         当前速度大小 {speedText.startsWith("<") ? "小于 0.01" : speedText} 米每秒；
         {hasInclineLaunch(motion) && `檐口为坐标原点；水平速度 ${componentText(velocity.x)}，竖直速度 ${componentText(velocity.y)} 米每秒；`}
         {explicit&&`水平速度 ${componentText(velocity.x)}，竖直速度 ${componentText(velocity.y)} 米每秒；${constraint?'保持圆轨接触，支持力指向圆心；':'当前无圆轨约束；'}`}
         {constraint && `圆弧角度 ${constraint.angleDeg.toFixed(2)} 度，法向力 ${normalText(constraint.normalForceN,!!explicit)} 牛顿；`}
+        {showsEnergy(motion) && energyText(motion, time) ? `${energyText(motion, time)}；` : ""}
         结束原因 {motion.endReason ?? "进行中"}
       </figcaption>
     </figure>

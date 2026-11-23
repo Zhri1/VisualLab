@@ -130,6 +130,11 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
       startSeconds: segment.startSeconds,
       endSeconds: segment.endSeconds,
       ...segmentText[segment.kind],
+      ...(segment.kind==='spring_contact'&&plan?.stages[segment.stageIndex]&&'kineticFrictionCoefficient' in plan.stages[segment.stageIndex]?{
+        name:'粗糙压缩与回弹',
+        summary:'按实际运动方向计动摩擦；在最大压缩处用静摩擦上限或题给事实判断保持或回弹，回弹可能脱离或带残余压缩静止。',
+        formula:'压缩 x″ = −(k/m)x − μₖg；回弹 x″ = −(k/m)x + μₖg；Q = μₖmg·s',
+      }:{}),
       ...(segment.kind==='vertical_arc'&&(plan?.stages[segment.stageIndex] as {path?:unknown}|undefined)?.path?{
         summary:'按真实入射角和切线运动；只有继续需要负支持力才脱轨，观察范围结束仍保持约束。',
         formula:'q² = u² + 2gR(cosφ − cosφ₀)，N = m(q²/R + gcosφ)',
@@ -138,6 +143,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
     events,
     endReason: source.endReason,
     termination: source.termination,
+    ...(source.energyAt ? { energyAt: (time: number) => source.energyAt!(Number.isNaN(time) ? 0 : time) } : {}),
     sampleAt(timeSeconds) {
       const sample = source.sampleAt(Number.isNaN(timeSeconds) ? 0 : timeSeconds);
       return {

@@ -181,6 +181,8 @@ export interface Motion {
   endReason?: EndReason;
   termination?: { reason: EndReason; eventId: string; stageIndex: number };
   sampleAt(timeSeconds: number): MotionSample;
+  /** 与 sampleAt 同钟的能量读数；缺条件为 null，无此能力的运动省略。 */
+  energyAt?(timeSeconds: number): import("../physics").EnergyReading | null;
 }
 
 /* ---------------- 错误 ---------------- */

@@ -36,6 +36,7 @@ const FILES = [
   { from: "src/physics/collision.ts", to: "functions/collision.ts" },
   { from: "src/physics/multiBodyPlan.ts", to: "functions/multiBodyPlan.ts" },
   { from: "src/physics/springEnergy.ts", to: "functions/springEnergy.ts" },
+  { from: "src/physics/roughSpring.ts", to: "functions/roughSpring.ts" },
   { from: "src/physics/stagePlan.ts", to: "functions/stagePlan.ts" },
   { from: "src/api/stageTypes.ts", to: "functions/stageTypes.ts" },
   { from: "src/api/stageStatus.ts", to: "functions/stageStatus.ts" },

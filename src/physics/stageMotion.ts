@@ -8,6 +8,7 @@ import type { BodyGeometry, BodySnapshot, MotionStatus } from './multiBodyTypes.
 import { computeMultiBodyMotion } from './multiBodyMotion.ts';
 import { validateStagePlan } from "./stagePlan.ts";
 import { landingTime, linearState, springMetrics, springState } from "./kinematics.ts";
+import { solveRoughSpring, type RoughSpring, type RoughSpringConflict } from "./roughSpring.ts";
 
 type Velocity = { vxMps: number; vyMps: number };
 export type StageGeometry = BodyGeometry & {
@@ -43,6 +44,17 @@ export type StageMotion = {
   termination: { reason: EndReason; eventId: string; stageIndex: number };
   readonly endReason: EndReason;
   sampleAt(timeSeconds: number): MotionSample & Partial<BodySnapshot>;
+  /** 与 sampleAt 同一时钟的能量读数；缺质量或缺重力等条件时为 null，不伪造。多物体计划不提供。 */
+  energyAt?(timeSeconds: number): EnergyReading | null;
+};
+/** 动能、相关势能与播放窗口内累计已知摩擦耗能（J）。 */
+export type EnergyReading = {
+  kineticJ: number;
+  elasticPotentialJ: number | null;
+  gravitationalPotentialJ: number | null;
+  frictionHeatJ: number;
+  /** false：播放窗口之前有未知摩擦，frictionHeatJ 只从窗口起点累计。 */
+  priorFrictionKnown: boolean;
 };
 export type StageScene = { kind: "stage_scene"; reading: ResolvedStagePlan; geometry: StageGeometry; motion: StageMotion };
 type EventState = { kind: string; time: number; before: MotionSample; after: MotionSample; label: string; explanation: string;
@@ -51,6 +63,8 @@ type Run = {
   duration: number; end: MotionSample; events: EventState[];
   reason?: EndReason;
   sampleAt(time: number): MotionSample;
+  /** 本阶段内累计摩擦耗能（J），以阶段起点为 0；无摩擦阶段省略。 */
+  heatAt?(time: number): number;
 };
 
 function velocity(state: MotionSample): Velocity {
@@ -151,6 +165,37 @@ function release(stage: Extract<Stage, { kind: "spring_release" }>, start: Motio
     events: [event("spring_release_start", 0, initial, initial, "预压弹簧释放", "弹簧推动滑块，压缩阶段同时扣除动摩擦做功。"), event(stops ? "stop" : "spring_release_end", duration, end, end, stops ? atNatural ? "原长处停止" : "未释放完即停止" : "恢复原长并脱离", stops ? "速度第一次降为零，保留实际残余压缩量，后续阶段不执行。" : "弹簧恢复原长，继承正向速度继续运动。")],
     sampleAt(t) { if (t <= 0) return { ...initial }; if (t >= duration) return { ...end }; const s = D * 2 * Math.sin(w * t / 2) ** 2;
       return { ...moving(start.xM + s, start.yM, D * w * Math.sin(w * t)), springCompressionM: Math.max(0, c - s) }; },
+  };
+}
+
+function roughSpring(stage: Extract<Stage, { kind: "spring_contact" }>, start: MotionSample, mass: number, gravity: number, geometry: StageGeometry): Run {
+  const solved = solveRoughSpring({ speedMps: start.vxMps, massKg: mass, gravityMps2: gravity, springConstantNpm: stage.springConstantNpm,
+    kineticFrictionCoefficient: stage.kineticFrictionCoefficient!, staticFrictionCoefficient: stage.staticFrictionCoefficient,
+    reboundAtMaxCompression: stage.reboundAtMaxCompression }) as RoughSpring;
+  const k = stage.springConstantNpm, x0 = start.xM;
+  const at = (time: number): MotionSample => {
+    const s = solved.stateAt(time);
+    return { ...moving(x0 + s.compressionM, start.yM, s.vxMps), springCompressionM: Math.max(0, s.compressionM) };
+  };
+  const maximum = { ...moving(x0 + solved.maxCompressionM, start.yM, 0), springCompressionM: solved.maxCompressionM };
+  const end = { ...at(solved.durationSeconds), springCompressionM: solved.finalCompressionM };
+  geometry.spring = { contact: point(start), anchor: { xM: maximum.xM + Math.max(1, solved.maxCompressionM / 4), yM: start.yM } };
+  const basis = solved.holdBasis === "static_coefficient" ? "静摩擦上限" : "题给已知事实";
+  const holds = solved.outcome === "hold_max";
+  const events: EventState[] = [
+    event("spring_contact", 0, start, start, "接触弹簧", "弹簧处于原长，压缩量和弹力为零；此后按实际运动方向计动摩擦。"),
+    event("max_compression", solved.compressSeconds, maximum, maximum, "最大压缩",
+      `压缩量约 ${solved.maxCompressionM.toFixed(4)} m，速度为零，弹力约 ${(k * solved.maxCompressionM).toFixed(4)} N；依据${basis}，${holds ? "弹力不超过静摩擦上限，滑块保持静止" : "弹力超过静摩擦上限，滑块开始回弹"}。`),
+  ];
+  if (solved.outcome === "detach") events.push(event("spring_detach", solved.durationSeconds, end, end, "恢复原长并脱离", `回弹时继续克服动摩擦，在原长处以 ${end.vxMps.toFixed(4)} m/s 的水平速度脱离弹簧。`));
+  else if (solved.outcome === "stop_natural") events.push(event("stop", solved.durationSeconds, end, end, "原长处静止", "回弹到原长时速度同时降为零，压缩量为零，不脱离。"));
+  else if (solved.outcome === "stop_residual") events.push(event("stop", solved.durationSeconds, end, end, "回弹后静止", `回弹中速度降为零，残余压缩约 ${solved.finalCompressionM.toFixed(4)} m，弹力不超过静摩擦上限，不再运动。`));
+  else events.push(event("stop", solved.durationSeconds, maximum, maximum, "停在最大压缩", "速度为零且弹力不超过静摩擦上限，保持压缩静止。"));
+  return {
+    duration: solved.durationSeconds, end: holds ? maximum : end,
+    reason: solved.outcome === "detach" ? "spring_detached" : "stopped", events,
+    sampleAt: (time) => at(time),
+    heatAt: (time) => solved.frictionForceN * solved.pathAt(time),
   };
 }
 
@@ -273,7 +318,8 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   const segments: StageMotion["segments"] = [];
   const events: StageEvent[] = [];
   const eventStates: MotionSample[] = [];
-  const runs: { start: number; end: number; run: Run }[] = [];
+  const runs: { start: number; end: number; run: Run; stageIndex: number; heatBase: number }[] = [];
+  let heatBase = 0;
   function append(item: EventState, stageIndex: number, startTime: number) {
     const order = events.length;
     events.push({
@@ -310,15 +356,27 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
         }catch(e){return failure((e as Error).message,'/stages/'+index+((e as {field?:string}).field??'/path'),e instanceof RangeError?'RANGE':'PRECONDITION_CONFLICT');}
       }
     }
+    if (stage.kind === "spring_contact" && "kineticFrictionCoefficient" in stage) {
+      if (!(state.vxMps > 0) || state.vyMps !== 0) return failure("粗糙弹簧接触需要水平向右的正速入射。", "/stages/" + index, "PRECONDITION_CONFLICT");
+      const checked = solveRoughSpring({ speedMps: state.vxMps, massKg: plan.massKg!, gravityMps2: plan.gravityMps2!, springConstantNpm: stage.springConstantNpm,
+        kineticFrictionCoefficient: stage.kineticFrictionCoefficient!, staticFrictionCoefficient: stage.staticFrictionCoefficient, reboundAtMaxCompression: stage.reboundAtMaxCompression });
+      if ("conflict" in checked) return failure((checked as RoughSpringConflict).conflict, "/stages/" + index + (checked as RoughSpringConflict).path, "PRECONDITION_CONFLICT");
+    }
     try { switch (stage.kind) {
       case "incline_slide": run = incline(stage, state, plan.gravityMps2!, geometry, plan.stages[index + 1]?.kind === "projectile"); break;
       case "lossless_turn": run = turn(state); break;
       case "horizontal_slide": run = horizontal(stage, state, plan.gravityMps2 ?? 0, geometry); break;
-      case "spring_contact": run = spring(stage, state, plan.massKg!, geometry); break;
+      case "spring_contact": run = "kineticFrictionCoefficient" in stage ? roughSpring(stage, state, plan.massKg!, plan.gravityMps2!, geometry) : spring(stage, state, plan.massKg!, geometry); break;
       case "spring_release": run = release(stage, state, plan.massKg!, plan.gravityMps2 ?? 0, geometry, index + 1 < plan.stages.length); break;
       case "projectile": run = projectile(stage, state, plan.gravityMps2!, geometry, plan.stages[index - 1]?.kind); break;
       case "vertical_arc": run = arc(stage, state, plan.gravityMps2!, plan.massKg!, geometry, index, plan.stages[index + 1]?.kind === "projectile"); break;
     } } catch (error) { if (error instanceof RangeError) return failure(error.message,'/stages/'+index+((error as {field?:string}).field??'')); throw error; }
+    if (!run.heatAt && plan.massKg !== undefined) {
+      const m = plan.massKg, g = plan.gravityMps2 ?? 0, origin = state, finished = run;
+      const mu = stage.kind === "incline_slide" ? stage.kineticFrictionCoefficient * Math.cos(stage.angleDeg * Math.PI / 180)
+        : stage.kind === "horizontal_slide" || stage.kind === "spring_release" ? stage.kineticFrictionCoefficient : 0;
+      if (mu > 0) run.heatAt = (t) => { const s = finished.sampleAt(t); return mu * m * g * Math.hypot(s.xM - origin.xM, s.yM - origin.yM); };
+    }
     const nextTime = time + run.duration;
     const sampleNumbers = (s: MotionSample) => [s.xM, s.yM, s.vxMps, s.vyMps, s.springCompressionM,
       ...(s.constraint ? [s.constraint.angleDeg, s.constraint.angularVelocityRadps, s.constraint.normalForceN] : [])];
@@ -326,7 +384,8 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     if (geometry.verticalArc) numbers.push(...Object.values(geometry.verticalArc.center), ...Object.values(geometry.verticalArc.plannedEnd));
     if (geometry.spring) numbers.push(geometry.spring.anchor.xM);
     const springTimes = stage.kind !== "spring_contact" || (run.duration > 0
-      && time + run.events[1].time > time && time + run.events[1].time < nextTime);
+      && time + run.events[1].time > time
+      && (("kineticFrictionCoefficient" in stage && run.events[1].time === run.duration) || time + run.events[1].time < nextTime));
     const valid = numbers.every(Number.isFinite) && run.duration >= 0 && (run.duration === 0 || nextTime > time) && springTimes;
     if (!valid) {
       return { ok: false, code: "INCONSISTENT_CONDITIONS", message: "题设数值无法表示有效的运动边界，请核对量级。", reading: plan as StagePlanDraft, missingKeys: [],
@@ -334,8 +393,9 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     }
     if (run.duration > 0) {
       segments.push({ stageIndex: index, kind: stage.kind, startSeconds: time, endSeconds: nextTime });
-      runs.push({ start: time, end: nextTime, run });
+      runs.push({ start: time, end: nextTime, run, stageIndex: index, heatBase });
     }
+    heatBase += run.heatAt?.(run.duration) ?? 0;
     for (const item of run.events) append(item, index, time);
     state = run.end;
     time = nextTime;
@@ -366,6 +426,26 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     ...(scope ? { timing: { ...scope, anchor: { label: scope.mode === "full" ? "A" : scope.mode === "suffix" || scope.stopReason === "prefix_end" ? "B" : "静止点", position: scope.mode === "full" ? { xM: 0, yM: 0 } : { xM: scope.xM!, yM: 0 } }, absoluteStartSeconds: scope.mode === "full" ? 0 : null, excludedStageIndices: scope.mode === "full" ? [] : scope.mode === "suffix" ? Array.from({ length: from }, (_, i) => i) : plan.stages.map((_, i) => i) }, calculations } : {}),
     geometry, durationSeconds: time, segments, events, termination,
     get endReason() { return termination.reason; },
+    energyAt(timeSeconds) {
+      const mass = plan.massKg, g = plan.gravityMps2;
+      if (mass === undefined) return null;
+      const needsGravity = plan.stages.some((s) => s.kind === "incline_slide" || s.kind === "vertical_arc" || s.kind === "projectile");
+      if (needsGravity && g === undefined) return null;
+      const t = Number.isNaN(timeSeconds) ? 0 : Math.min(time, Math.max(0, timeSeconds));
+      const s = (this as unknown as StageMotion).sampleAt(t);
+      const active = runs.find((item) => t >= item.start && t < item.end);
+      const last = active ?? runs[runs.length - 1];
+      const heat = active ? active.heatBase + (active.run.heatAt?.(t - active.start) ?? 0) : heatBase;
+      const stage = last ? plan.stages[last.stageIndex] : plan.stages[0];
+      const springK = stage.kind === "spring_contact" || stage.kind === "spring_release" ? stage.springConstantNpm : null;
+      return {
+        kineticJ: 0.5 * mass * (s.vxMps ** 2 + s.vyMps ** 2),
+        elasticPotentialJ: typeof springK === "number" ? 0.5 * springK * s.springCompressionM ** 2 : null,
+        gravitationalPotentialJ: needsGravity ? mass * g! * s.yM : null,
+        frictionHeatJ: heat,
+        priorFrictionKnown: !scope || scope.mode === "full",
+      };
+    },
     sampleAt(timeSeconds) {
       const t = Number.isNaN(timeSeconds) ? 0 : Math.min(time, Math.max(0, timeSeconds));
       // 同刻的最后一个事件状态优先，确保转向、接触和零时长终止可精确停靠。
