@@ -138,7 +138,7 @@ await shot('02b-assumptions-open');
 // 3. 播放 1.2 s
 const before = await evaluate(`document.body.innerText.match(/(\\d+\\.\\d\\d) s \\//)?.[1] ?? null`);
 await evaluate(`(() => {
-  const b = [...document.querySelectorAll("button")].find((x) => /播放|暂停/.test(x.getAttribute("aria-label") ?? x.textContent));
+  const b = document.querySelector("button.tbtn.primary") ?? [...document.querySelectorAll("button")].find((x) => /播放|暂停/.test(x.getAttribute("aria-label") ?? x.textContent));
   if (b) b.click();
   return !!b;
 })()`);

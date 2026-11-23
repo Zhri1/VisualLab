@@ -1,19 +1,5 @@
 import { useEffect } from "react";
-
-export interface SampleOption {
-  id: string;
-  title: string;
-  description: string;
-}
-
-/** 内置示例清单：后续新增示例只需往这里加条目。 */
-export const SAMPLE_OPTIONS: SampleOption[] = [
-  {
-    id: "incline-spring-2m",
-    title: "斜面滑块压缩弹簧",
-    description: "倾角 37°，水平段 2 m 后接触弹簧",
-  },
-];
+import { SAMPLE_OPTIONS } from "../../../data/samples";
 
 interface Props {
   onSelect: (id: string) => void;
@@ -38,16 +24,23 @@ export function SamplePicker({ onSelect, onClose }: Props) {
         aria-label="选择内置示例"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="sample-picker-head">选择内置示例</div>
+        <div className="sample-picker-head">
+          选择内置示例
+          <span>{SAMPLE_OPTIONS.length} 道 · 从基础到压轴</span>
+        </div>
         <ul className="sample-picker-list">
           {SAMPLE_OPTIONS.map((option) => (
             <li key={option.id}>
               <button
                 type="button"
                 className="sample-option"
+                data-level={option.difficulty}
                 onClick={() => onSelect(option.id)}
               >
-                <span className="sample-option-title">{option.title}</span>
+                <span className="sample-option-row">
+                  <span className="sample-option-title">{option.title}</span>
+                  <span className="sample-option-level">{option.difficulty}</span>
+                </span>
                 <span className="sample-option-desc">{option.description}</span>
               </button>
             </li>

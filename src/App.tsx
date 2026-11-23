@@ -38,9 +38,9 @@ export default function App() {
                 <CircleHelp size={18} strokeWidth={1.7} />
               </button>
               <div className="divider-v" />
-              <button className="ghost-button" onClick={ws.restartHome}>
+              <button className="ghost-button" onClick={ws.restartHome} aria-label="返回首页">
                 <ArrowLeft size={14} strokeWidth={2.2} />
-                返回首页
+                <span className="btn-label">返回首页</span>
               </button>
             </>
           )}

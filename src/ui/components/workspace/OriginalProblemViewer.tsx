@@ -20,6 +20,8 @@ interface Props {
   onClose: () => void;
   reading: WorkspaceReading | null;
   imageUrl: string | null;
+  /** 内置示例的完整题面 */
+  problemText?: string | null;
   missingKeys: string[];
   fieldErrors: FieldError[];
   onApply: (next: WorkspaceReading) => boolean;
@@ -30,6 +32,7 @@ export function OriginalProblemViewer({
   onClose,
   reading,
   imageUrl,
+  problemText,
   missingKeys,
   fieldErrors,
   onApply,
@@ -129,6 +132,8 @@ export function OriginalProblemViewer({
           <div className="problem-thumb">
             {imageUrl ? (
               <img src={imageUrl} alt="原始题目图片" />
+            ) : problemText ? (
+              <div className="problem-text">{problemText}</div>
             ) : (
               <div className="placeholder">本题来自内置示例，没有原始图片</div>
             )}

@@ -6,9 +6,10 @@ import { ChatMessageRow } from "./ChatMessage";
 
 interface Props {
   ws: Workspace;
+  className?: string;
 }
 
-export function ChatPanel({ ws }: Props) {
+export function ChatPanel({ ws, className }: Props) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -26,7 +27,7 @@ export function ChatPanel({ ws }: Props) {
   };
 
   return (
-    <section className="panel chat-panel">
+    <section className={["panel", "chat-panel", className].filter(Boolean).join(" ")}>
       <div className="chat-head">
         <div>
           <h2 className="chat-title">AI Assistant</h2>
