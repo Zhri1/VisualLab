@@ -196,7 +196,14 @@ export interface FieldError {
 /* ---------------- 识别接口 ---------------- */
 
 export type PlanResponse =
-  | { status: "ok"; reading: WorkspaceReading; message?: string; assumptions?: string[] }
+  | {
+      status: "ok";
+      reading: WorkspaceReading;
+      message?: string;
+      assumptions?: string[];
+      /** 内置示例的完整题面；识别接口不回传该字段。 */
+      problemText?: string;
+    }
   | {
       status: "needs_input";
       reading: WorkspaceReading | null;

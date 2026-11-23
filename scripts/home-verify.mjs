@@ -75,7 +75,7 @@ await evaluate('document.querySelector(".sample-button").click()');
 await sleep(250);
 check(
   "点示例先弹出选择",
-  await evaluate('!!document.querySelector(".sample-picker") && document.querySelectorAll(".sample-option").length === 1'),
+  await evaluate('!!document.querySelector(".sample-picker") && document.querySelectorAll(".sample-option").length >= 6'),
 );
 await evaluate('document.querySelector(".sample-option").click()');
 await sleep(1500);
