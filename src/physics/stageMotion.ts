@@ -78,7 +78,7 @@ function travel(speed: number, acceleration: number, distance: number) {
   return { duration: 2 * distance / (speed + endSpeed), distance, speed: endSpeed, reason: undefined };
 }
 
-function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: MotionSample, gravity: number, geometry: StageGeometry): Run {
+function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: MotionSample, gravity: number, geometry: StageGeometry, fliesFromEnd: boolean): Run {
   const angle = stage.angleDeg * Math.PI / 180;
   const dx = Math.cos(angle);
   const dy = -Math.sin(angle);
@@ -94,8 +94,8 @@ function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: Motion
   const stopped = boundary.reason !== undefined;
   return {
     duration: boundary.duration, end, reason: boundary.reason,
-    events: [event(stopped ? "stop" : "reach_bottom", boundary.duration, end, end, stopped ? "斜面停止" : "到达坡底",
-      stopped ? "滑块在斜面上速度降为零，运动结束。" : `到达坡底，沿坡速率约 ${boundary.speed.toFixed(4)} m/s。`)],
+    events: [event(stopped ? "stop" : "reach_bottom", boundary.duration, end, end, stopped ? "斜面停止" : fliesFromEnd ? "到达檐口" : "到达坡底",
+      stopped ? "滑块在斜面上速度降为零，运动结束。" : `到达${fliesFromEnd ? "檐口" : "坡底"}，沿坡速率约 ${boundary.speed.toFixed(4)} m/s。`)],
     sampleAt(time) { return linearState(start.xM, start.yM, speed * dx, speed * dy, acceleration * dx, acceleration * dy, time); },
   };
 }
@@ -210,6 +210,7 @@ function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: Motion
   const events: EventState[] = [];
   if (from === "horizontal_slide") events.push(event("leave_table", 0, start, start, "离开桌沿", "以正水平速度到达桌沿，开始平抛。"));
   if (from === "vertical_arc") events.push(event("projectile_launch", 0, start, start, "沿切线飞出", "以实际离弧位置和切向速度开始抛体运动，落地平面保持固定。"));
+  if (from === "incline_slide") events.push(event("projectile_launch", 0, start, start, "离开檐口", "离开斜面末端，沿坡切向斜抛；水平与向下的竖直速度连续，此后只受重力。"));
   const apexTime = start.vyMps / gravity;
   if (apexTime > 0 && apexTime < duration) {
     const maximum = { ...sampleAt(apexTime), vyMps: 0 };
@@ -221,7 +222,8 @@ function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: Motion
 
 function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | StagePlanFailure {
   if (plan.bodies) return computeMultiBodyMotion(plan);
-  const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage) => stage.kind === "vertical_arc" || stage.kind === "spring_release") ? "particle" : "front_bottom" };
+  const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage, i) => stage.kind === "vertical_arc" || stage.kind === "spring_release"
+    || stage.kind === "incline_slide" && plan.stages[i + 1]?.kind === "projectile") ? "particle" : "front_bottom" };
   const first = plan.stages[0];
   let state = "speedMps" in plan.initial ? moving(0, 0, plan.initial.speedMps) : "vxMps" in plan.initial ? moving(0, 0, plan.initial.vxMps, plan.initial.vyMps) : moving(0,0,plan.initial.tangentialSpeedMps);
   if (first.kind === "spring_release" && scope?.mode === "full") state.springCompressionM = first.initialCompressionM!;
@@ -276,7 +278,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     }
     if (stage.kind === "vertical_arc" && (state.vxMps < 0 || state.vyMps !== 0)) return failure("圆弧入口需要水平向右的切向速度。", "/stages/" + index, "PRECONDITION_CONFLICT");
     try { switch (stage.kind) {
-      case "incline_slide": run = incline(stage, state, plan.gravityMps2!, geometry); break;
+      case "incline_slide": run = incline(stage, state, plan.gravityMps2!, geometry, plan.stages[index + 1]?.kind === "projectile"); break;
       case "lossless_turn": run = turn(state); break;
       case "horizontal_slide": run = horizontal(stage, state, plan.gravityMps2 ?? 0, geometry); break;
       case "spring_contact": run = spring(stage, state, plan.massKg!, geometry); break;

@@ -84,14 +84,16 @@ describe('buildPlanResponse · stage_plan 分派', () => {
     expect(result.assumptions).toEqual(['g=10 m/s²']);
   });
 
-  it('斜面直接接抛体属于 unsupported，回包是 200', () => {
+  it('斜面直接接抛体已登记，回包为200且不插入转向或水平段', () => {
     const plan = COMPLETE();
     const stages = plan.stages as unknown[];
     plan.stages = [stages[0], stages[3]];
     const result = buildPlanResponse(plan);
 
-    expect(result.status).toBe('unsupported');
+    expect(result.status).toBe('ok');
     expect(STAGE_HTTP_STATUS[result.status]).toBe(200);
+    if (result.status !== 'ok') throw new Error('应支持沿斜面末端直接抛出');
+    expect((result.reading as StagePlanDraft).stages.map(s => s.kind)).toEqual(['incline_slide', 'projectile']);
     expect(result.message.trim().length).toBeGreaterThan(0);
   });
 

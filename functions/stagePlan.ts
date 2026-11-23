@@ -223,7 +223,7 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
     const previous = stages[i - 1]?.kind;
     const permitted = i === 0 ? source.kind !== "lossless_turn"
       : previous == null ? true
-      : previous === "incline_slide" ? source.kind === "lossless_turn"
+      : previous === "incline_slide" ? source.kind === "lossless_turn" || source.kind === "projectile"
       : previous === "lossless_turn" ? source.kind === "horizontal_slide" || source.kind === "spring_contact" || source.kind === "vertical_arc"
       : previous === "horizontal_slide" ? source.kind === "spring_contact" || source.kind === "projectile" || source.kind === "vertical_arc"
       : previous === "vertical_arc" ? source.kind === "projectile"
