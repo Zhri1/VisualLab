@@ -2,12 +2,14 @@ import { solveVerticalArc } from "./verticalArc.ts";
 import type { StageSample as MotionSample, VerticalArcGeometry } from "./verticalArc.ts";
 export type { StageSample, ArcConstraint, VerticalArcGeometry } from "./verticalArc.ts";
 import type { Point } from "./scene.ts";
-import type { ResolvedStagePlan, Stage, StageKind, StagePlanDraft, StagePlanFailure, PlaybackScope } from "./stagePlan.ts";
+import type { ResolvedStagePlan, Stage, SingleStage, StageKind, StagePlanDraft, StagePlanFailure, PlaybackScope } from "./stagePlan.ts";
+import type { BodyGeometry, BodySnapshot, MotionStatus } from './multiBodyTypes.ts';
+import { computeMultiBodyMotion } from './multiBodyMotion.ts';
 import { validateStagePlan } from "./stagePlan.ts";
 import { landingTime, linearState, springMetrics, springState } from "./kinematics.ts";
 
 type Velocity = { vxMps: number; vyMps: number };
-export type StageGeometry = {
+export type StageGeometry = BodyGeometry & {
   incline?: { start: Point; end: Point };
   horizontal?: { start: Point; plannedEnd: Point | null };
   spring?: { contact: Point; anchor: Point };
@@ -19,22 +21,27 @@ export type StageGeometry = {
   blockSizeM: number;
   positionReference: "front_bottom" | "particle";
 };
-export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release";
+export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary';
 export type StageEvent = {
+  collision?: import('./horizontalTypes.ts').CollisionValues;
+  bodyIds?: string[]; stagePath?: string;
+  bodyStatesBefore?: BodySnapshot['bodies']; bodyStatesAfter?: BodySnapshot['bodies'];
+  constraintsBefore?: BodySnapshot['constraints']; constraintsAfter?: BodySnapshot['constraints'];
   id: string; stageIndex: number; kind: string; timeSeconds: number; order: number;
   velocityBefore: Velocity; velocityAfter: Velocity; label: string; explanation: string;
   position?: Point; normalForceBeforeN?: number; normalForceAfterN?: number;
 };
 export type StageMotion = {
+  primaryBodyId?: string; motionStatus?: MotionStatus;
   timing?: PlaybackScope & { anchor: { label: string; position: Point }; absoluteStartSeconds: number | null; excludedStageIndices: number[] };
   calculations?: { quantity: string; value: number; unit: string; source: "given" | "user" | "derived"; rule?: string; inputPaths: string[] }[];
   geometry: StageGeometry;
   durationSeconds: number;
-  segments: { stageIndex: number; kind: StageKind; startSeconds: number; endSeconds: number }[];
+  segments: { stageIndex: number; kind: StageKind; startSeconds: number; endSeconds: number; bodyIds?: string[]; stagePath?: string }[];
   events: StageEvent[];
   termination: { reason: EndReason; eventId: string; stageIndex: number };
   readonly endReason: EndReason;
-  sampleAt(timeSeconds: number): MotionSample;
+  sampleAt(timeSeconds: number): MotionSample & Partial<BodySnapshot>;
 };
 export type StageScene = { kind: "stage_scene"; reading: ResolvedStagePlan; geometry: StageGeometry; motion: StageMotion };
 type EventState = { kind: string; time: number; before: MotionSample; after: MotionSample; label: string; explanation: string;
@@ -72,7 +79,7 @@ function travel(speed: number, acceleration: number, distance: number) {
   return { duration: 2 * distance / (speed + endSpeed), distance, speed: endSpeed, reason: undefined };
 }
 
-function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: MotionSample, gravity: number, geometry: StageGeometry): Run {
+function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: MotionSample, gravity: number, geometry: StageGeometry, fliesFromEnd: boolean): Run {
   const angle = stage.angleDeg * Math.PI / 180;
   const dx = Math.cos(angle);
   const dy = -Math.sin(angle);
@@ -88,8 +95,8 @@ function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: Motion
   const stopped = boundary.reason !== undefined;
   return {
     duration: boundary.duration, end, reason: boundary.reason,
-    events: [event(stopped ? "stop" : "reach_bottom", boundary.duration, end, end, stopped ? "斜面停止" : "到达坡底",
-      stopped ? "滑块在斜面上速度降为零，运动结束。" : `到达坡底，沿坡速率约 ${boundary.speed.toFixed(4)} m/s。`)],
+    events: [event(stopped ? "stop" : "reach_bottom", boundary.duration, end, end, stopped ? "斜面停止" : fliesFromEnd ? "到达檐口" : "到达坡底",
+      stopped ? "滑块在斜面上速度降为零，运动结束。" : `到达${fliesFromEnd ? "檐口" : "坡底"}，沿坡速率约 ${boundary.speed.toFixed(4)} m/s。`)],
     sampleAt(time) { return linearState(start.xM, start.yM, speed * dx, speed * dy, acceleration * dx, acceleration * dy, time); },
   };
 }
@@ -204,6 +211,7 @@ function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: Motion
   const events: EventState[] = [];
   if (from === "horizontal_slide") events.push(event("leave_table", 0, start, start, "离开桌沿", "以正水平速度到达桌沿，开始平抛。"));
   if (from === "vertical_arc") events.push(event("projectile_launch", 0, start, start, "沿切线飞出", "以实际离弧位置和切向速度开始抛体运动，落地平面保持固定。"));
+  if (from === "incline_slide") events.push(event("projectile_launch", 0, start, start, "离开檐口", "离开斜面末端，沿坡切向斜抛；水平与向下的竖直速度连续，此后只受重力。"));
   const apexTime = start.vyMps / gravity;
   if (apexTime > 0 && apexTime < duration) {
     const maximum = { ...sampleAt(apexTime), vyMps: 0 };
@@ -214,9 +222,11 @@ function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: Motion
 }
 
 function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | StagePlanFailure {
-  const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage) => stage.kind === "vertical_arc" || stage.kind === "spring_release") ? "particle" : "front_bottom" };
+  if (plan.bodies) return computeMultiBodyMotion(plan);
+  const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage, i) => stage.kind === "vertical_arc" || stage.kind === "spring_release"
+    || stage.kind === "incline_slide" && plan.stages[i + 1]?.kind === "projectile") ? "particle" : "front_bottom" };
   const first = plan.stages[0];
-  let state = "speedMps" in plan.initial ? moving(0, 0, plan.initial.speedMps) : moving(0, 0, plan.initial.vxMps, plan.initial.vyMps);
+  let state = "speedMps" in plan.initial ? moving(0, 0, plan.initial.speedMps) : "vxMps" in plan.initial ? moving(0, 0, plan.initial.vxMps, plan.initial.vyMps) : moving(0,0,"tangentialSpeedMps" in plan.initial ? plan.initial.tangentialSpeedMps : 0);
   if (first.kind === "spring_release" && scope?.mode === "full") state.springCompressionM = first.initialCompressionM!;
   if (scope && scope.mode !== "full") state = moving(scope.xM!, 0, scope.vxMps!);
   const ref = plan.stages[1];
@@ -257,7 +267,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   const from = scope?.mode === "suffix" ? scope.startStageIndex : 0;
   append(event(scope?.mode === "state_only" ? "state_anchor" : scope?.mode === "suffix" ? "playback_start" : "release", 0, state, state, scope?.mode === "state_only" ? "已知状态" : scope?.mode === "suffix" ? "从B开始计时" : "释放", scope?.reason ?? "从题设初态开始运动。"), scope?.mode === "state_only" ? scope.startStageIndex : from, 0);
   if (scope?.mode === "state_only") reason = scope.stopReason ?? "prefix_end";
-  for (const [index, stage] of plan.stages.entries()) {
+  for (const [index, stage] of (plan.stages as SingleStage[]).entries()) {
     if (scope?.mode === "state_only") break;
     if (index < from) continue;
     let run: Run;
@@ -269,7 +279,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     }
     if (stage.kind === "vertical_arc" && (state.vxMps < 0 || state.vyMps !== 0)) return failure("圆弧入口需要水平向右的切向速度。", "/stages/" + index, "PRECONDITION_CONFLICT");
     try { switch (stage.kind) {
-      case "incline_slide": run = incline(stage, state, plan.gravityMps2!, geometry); break;
+      case "incline_slide": run = incline(stage, state, plan.gravityMps2!, geometry, plan.stages[index + 1]?.kind === "projectile"); break;
       case "lossless_turn": run = turn(state); break;
       case "horizontal_slide": run = horizontal(stage, state, plan.gravityMps2 ?? 0, geometry); break;
       case "spring_contact": run = spring(stage, state, plan.massKg!, geometry); break;

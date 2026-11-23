@@ -1,0 +1,97 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "bodies": [
+    {
+      "bodyId": "one",
+      "massKg": 1
+    },
+    {
+      "bodyId": "two",
+      "massKg": 3
+    }
+  ],
+  "primaryBodyId": "one",
+  "initial": {
+    "bodies": [
+      {
+        "bodyId": "one",
+        "xM": 0,
+        "vxMps": 6
+      },
+      {
+        "bodyId": "two",
+        "xM": 7,
+        "vxMps": -3
+      }
+    ]
+  },
+  "stages": [
+    {
+      "kind": "horizontal_approach",
+      "tracks": [
+        {
+          "bodyId": "one",
+          "kineticFrictionCoefficient": 0.2
+        },
+        {
+          "bodyId": "two",
+          "kineticFrictionCoefficient": 0.2
+        }
+      ],
+      "end": {
+        "kind": "contact_or_rest"
+      }
+    },
+    {
+      "kind": "collision_1d",
+      "bodyIds": [
+        "one",
+        "two"
+      ],
+      "mode": "elastic",
+      "contact": {
+        "kind": "horizontal_meeting",
+        "approachStageIndex": 0
+      },
+      "externalImpulseNegligible": true
+    },
+    {
+      "kind": "parallel_motion",
+      "tracks": [
+        {
+          "bodyIds": [
+            "one"
+          ],
+          "stages": [
+            {
+              "kind": "horizontal_slide",
+              "kineticFrictionCoefficient": 0.2,
+              "end": {
+                "kind": "stop"
+              }
+            }
+          ]
+        },
+        {
+          "bodyIds": [
+            "two"
+          ],
+          "stages": [
+            {
+              "kind": "horizontal_slide",
+              "kineticFrictionCoefficient": 0.2,
+              "end": {
+                "kind": "stop"
+              }
+            }
+          ]
+        }
+      ],
+      "end": {
+        "kind": "all_finite_tracks"
+      }
+    }
+  ]
+}

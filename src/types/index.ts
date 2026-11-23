@@ -5,6 +5,7 @@
 
 import type { EndReason, StageGeometry, ArcConstraint } from "../physics/stageMotion";
 import type { ResolvedStagePlan, StageKind, StagePlanDraft } from "../physics/stagePlan";
+import type { BodyState, StringState, MotionStatus } from '../physics/multiBodyTypes';
 
 export type TemplateId = "incline_spring";
 
@@ -109,9 +110,11 @@ export interface ResolvedConditions {
   springConstantNpm: number;
 }
 
-export type SegmentKind = "incline" | "horizontal" | "spring" | "projectile" | "vertical_arc";
+export type SegmentKind = "incline" | "horizontal" | "spring" | "projectile" | "vertical_arc" | 'pendulum';
+export type BodyMotionSample = Omit<BodyState,'xM'|'yM'|'vxMps'|'vyMps'> & {position:Vec2;velocity:Vec2};
 
 export interface MotionSegment {
+  bodyIds?:string[]; stagePath?:string;
   kind: SegmentKind;
   /** 新阶段计划中的原始零基下标；旧模板缺省。 */
   stageIndex?: number;
@@ -131,6 +134,10 @@ export type EventId =
   | "detach_spring";
 
 export interface MotionEvent {
+  collision?:import('../physics').CollisionValues;
+  bodyIds?:string[]; stagePath?:string;
+  bodyStatesBefore?:Record<string,BodyMotionSample>; bodyStatesAfter?:Record<string,BodyMotionSample>;
+  constraintsBefore?:Record<string,StringState>; constraintsAfter?:Record<string,StringState>;
   id: EventId | string;
   /** 新计划保留原事件 kind 与执行顺序，避免同刻事件靠数组猜测。 */
   eventKind?: string;
@@ -151,6 +158,7 @@ export interface MotionEvent {
 }
 
 export interface MotionSample {
+  bodies?:Record<string,BodyMotionSample>; constraints?:Record<string,StringState>;
   /** 由 stageGeometry.positionReference 指定；旧场景为滑块前下沿。 */
   position: Vec2;
   velocity: Vec2;
@@ -159,6 +167,7 @@ export interface MotionSample {
 }
 
 export interface Motion {
+  primaryBodyId?:string; motionStatus?:MotionStatus;
   timing?: import("../physics").StageMotion["timing"];
   calculations?: import("../physics").StageMotion["calculations"];
   /** 旧模板几何继续保留；新计划另带完整 StageGeometry 供专用画布使用。 */

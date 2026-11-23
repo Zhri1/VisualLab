@@ -1,0 +1,17 @@
+import { afterEach,beforeEach,describe,it,expect,vi } from 'vitest';
+import { handlePlan } from '../plan';
+import { handler } from '../../../functions/handler';
+import { assembleScene,buildMotion,truncateStagePlan } from '../../physics';
+import type { StagePlanDraft } from '../../physics';
+import elastic from '../../../fixtures/pendulum-elastic.reading.json';
+import sticky from '../../../fixtures/pendulum-sticky.reading.json';
+import flight from '../../../fixtures/pendulum-target-projectile.reading.json';
+describe.each([['Node',handlePlan],['Qoder',handler]] as const)('%s 摆与碰撞正常图文入口',(_name,entry)=>{
+  const upstream=vi.fn<typeof fetch>();
+  beforeEach(()=>{vi.stubEnv('DASHSCOPE_API_KEY','mock-only');vi.stubEnv('DASHSCOPE_FALLBACK_MODEL','');vi.stubEnv('API_CONTRACT_MODE','stage_plan');vi.stubGlobal('Deno',{env:{get:(key:string)=>process.env[key]}});vi.stubGlobal('fetch',upstream);vi.spyOn(console,'log').mockImplementation(()=>{});});
+  afterEach(()=>{upstream.mockReset();vi.restoreAllMocks();vi.unstubAllGlobals();vi.unstubAllEnvs();});
+  for(const image of [false,true])it.each([elastic,sticky,flight])(`${image?'图文':'文字'}完整路径同源校验`,async reading=>{upstream.mockResolvedValueOnce(Response.json({choices:[{message:{content:JSON.stringify(reading)}}]}));const form=new FormData();form.set('text','轻绳摆最低点碰撞');if(image)form.set('image',new Blob([new Uint8Array([137,80,78,71,13,10,26,10])],{type:'image/png'}),'synthetic.png');const response=await entry(new Request('http://localhost/api/animation/plan',{method:'POST',body:form})),body=await response.json();expect(response.status).toBe(200);expect(body.status).toBe('ok');expect(body.reading.bodies).toEqual(reading.bodies);const a=assembleScene(body.reading);if(!a.ok)throw Error(JSON.stringify(a));const m=buildMotion(a.scene);expect(m.ok).toBe(true);expect(upstream).toHaveBeenCalledTimes(1);});
+  it('只缺目标质量，补值后正常装配',async()=>{const p=structuredClone(elastic) as unknown as {bodies:{massKg:number|null}[]};p.bodies[1].massKg=null;upstream.mockResolvedValueOnce(Response.json({choices:[{message:{content:JSON.stringify(p)}}]}));const form=new FormData();form.set('text','缺目标质量');const body=await(await entry(new Request('http://localhost/api/animation/plan',{method:'POST',body:form}))).json();expect(body.status).toBe('needs_input');expect(body.missingKeys).toEqual(['/bodies/1/massKg']);body.reading.bodies[1].massKg=1;expect(assembleScene(body.reading).ok).toBe(true);});
+  it.each([['只看摆动',0],['到最低点为止',0],['只看到碰撞为止',1]] as const)('%s由真实命令入口返回可装配的截断',async(command,through)=>{const p={...elastic,primaryBodyId:'target'} as StagePlanDraft,form=new FormData();form.set('command',command);form.set('currentPlan',JSON.stringify(p));const response=await entry(new Request('http://localhost/api/animation/plan',{method:'POST',body:form})),body=await response.json();expect(response.status).toBe(200);expect(body.intent).toEqual({type:'truncate_stages',throughStageIndex:through});const prefix=truncateStagePlan(p,body.intent.throughStageIndex);expect(assembleScene(prefix).ok).toBe(true);expect(prefix.bodies).toHaveLength(through===0?1:2);expect(prefix.primaryBodyId).toBe(through===0?'bob':'target');expect(upstream).not.toHaveBeenCalled();});
+  it('识别/命令混用400且不调用模型',async()=>{const form=new FormData();form.set('command','只看摆动');form.set('currentPlan',JSON.stringify(elastic));form.set('text','新题');expect((await entry(new Request('http://localhost/api/animation/plan',{method:'POST',body:form}))).status).toBe(400);expect(upstream).not.toHaveBeenCalled();});
+});

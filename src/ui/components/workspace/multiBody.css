@@ -1,0 +1,29 @@
+.body-plan-editor .body-stage-title { margin: 4px 0 12px; font-size: 13px; font-weight: 600; }
+.body-plan-editor .body-field-help { max-width: 150px; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.body-plan-editor .body-note { padding-top: 8px; font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+.body-track-editor { margin: 14px 0 0 10px; padding-left: 10px; border-left: 1px solid var(--border); }
+.body-plan-editor .cond-table .val { min-width: 116px; }
+.body-plan-editor select { max-width: 100%; min-height: 30px; }
+.body-tracking { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--text-secondary); margin: 12px 0; }
+.body-tracking select { border: 1px solid var(--border); border-radius: 5px; padding: 5px 8px; background: var(--surface); color: var(--text-primary); }
+.multi-body-figure { position: absolute; inset: 0; margin: 0; min-height: 0; display: flex; flex-direction: column; }
+.canvas-frame .multi-body-figure canvas { width: 100%; height: 0; flex: 1 1 0; min-height: 100px; display: block; }
+.body-scene-legend li { white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
+.body-tracking select { max-width: 180px; }
+.player-panel.body-player-panel { overflow-y: auto; }
+.canvas-frame.body-canvas-frame { min-height: 300px; }
+.body-plan-editor .cond-table { table-layout: fixed; }
+.body-plan-editor .cond-table .val { width: 40%; min-width: 0; white-space: normal; }
+.multi-body-readouts { padding: 9px 12px; border-top: 1px solid var(--border); flex: none; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px 12px; font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.body-body-value { min-height: 50px; }
+.multi-body-readouts.has-horizontal-states .body-body-value { min-height: 108px; }
+.multi-body-readouts.has-horizontal-states.has-long-ids .body-body-value { min-height: 144px; }
+.multi-body-readouts.has-long-ids .body-body-value { min-height: 84px; }
+.multi-body-readouts span { overflow-wrap: anywhere; }
+.multi-body-readouts .body-constraint { grid-column: 1 / -1; min-height: 36px; }
+.multi-body-readouts.has-long-ids .body-constraint { min-height: 60px; }
+.body-swatch { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+.explain.multi-body-explain { display: block; }
+.collision-values { width: 100%; margin-top: 12px; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.collision-values th, .collision-values td { text-align: left; padding: 5px 8px 5px 0; border-top: 1px solid var(--border); }
+@media(max-width:480px) { .body-plan-editor .cond-table .name { width: 42%; } .body-plan-editor .body-field-help { max-width: 72px; } .body-track-editor { margin-left: 0; padding-left: 6px; } .multi-body-readouts { gap: 6px 12px; font-size: 11px; } }

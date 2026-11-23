@@ -5,6 +5,7 @@ import { isStageReading } from "../../../types";
 import { ChatPanel } from "../chat/ChatPanel";
 import { PhysicsCanvas } from "./PhysicsCanvas";
 import { PhysicsExplanation } from "./PhysicsExplanation";
+import { MultiBodyExplanation } from './MultiBodyExplanation';
 import { PlaybackControls } from "./PlaybackControls";
 import { OriginalProblemViewer } from "./OriginalProblemViewer";
 import { advancePlayback, segmentAt } from "./playback";
@@ -12,6 +13,10 @@ import "./player.css";
 
 interface Props {
   ws: Workspace;
+}
+export function stageForLegend(plan:{stages:unknown[]},stagePath:string|undefined,stageIndex:number|undefined):Record<string,unknown>|null{
+  const value=stagePath?stagePath.split('/').slice(1).reduce<unknown>((v,k)=>v!==null&&typeof v==='object'?(v as Record<string,unknown>)[k]:undefined,plan):plan.stages[stageIndex??-1];
+  return value!==null&&typeof value==='object'?value as Record<string,unknown>:null;
 }
 
 type MobileTab = "player" | "chat";
@@ -37,14 +42,17 @@ export function WorkspaceLayout({ ws }: Props) {
   const [mobileTab, setMobileTab] = useState<MobileTab>("player");
   const [metaOpen, setMetaOpen] = useState(false);
   const [explainOpen, setExplainOpen] = useState(false);
+  const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primaryBodyId);
+  useEffect(()=>setTrackedBodyId(motion?.primaryBodyId),[motion]);
   const rafRef = useRef<number | null>(null);
   const lastRef = useRef<number | null>(null);
   const clockTimeRef = useRef(currentTime);
   clockTimeRef.current = currentTime;
   const activeSegment = motion ? segmentAt(motion.segments, currentTime) : undefined;
-  const stagePlan = isStageReading(ws.appliedReading) ? ws.appliedReading : null;
+  const stagePlan = isStageReading(ws.appliedReading) ? ws.appliedReading : isStageReading(ws.reading)?ws.reading:null;
   const legacyReading = ws.appliedReading && !isStageReading(ws.appliedReading) ? ws.appliedReading : null;
   const stageLabels = {
+    horizontal_approach:'水平接近',pendulum_swing:'轻绳摆',collision_1d:'正碰',parallel_motion:'同步运动',
     spring_release: "预压释放",
     incline_slide: "斜面",
     lossless_turn: "转向",
@@ -63,6 +71,7 @@ export function WorkspaceLayout({ ws }: Props) {
     ...motion.events.map((event) => event.timeSeconds),
     ...motion.segments.map((segment) => (segment.startSeconds + segment.endSeconds) / 2),
   ] : [], [motion]);
+  const Explanation=motion?.primaryBodyId?MultiBodyExplanation:PhysicsExplanation;
 
   // 播放循环不能依赖 ws 对象本身，否则每帧重建会重置 dt。
   const setTimeRef = useRef(ws.setCurrentTime);
@@ -123,37 +132,39 @@ export function WorkspaceLayout({ ws }: Props) {
 
   return (
     <>
-      {isMobile && <div className="mobile-tabs" role="tablist" aria-label="工作台视图">
-        <button
-          type="button"
-          role="tab"
-          id="work-tab-player"
-          aria-selected={mobileTab === "player"}
-          aria-controls="work-panel-player"
-          className="mobile-tab"
-          onClick={() => setMobileTab("player")}
-        >
-          播放
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="work-tab-chat"
-          aria-selected={mobileTab === "chat"}
-          aria-controls="work-panel-chat"
-          className="mobile-tab"
-          onClick={() => setMobileTab("chat")}
-        >
-          对话
-        </button>
-      </div>}
+      {isMobile && (
+        <div className="mobile-tabs" role="tablist" aria-label="工作台视图">
+          <button
+            type="button"
+            role="tab"
+            id="work-tab-player"
+            aria-selected={mobileTab === "player"}
+            aria-controls="work-panel-player"
+            className="mobile-tab"
+            onClick={() => setMobileTab("player")}
+          >
+            播放
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="work-tab-chat"
+            aria-selected={mobileTab === "chat"}
+            aria-controls="work-panel-chat"
+            className="mobile-tab"
+            onClick={() => setMobileTab("chat")}
+          >
+            对话
+          </button>
+        </div>
+      )}
 
       <div className="workspace">
         <section
           id="work-panel-player"
           role="tabpanel"
           aria-labelledby="work-tab-player"
-          className={`panel player-panel${isMobile && mobileTab !== "player" ? " is-tab-hidden" : ""}`}
+          className={'panel player-panel'+(motion?.primaryBodyId?' body-player-panel':'')+(isMobile && mobileTab !== "player" ? " is-tab-hidden" : "")}
         >
           {ws.notice && (
             <div className={`notice ${ws.notice.kind}`} style={{ marginBottom: 14 }}>
@@ -196,40 +207,40 @@ export function WorkspaceLayout({ ws }: Props) {
             路段与计时
             <ChevronDown size={15} strokeWidth={2} className="chev" />
           </button>
-
           <div id="player-meta" className={`player-meta${metaOpen ? "" : " is-collapsed"}`}>
-            {motion?.timing && <div className="notice info" role="status"><span>{motion.timing.mode === "full" ? "全程精确播放" : motion.timing.mode === "suffix" ? "前段示意 · 从B精确计时" : "仅展示已知状态 · 用时未知"}：{motion.timing.reason}
-              {motion.calculations?.map(c => <span key={c.quantity}>　{{ initial_elastic_energy: "初始弹性势能", release_speed: "脱离速度", arc_entry_speed: "入弧速度" }[c.quantity] ?? c.quantity} = {Number(c.value.toPrecision(6))} {c.unit}（{c.source === "derived" ? "物理推导" : "题设/用户给定"}）</span>)}</span></div>}
-            {motion && (
-              <ul className="scene-legend" aria-label="路段与动摩擦因数">
-                {stagePlan ? motion.segments.map((segment) => {
-                  const stage = segment.stageIndex == null ? null : stagePlan.stages[segment.stageIndex];
-                  const friction = stage && "kineticFrictionCoefficient" in stage && typeof stage.kineticFrictionCoefficient === "number"
-                    ? stage.kineticFrictionCoefficient
-                    : null;
-                  return (
-                    <li key={`${segment.stageIndex}-${segment.kind}`} aria-current={activeSegment === segment ? "step" : undefined}>
-                      <b>{String((segment.stageIndex ?? 0) + 1).padStart(2, "0")}</b> {segment.name}
-                      {friction != null && <span>μ = {friction.toFixed(2)}</span>}
-                    </li>
-                  );
-                }) : (
-                  <>
-                    <li aria-current={activeSegment?.kind === "incline" ? "step" : undefined}>
-                      <b>AB</b> 斜面 <span>μ = {legacyReading?.conditions.kineticFrictionCoefficient?.toFixed(2)}</span>
-                    </li>
-                    <li aria-current={activeSegment?.kind !== "incline" ? "step" : undefined}>
-                      <b>BC</b> 水平面 <span>μ = 0</span>
-                    </li>
-                  </>
-                )}
-              </ul>
-            )}
+          {motion?.timing && <div className="notice info" role="status"><span>{motion.timing.mode === "full" ? "全程精确播放" : motion.timing.mode === "suffix" ? "前段示意 · 从B精确计时" : "仅展示已知状态 · 用时未知"}：{motion.timing.reason}
+            {motion.calculations?.map(c => <span key={c.quantity}>　{{ initial_elastic_energy: "初始弹性势能", release_speed: "脱离速度", arc_entry_speed: "入弧速度" }[c.quantity] ?? c.quantity} = {Number(c.value.toPrecision(6))} {c.unit}（{c.source === "derived" ? "物理推导" : "题设/用户给定"}）</span>)}</span></div>}
+          {motion?.motionStatus&&<div className="notice info" role="status"><span>{motion.motionStatus.state==='model_limit'?'有限求解范围':motion.motionStatus.state==='range_end'?'播放范围终点':'真实静止结局'}：{motion.motionStatus.message}</span></div>}
+          {motion?.primaryBodyId&&<label className="body-tracking">跟踪物体<select aria-label="跟踪物体" value={trackedBodyId??motion.primaryBodyId} onChange={e=>setTrackedBodyId(e.target.value)}>{motion.stageGeometry?.bodies?.map(b=><option value={b.bodyId} key={b.bodyId}>{b.bodyId}</option>)}</select><span>{(motion.stageGeometry?.bodies?.length??0)>1?'两物体共用同一物理时间':'物体与绳共用同一物理时间'}</span></label>}
+          {motion && (
+            <ul className={'scene-legend'+(motion.primaryBodyId?' body-scene-legend':'')} aria-label="路段与动摩擦因数">
+              {stagePlan ? motion.segments.map((segment) => {
+                const stage = stageForLegend(stagePlan,segment.stagePath,segment.stageIndex);
+                const friction = stage && "kineticFrictionCoefficient" in stage && typeof stage.kineticFrictionCoefficient === "number"
+                  ? stage.kineticFrictionCoefficient
+                  : null;
+                return (
+                  <li key={`${segment.stagePath??segment.stageIndex}-${segment.kind}-${segment.startSeconds}`} aria-current={activeSegment === segment ? "step" : undefined}>
+                    <b>{String((segment.stageIndex ?? 0) + 1).padStart(2, "0")}</b> {segment.bodyIds?.join(' + ')} {segment.name}
+                    {friction != null && <span>μ = {friction.toFixed(2)}</span>}
+                  </li>
+                );
+              }) : (
+                <>
+                  <li aria-current={activeSegment?.kind === "incline" ? "step" : undefined}>
+                    <b>AB</b> 斜面 <span>μ = {legacyReading?.conditions.kineticFrictionCoefficient?.toFixed(2)}</span>
+                  </li>
+                  <li aria-current={activeSegment?.kind !== "incline" ? "step" : undefined}>
+                    <b>BC</b> 水平面 <span>μ = 0</span>
+                  </li>
+                </>
+              )}
+            </ul>
+          )}
           </div>
-
-          <div className="canvas-frame">
+          <div className={'canvas-frame'+(motion?.primaryBodyId?' body-canvas-frame':'')}>
             {motion ? (
-              <PhysicsCanvas motion={motion} time={currentTime} isPlaying={isPlaying} />
+              <PhysicsCanvas motion={motion} time={currentTime} isPlaying={isPlaying} trackedBodyId={trackedBodyId} />
             ) : (
               <div
                 style={{
@@ -278,10 +289,10 @@ export function WorkspaceLayout({ ws }: Props) {
                     <ChevronDown size={15} strokeWidth={2} className="chev" />
                   </button>
                   <div id="explain-slot" className={`explanation-slot${explainOpen ? "" : " is-collapsed"}`}>
-                    <PhysicsExplanation motion={motion} time={currentTime} />
+                    <Explanation motion={motion} time={currentTime} />
                     <div className="explanation-reserve" aria-hidden="true">
                       {explanationTimes.map((time, index) => (
-                        <PhysicsExplanation key={index} motion={motion} time={time} />
+                        <Explanation key={index} motion={motion} time={time} />
                       ))}
                     </div>
                   </div>

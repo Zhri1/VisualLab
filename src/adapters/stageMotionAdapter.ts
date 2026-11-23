@@ -1,5 +1,7 @@
 import type { StageMotion, StagePlanFailure } from "../physics";
 import type { ResolvedStagePlan, StageKind } from "../physics/stagePlan";
+import type { BodyState } from '../physics/multiBodyTypes';
+import type { BodyMotionSample } from '../types';
 import type {
   FieldError,
   Motion,
@@ -11,6 +13,10 @@ import type {
 } from "../types";
 
 const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "formula">> = {
+  horizontal_approach: {name:'水平接近',summary:'各物体按题给初位、带符号速度和各自摩擦同钟运动。',formula:'xᵢ = xᵢ₀ + vᵢ₀t + aᵢt²/2'},
+  pendulum_swing: { name:'轻绳摆',summary:'按真实非线性方程计算摆动与张力；转折后继续反向。',formula:'q² = q₀² + 2gL(cosθ − cosθ₀)，T = M(q²/L + gcosθ)' },
+  collision_1d: { name:'水平正碰',summary:'带符号速度与总动量确定碰后状态。',formula:'m₁u₁ + m₂u₂ = m₁v₁ + m₂v₂' },
+  parallel_motion: { name:'同步运动',summary:'两物体使用同一条物理时间轴。',formula:'t₁ = t₂' },
   spring_release: { name: "预压弹簧释放", summary: "弹簧推动滑块，释放阶段同时计入摩擦。", formula: "s = (c − μmg/k)(1 − cosωt)" },
   vertical_arc: {
     name: "竖直圆弧", summary: "光滑内轨上机械能守恒；法向力降为零时沿切线飞出，速度先降为零时沿轨回滑。",
@@ -44,6 +50,7 @@ const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "f
 };
 
 function segmentKind(kind: StageKind): SegmentKind {
+  if(kind==='pendulum_swing')return 'pendulum';
   if (kind === "incline_slide") return "incline";
   if (kind === "horizontal_slide") return "horizontal";
   if (kind === "spring_contact") return "spring";
@@ -87,6 +94,11 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
           ? "spring_contact"
           : "incline_slide";
     return {
+      collision:event.collision,
+      bodyIds:event.bodyIds,stagePath:event.stagePath,
+      bodyStatesBefore:event.bodyStatesBefore?mapBodies(event.bodyStatesBefore):undefined,
+      bodyStatesAfter:event.bodyStatesAfter?mapBodies(event.bodyStatesAfter):undefined,
+      constraintsBefore:event.constraintsBefore,constraintsAfter:event.constraintsAfter,
       id: event.id,
       eventKind: event.kind,
       stageIndex: event.stageIndex,
@@ -103,6 +115,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
   });
 
   return {
+    primaryBodyId:source.primaryBodyId,motionStatus:source.motionStatus,
     timing: source.timing,
     calculations: source.calculations,
     geometry: legacyGeometry(source),
@@ -110,6 +123,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
     stagePlan: plan,
     durationSeconds: source.durationSeconds,
     segments: source.segments.map((segment) => ({
+      bodyIds:segment.bodyIds,stagePath:segment.stagePath,
       kind: segmentKind(segment.kind),
       stageKind: segment.kind,
       stageIndex: segment.stageIndex,
@@ -123,6 +137,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
     sampleAt(timeSeconds) {
       const sample = source.sampleAt(Number.isNaN(timeSeconds) ? 0 : timeSeconds);
       return {
+        ...(sample.bodies?{bodies:mapBodies(sample.bodies),constraints:sample.constraints}:{}),
         position: vec(sample.xM, sample.yM),
         velocity: vec(sample.vxMps, sample.vyMps),
         springCompressionM: sample.springCompressionM,
@@ -130,6 +145,10 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
       };
     },
   };
+}
+
+function mapBodies(bodies:Record<string,BodyState>):Record<string,BodyMotionSample>{
+  return Object.fromEntries(Object.entries(bodies).map(([id,b])=>{const{xM,yM,vxMps,vyMps,...rest}=b;return[id,{...rest,position:vec(xM,yM),velocity:vec(vxMps,vyMps)}];}));
 }
 
 export function stageFailureErrors(failure: StagePlanFailure): FieldError[] {

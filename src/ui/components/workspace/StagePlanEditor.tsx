@@ -1,7 +1,9 @@
 import type { StageKind, StagePlanDraft } from "../../../physics/stagePlan";
 import type { FieldError } from "../../../types";
+import { MultiBodyPlanEditor } from './MultiBodyPlanEditor';
 
 const STAGE_LABELS: Record<StageKind, string> = {
+  horizontal_approach: '水平接近', pendulum_swing:'轻绳摆', collision_1d:'水平正碰', parallel_motion:'同步运动',
   spring_release: "预压弹簧释放",
   vertical_arc: "竖直圆弧",
   incline_slide: "斜面下滑",
@@ -89,6 +91,7 @@ export function updateStagePlanKind(draft: StagePlanDraft, index: number, kind: 
 }
 
 export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: Props) {
+  if(draft.bodies||draft.stages.some(s=>s.kind==='pendulum_swing'))return <MultiBodyPlanEditor draft={draft} onChange={onChange} missingKeys={missingKeys} fieldErrors={fieldErrors}/>;
   const errorMap = new Map(fieldErrors.filter((error) => error.path).map((error) => [error.path!, error.message]));
   const flagged = (path: string) =>
     errorMap.has(path) || missingKeys.some((key) => key === path || key.startsWith(path + "/") || path.startsWith(key + "/"));
@@ -265,6 +268,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                     </>
                   )}
                   {kind === "projectile" && (() => {
+                    const fromIncline = draft.stages[index - 1]?.kind === "incline_slide";
                     const fixed = "landingPlaneYM" in stage || (!("dropHeightM" in stage) && draft.stages[index - 1]?.kind === "vertical_arc");
                     const key = fixed ? "landingPlaneYM" : "dropHeightM";
                     return <>
@@ -276,8 +280,8 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                           }}>
                           <option value="drop">相对发射点的落差</option><option value="plane">固定世界高度</option>
                         </select></td><td /></tr>
-                      {numberRow({ key, label: fixed ? "落地平面高度 y" : "落地平面落差 h", unit: "m", step: .05,
-                        hint: fixed ? "与场景共用坐标原点；圆弧后必须固定地面" : "非负落差，圆弧后请切换为固定高度",
+                      {numberRow({ key, label: fixed ? "落地平面高度 y" : fromIncline ? "檐口到地面高度 h" : "落地平面落差 h", unit: "m", step: .05,
+                        hint: fromIncline ? fixed ? "以檐口为(0,0)，地面y≤0" : "从檐口量到地面，不从坡顶量高度" : fixed ? "与场景共用坐标原点；圆弧后必须固定地面" : "非负落差，圆弧后请切换为固定高度",
                         path: `/stages/${index}/${key}`, value: stage[key], onChange: raw => setStageNumber(index, key, raw) })}
                     </>;
                   })()}

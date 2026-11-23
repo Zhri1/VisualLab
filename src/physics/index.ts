@@ -15,6 +15,11 @@ export type { Stage, StageKind, StagePlanDraft, ResolvedStagePlan, StagePlanVali
 export type { StageScene, StageMotion, StageGeometry, StageEvent, EndReason } from "./stageMotion.ts";
 export type { StageSample, ArcConstraint, VerticalArcGeometry } from "./stageMotion.ts";
 export { assembleStageScene, buildStageMotion } from "./stageMotion.ts";
+export { collide1D } from './collision.ts';
+export { truncateStagePlan } from './truncateStagePlan.ts';
+export { createPendulum } from './pendulum.ts';
+export type { BodyState, BodySnapshot, BodyDefinition, StringState, MotionStatus, BodyGeometry } from './multiBodyTypes.ts';
+export type { HorizontalInitial, InitialBody, HorizontalApproach, HorizontalCollision, CollisionValues } from './horizontalTypes.ts';
 
 export function assembleScene(input: StagePlanDraft | ResolvedStagePlan): ReturnType<typeof assembleStageScene>;
 export function assembleScene(input: Omit<Reading, "templateId"> & { templateId: string }): ReturnType<typeof assembleLegacyScene>;
