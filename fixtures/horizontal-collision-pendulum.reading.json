@@ -1,0 +1,108 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "bodies": [
+    {
+      "bodyId": "one",
+      "massKg": 1
+    },
+    {
+      "bodyId": "two",
+      "massKg": 3
+    }
+  ],
+  "primaryBodyId": "one",
+  "initial": {
+    "bodies": [
+      {
+        "bodyId": "one",
+        "xM": 0,
+        "vxMps": 2
+      },
+      {
+        "bodyId": "two",
+        "xM": 1,
+        "vxMps": 0,
+        "constraint": {
+          "kind": "pendulum_string",
+          "pivotXM": 1,
+          "lengthM": 1,
+          "pivotFixed": true,
+          "lightInextensibleString": true,
+          "airResistanceNegligible": true,
+          "initialStringState": "taut"
+        }
+      }
+    ]
+  },
+  "stages": [
+    {
+      "kind": "horizontal_approach",
+      "tracks": [
+        {
+          "bodyId": "one",
+          "kineticFrictionCoefficient": 0
+        },
+        {
+          "bodyId": "two",
+          "kineticFrictionCoefficient": 0
+        }
+      ],
+      "end": {
+        "kind": "contact_or_rest"
+      }
+    },
+    {
+      "kind": "collision_1d",
+      "bodyIds": [
+        "one",
+        "two"
+      ],
+      "mode": "elastic",
+      "contact": {
+        "kind": "horizontal_meeting",
+        "approachStageIndex": 0
+      },
+      "externalImpulseNegligible": true
+    },
+    {
+      "kind": "parallel_motion",
+      "tracks": [
+        {
+          "bodyIds": [
+            "one"
+          ],
+          "stages": [
+            {
+              "kind": "horizontal_slide",
+              "kineticFrictionCoefficient": 0,
+              "end": {
+                "kind": "distance",
+                "distanceM": 2
+              }
+            }
+          ]
+        },
+        {
+          "bodyIds": [
+            "two"
+          ],
+          "stages": [
+            {
+              "kind": "pendulum_swing",
+              "inheritFromBodyId": "two",
+              "end": {
+                "kind": "scene_end"
+              }
+            }
+          ]
+        }
+      ],
+      "end": {
+        "kind": "pendulum_turn",
+        "bodyId": "two"
+      }
+    }
+  ]
+}
