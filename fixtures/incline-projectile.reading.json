@@ -1,0 +1,10 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "initial": { "speedMps": 0 },
+  "stages": [
+    { "kind": "incline_slide", "lengthM": 2.5, "angleDeg": 36.86989764584402, "kineticFrictionCoefficient": 0.125, "slidesAfterRelease": true },
+    { "kind": "projectile", "dropHeightM": 1.95 }
+  ]
+}
