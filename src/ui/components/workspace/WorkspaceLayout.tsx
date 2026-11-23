@@ -310,6 +310,7 @@ export function WorkspaceLayout({ ws }: Props) {
         onClose={() => setViewerOpen(false)}
         reading={ws.reading}
         imageUrl={ws.imageUrl}
+        problemText={ws.problemText}
         missingKeys={ws.missingKeys}
         fieldErrors={ws.notice?.fieldErrors ?? []}
         onApply={ws.applyConditions}

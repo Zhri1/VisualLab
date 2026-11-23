@@ -9,6 +9,7 @@
  * 回包四种状态（ok / needs_input / unsupported / 400·502·504）都已在此归一。
  */
 import { MOCK_LATENCY_MS, PLAN_ENDPOINT } from "../config/endpoints";
+import { getSample } from "../data/samples";
 import { parseCommand, type CommandResult } from "../api/command";
 import type { StagePlanDraft } from "../physics/stagePlan";
 import type { FieldError, PlanResponse, Reading, WorkspaceReading } from "../types";
@@ -63,16 +64,18 @@ export function getMockScenario(): MockScenario | null {
   return forcedScenario;
 }
 
-export function mockPlan(hasImage: boolean, isSample = false): PlanResponse {
+export function mockPlan(hasImage: boolean, isSample = false, sampleId?: string): PlanResponse {
   // 内置示例是兜底路径：不受联调开关影响，也不受「无图即缺项」影响，永远成功。
   // message/assumptions 与真实服务 ok 回包同一形状（CONTRACTS.md 第 2 节），
   // 这样演示时的开场白和接真模型时完全一致。
   if (isSample) {
+    const sample = getSample(sampleId);
     return {
       status: "ok",
-      reading: SAMPLE_READING,
-      message: "已按 g=10 m/s²、μ=0.5、倾角 37° 计算",
-      assumptions: [...SAMPLE_ASSUMPTIONS],
+      reading: sample.reading,
+      message: sample.message,
+      assumptions: [...sample.assumptions],
+      problemText: sample.problemText,
     };
   }
   const scenario = forcedScenario ?? "ok";
@@ -126,13 +129,15 @@ export async function requestPlan(input: {
   text?: string;
   /** 内置示例：跳过所有模拟失败 */
   isSample?: boolean;
+  /** 内置示例 id；缺省用第一道。 */
+  sampleId?: string;
 }): Promise<PlanResponse> {
   // 内置示例是兜底路径：不打网络，也不受联调开关影响。
   // 线上 VITE_USE_MOCK_API=false 时，示例若走 fetch 就会被网关拦截，整页演示失败。
   if (input.isSample) {
     const [lo, hi] = MOCK_LATENCY_MS;
     await sleep((lo + Math.random() * (hi - lo)) * 0.35);
-    return mockPlan(Boolean(input.file), true);
+    return mockPlan(Boolean(input.file), true, input.sampleId);
   }
 
   if (USE_MOCK_API) {

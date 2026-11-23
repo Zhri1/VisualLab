@@ -54,6 +54,8 @@ export function useWorkspace() {
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  /** 内置示例的题面；识别题图时为 null。 */
+  const [problemText, setProblemText] = useState<string | null>(null);
 
   const [notice, setNotice] = useState<Notice | null>(null);
   /** 缺项：需要用户在核对表里补齐 */
@@ -145,9 +147,10 @@ export function useWorkspace() {
   /* ---------------- 识别 ---------------- */
 
   const recognize = useCallback(
-    async (input: { file?: File | null; text?: string; isSample?: boolean }) => {
+    async (input: { file?: File | null; text?: string; isSample?: boolean; sampleId?: string }) => {
       setIsRecognizing(true);
       setNotice(null);
+      setProblemText(null);
 
       if (input.file) {
         // 提到外层常量：类型收窄进不了 setState 的更新回调
@@ -163,11 +166,13 @@ export function useWorkspace() {
         file: input.file,
         text: input.text,
         isSample: input.isSample,
+        sampleId: input.sampleId,
       });
       setIsRecognizing(false);
 
       if (res.status === "ok") {
         setPhase("workspace");
+        setProblemText(res.problemText ?? null);
         applyReading(res.reading);
         // 假设不写在正文里重复：有假设时正文只报条数，条目交给对话胶囊；
         // 没有假设就退回回包 message（或通用开场白），离线 mock 与真实服务保持一致。
@@ -176,14 +181,21 @@ export function useWorkspace() {
           assumptions.length > 0
             ? `已识别题目，按以下 ${assumptions.length} 条假设计算`
             : res.message?.trim() || "已识别题目";
-        setMessages([
-          {
-            id: uid(),
-            role: "assistant",
-            text: `${summary}。可以直接提问，也可以让我修改条件，比如「把劲度系数改成 100 N/m」。`,
-            assumptions,
-          },
-        ]);
+        const summaryMessage: ChatMessage = {
+          id: uid(),
+          role: "assistant",
+          text: `${summary}。可以直接提问，也可以让我修改条件，比如「把劲度系数改成 100 N/m」。`,
+          assumptions,
+        };
+        // 内置示例把完整题面放在对话首条，用户不用打开抽屉也能看到在算什么。
+        setMessages(
+          res.problemText
+            ? [
+                { id: uid(), role: "assistant", text: `【题目】\n${res.problemText}` },
+                summaryMessage,
+              ]
+            : [summaryMessage]
+        );
         return res;
       }
 
@@ -239,9 +251,8 @@ export function useWorkspace() {
 
   /** 内置示例：绕过联调开关，永远成功 */
   const loadSample = useCallback(
-    (_scenario?: unknown) => {
-      // 参数保留给 DevBar 的调用签名，示例本身不参与模拟失败
-      void recognize({ text: "内置示例", isSample: true });
+    (sampleId?: string) => {
+      void recognize({ text: "内置示例", isSample: true, sampleId });
     },
     [recognize]
   );
@@ -257,6 +268,7 @@ export function useWorkspace() {
     setIsPlaying(false);
     setNotice(null);
     setMissingKeys([]);
+    setProblemText(null);
     setImageFile(null);
     setImageUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
@@ -573,6 +585,7 @@ export function useWorkspace() {
       isChatLoading,
       imageUrl,
       imageFile,
+      problemText,
       notice,
       missingKeys,
       // actions
@@ -597,7 +610,7 @@ export function useWorkspace() {
     }),
     [
       phase, reading, appliedReading, motion, currentTime, isPlaying, playbackRate, autoPauseEvents, segmentPlayback, messages,
-      isRecognizing, isChatLoading, imageUrl, imageFile, notice, missingKeys,
+      isRecognizing, isChatLoading, imageUrl, imageFile, problemText, notice, missingKeys,
       recognize, loadSample, restartHome, seek, seekEvent, nextEvent, togglePlay,
       replay, sendChat, undoChange, applyConditions, slowCurrentSegment, exitSegmentPlayback,
     ]
