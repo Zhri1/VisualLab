@@ -33,6 +33,7 @@ interface Props {
   motion: Motion | null;
   time: number;
   isPlaying?: boolean;
+  readouts?: boolean;
 }
 
 interface Transform {
@@ -515,7 +516,7 @@ function drawScene(
 }
 
 export function PhysicsCanvas(props: Props) {
-  if(props.motion?.primaryBodyId)return <MultiBodyPhysicsCanvas motion={props.motion} time={props.time} isPlaying={props.isPlaying} trackedBodyId={props.trackedBodyId}/>;
+  if(props.motion?.primaryBodyId)return <MultiBodyPhysicsCanvas motion={props.motion} time={props.time} isPlaying={props.isPlaying} trackedBodyId={props.trackedBodyId} readouts={props.readouts}/>;
   if (props.motion?.stageGeometry) {
     return <StagePhysicsCanvas motion={props.motion} time={props.time} isPlaying={props.isPlaying} />;
   }

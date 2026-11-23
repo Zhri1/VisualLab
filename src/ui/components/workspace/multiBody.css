@@ -11,17 +11,15 @@
 .body-scene-legend li { white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
 .body-tracking select { max-width: 180px; }
 .player-panel.body-player-panel { overflow-y: auto; }
-.canvas-frame.body-canvas-frame { min-height: 300px; }
+.canvas-frame.body-canvas-frame { min-height: 200px; }
 .body-plan-editor .cond-table { table-layout: fixed; }
 .body-plan-editor .cond-table .val { width: 40%; min-width: 0; white-space: normal; }
-.multi-body-readouts { padding: 9px 12px; border-top: 1px solid var(--border); flex: none; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px 12px; font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; }
-.body-body-value { min-height: 50px; }
-.multi-body-readouts.has-horizontal-states .body-body-value { min-height: 108px; }
-.multi-body-readouts.has-horizontal-states.has-long-ids .body-body-value { min-height: 144px; }
-.multi-body-readouts.has-long-ids .body-body-value { min-height: 84px; }
+/* 读数放在「路段与计时」折叠区：高度随内容自适应，不再用 min-height 撑出空白块，
+   画布卡片因此与单物体版保持同一布局。 */
+.multi-body-readouts { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--hair); display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px 12px; font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; }
 .multi-body-readouts span { overflow-wrap: anywhere; }
-.multi-body-readouts .body-constraint { grid-column: 1 / -1; min-height: 36px; }
-.multi-body-readouts.has-long-ids .body-constraint { min-height: 60px; }
+.multi-body-readouts .body-constraint { grid-column: 1 / -1; }
+@media(max-width:720px) { .multi-body-readouts { grid-template-columns: 1fr; font-size: 11.5px; } }
 .body-swatch { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
 .explain.multi-body-explain { display: block; }
 .collision-values { width: 100%; margin-top: 12px; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
