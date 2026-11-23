@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Image as ImageIcon } from "lucide-react";
+import { ChevronDown, Image as ImageIcon } from "lucide-react";
 import type { Workspace } from "../../../hooks/useWorkspace";
 import { isStageReading } from "../../../types";
 import { ChatPanel } from "../chat/ChatPanel";
@@ -14,9 +14,29 @@ interface Props {
   ws: Workspace;
 }
 
+type MobileTab = "player" | "chat";
+
+/** 只在手机宽度渲染标签，桌面 DOM 与改动前保持一致。 */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(query).matches,
+  );
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const onChange = () => setMatches(mql.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, [query]);
+  return matches;
+}
+
 export function WorkspaceLayout({ ws }: Props) {
   const { motion, currentTime, isPlaying } = ws;
+  const isMobile = useMediaQuery("(max-width: 720px)");
   const [viewerOpen, setViewerOpen] = useState(false);
+  const [mobileTab, setMobileTab] = useState<MobileTab>("player");
+  const [metaOpen, setMetaOpen] = useState(false);
+  const [explainOpen, setExplainOpen] = useState(false);
   const rafRef = useRef<number | null>(null);
   const lastRef = useRef<number | null>(null);
   const clockTimeRef = useRef(currentTime);
@@ -49,6 +69,24 @@ export function WorkspaceLayout({ ws }: Props) {
   setTimeRef.current = ws.setCurrentTime;
   const setPlayingRef = useRef(ws.setIsPlaying);
   setPlayingRef.current = ws.setIsPlaying;
+
+  // 手机浏览器地址栏/键盘会改变可视高度：用 visualViewport 撑住整屏工作台。
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const root = document.documentElement;
+    const apply = () => {
+      root.style.setProperty("--app-vh", `${Math.max(320, Math.round(viewport.height))}px`);
+    };
+    apply();
+    viewport.addEventListener("resize", apply);
+    viewport.addEventListener("scroll", apply);
+    return () => {
+      viewport.removeEventListener("resize", apply);
+      viewport.removeEventListener("scroll", apply);
+      root.style.removeProperty("--app-vh");
+    };
+  }, []);
 
   // 播放时钟：只在工作台内运行，读取同一份 currentTime
   useEffect(() => {
@@ -85,8 +123,38 @@ export function WorkspaceLayout({ ws }: Props) {
 
   return (
     <>
+      {isMobile && <div className="mobile-tabs" role="tablist" aria-label="工作台视图">
+        <button
+          type="button"
+          role="tab"
+          id="work-tab-player"
+          aria-selected={mobileTab === "player"}
+          aria-controls="work-panel-player"
+          className="mobile-tab"
+          onClick={() => setMobileTab("player")}
+        >
+          播放
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="work-tab-chat"
+          aria-selected={mobileTab === "chat"}
+          aria-controls="work-panel-chat"
+          className="mobile-tab"
+          onClick={() => setMobileTab("chat")}
+        >
+          对话
+        </button>
+      </div>}
+
       <div className="workspace">
-        <section className="panel player-panel">
+        <section
+          id="work-panel-player"
+          role="tabpanel"
+          aria-labelledby="work-tab-player"
+          className={`panel player-panel${isMobile && mobileTab !== "player" ? " is-tab-hidden" : ""}`}
+        >
           {ws.notice && (
             <div className={`notice ${ws.notice.kind}`} style={{ marginBottom: 14 }}>
               <span style={{ flex: 1 }}>{ws.notice.text}</span>
@@ -112,39 +180,53 @@ export function WorkspaceLayout({ ws }: Props) {
               <h1 className="player-title">{title}</h1>
               <p className="player-sub">{subtitle}</p>
             </div>
-            <button className="ghost-button" onClick={() => setViewerOpen(true)}>
+            <button className="ghost-button" onClick={() => setViewerOpen(true)} aria-label="查看原题">
               <ImageIcon size={14} strokeWidth={1.8} />
-              查看原题
+              <span className="btn-label">查看原题</span>
             </button>
           </div>
 
-          {motion?.timing && <div className="notice info" role="status"><span>{motion.timing.mode === "full" ? "全程精确播放" : motion.timing.mode === "suffix" ? "前段示意 · 从B精确计时" : "仅展示已知状态 · 用时未知"}：{motion.timing.reason}
-            {motion.calculations?.map(c => <span key={c.quantity}>　{{ initial_elastic_energy: "初始弹性势能", release_speed: "脱离速度", arc_entry_speed: "入弧速度" }[c.quantity] ?? c.quantity} = {Number(c.value.toPrecision(6))} {c.unit}（{c.source === "derived" ? "物理推导" : "题设/用户给定"}）</span>)}</span></div>}
-          {motion && (
-            <ul className="scene-legend" aria-label="路段与动摩擦因数">
-              {stagePlan ? motion.segments.map((segment) => {
-                const stage = segment.stageIndex == null ? null : stagePlan.stages[segment.stageIndex];
-                const friction = stage && "kineticFrictionCoefficient" in stage && typeof stage.kineticFrictionCoefficient === "number"
-                  ? stage.kineticFrictionCoefficient
-                  : null;
-                return (
-                  <li key={`${segment.stageIndex}-${segment.kind}`} aria-current={activeSegment === segment ? "step" : undefined}>
-                    <b>{String((segment.stageIndex ?? 0) + 1).padStart(2, "0")}</b> {segment.name}
-                    {friction != null && <span>μ = {friction.toFixed(2)}</span>}
-                  </li>
-                );
-              }) : (
-                <>
-                  <li aria-current={activeSegment?.kind === "incline" ? "step" : undefined}>
-                    <b>AB</b> 斜面 <span>μ = {legacyReading?.conditions.kineticFrictionCoefficient?.toFixed(2)}</span>
-                  </li>
-                  <li aria-current={activeSegment?.kind !== "incline" ? "step" : undefined}>
-                    <b>BC</b> 水平面 <span>μ = 0</span>
-                  </li>
-                </>
-              )}
-            </ul>
-          )}
+          <button
+            type="button"
+            className="meta-toggle"
+            aria-expanded={metaOpen}
+            aria-controls="player-meta"
+            onClick={() => setMetaOpen((open) => !open)}
+          >
+            路段与计时
+            <ChevronDown size={15} strokeWidth={2} className="chev" />
+          </button>
+
+          <div id="player-meta" className={`player-meta${metaOpen ? "" : " is-collapsed"}`}>
+            {motion?.timing && <div className="notice info" role="status"><span>{motion.timing.mode === "full" ? "全程精确播放" : motion.timing.mode === "suffix" ? "前段示意 · 从B精确计时" : "仅展示已知状态 · 用时未知"}：{motion.timing.reason}
+              {motion.calculations?.map(c => <span key={c.quantity}>　{{ initial_elastic_energy: "初始弹性势能", release_speed: "脱离速度", arc_entry_speed: "入弧速度" }[c.quantity] ?? c.quantity} = {Number(c.value.toPrecision(6))} {c.unit}（{c.source === "derived" ? "物理推导" : "题设/用户给定"}）</span>)}</span></div>}
+            {motion && (
+              <ul className="scene-legend" aria-label="路段与动摩擦因数">
+                {stagePlan ? motion.segments.map((segment) => {
+                  const stage = segment.stageIndex == null ? null : stagePlan.stages[segment.stageIndex];
+                  const friction = stage && "kineticFrictionCoefficient" in stage && typeof stage.kineticFrictionCoefficient === "number"
+                    ? stage.kineticFrictionCoefficient
+                    : null;
+                  return (
+                    <li key={`${segment.stageIndex}-${segment.kind}`} aria-current={activeSegment === segment ? "step" : undefined}>
+                      <b>{String((segment.stageIndex ?? 0) + 1).padStart(2, "0")}</b> {segment.name}
+                      {friction != null && <span>μ = {friction.toFixed(2)}</span>}
+                    </li>
+                  );
+                }) : (
+                  <>
+                    <li aria-current={activeSegment?.kind === "incline" ? "step" : undefined}>
+                      <b>AB</b> 斜面 <span>μ = {legacyReading?.conditions.kineticFrictionCoefficient?.toFixed(2)}</span>
+                    </li>
+                    <li aria-current={activeSegment?.kind !== "incline" ? "step" : undefined}>
+                      <b>BC</b> 水平面 <span>μ = 0</span>
+                    </li>
+                  </>
+                )}
+              </ul>
+            )}
+          </div>
+
           <div className="canvas-frame">
             {motion ? (
               <PhysicsCanvas motion={motion} time={currentTime} isPlaying={isPlaying} />
@@ -183,19 +265,33 @@ export function WorkspaceLayout({ ws }: Props) {
                 onSlowSegment={ws.slowCurrentSegment}
                 onExitSegment={ws.exitSegmentPlayback}
               />
-              {motion.timing?.mode !== "state_only" && <div className="explanation-slot">
-                <PhysicsExplanation motion={motion} time={currentTime} />
-                <div className="explanation-reserve" aria-hidden="true">
-                  {explanationTimes.map((time, index) => (
-                    <PhysicsExplanation key={index} motion={motion} time={time} />
-                  ))}
-                </div>
-              </div>}
+              {motion.timing?.mode !== "state_only" && (
+                <>
+                  <button
+                    type="button"
+                    className="explain-toggle"
+                    aria-expanded={explainOpen}
+                    aria-controls="explain-slot"
+                    onClick={() => setExplainOpen((open) => !open)}
+                  >
+                    本段原理
+                    <ChevronDown size={15} strokeWidth={2} className="chev" />
+                  </button>
+                  <div id="explain-slot" className={`explanation-slot${explainOpen ? "" : " is-collapsed"}`}>
+                    <PhysicsExplanation motion={motion} time={currentTime} />
+                    <div className="explanation-reserve" aria-hidden="true">
+                      {explanationTimes.map((time, index) => (
+                        <PhysicsExplanation key={index} motion={motion} time={time} />
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
             </>
           ) : null}
         </section>
 
-        <ChatPanel ws={ws} />
+        <ChatPanel ws={ws} className={isMobile && mobileTab !== "chat" ? "is-tab-hidden" : undefined} />
       </div>
 
       <OriginalProblemViewer
