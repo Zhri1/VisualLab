@@ -15,6 +15,7 @@ VisualLab 是面向高中力学的学习工具，参加 2026 Qoder 高校创造�
 | [PROJECT_PLAN_FINAL.md](PROJECT_PLAN_FINAL.md) | 产品范围、物理原理、七天排期和验收用例 |
 | [CONTRACTS.md](CONTRACTS.md) | 图片接口、识别 JSON、场景装配和播放器接口 |
 | [INCLINE_PROJECTILE.md](INCLINE_PROJECTILE.md) | 待联审的斜面末端直接斜抛接续、共享输入和独立数值基准 |
+| [CIRCULAR_TRACK.md](CIRCULAR_TRACK.md) | 完整内轨与非最低点入口圆弧的待联审契约、共享输入和独立数值基准 |
 | [AGENTS.md](AGENTS.md) | 三人协作边界和 Qoder 开发约定 |
 | [共享识别样例](fixtures/incline-spring.reading.json) | 标准题的 `reading`，前端、物理库和 AI 接口共同使用 |
 

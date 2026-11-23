@@ -1,0 +1,40 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "massKg": 0.1,
+  "initial": {
+    "speedMps": 0
+  },
+  "stages": [
+    {
+      "kind": "incline_slide",
+      "lengthM": 1.6,
+      "angleDeg": 30,
+      "kineticFrictionCoefficient": 0,
+      "slidesAfterRelease": true
+    },
+    {
+      "kind": "vertical_arc",
+      "radiusM": 0.4,
+      "side": "inside",
+      "frictionless": true,
+      "path": {
+        "center": {
+          "xM": 0.2,
+          "yM": 0.34641016151377546
+        },
+        "startAngleDeg": -30,
+        "direction": "positive",
+        "end": {
+          "kind": "physical_endpoint",
+          "sweepAngleDeg": 90
+        }
+      }
+    },
+    {
+      "kind": "projectile",
+      "landingPlaneYM": 0
+    }
+  ]
+}
