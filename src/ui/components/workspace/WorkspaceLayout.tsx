@@ -130,7 +130,7 @@ export function WorkspaceLayout({ ws }: Props) {
           {motion?.timing && <div className="notice info" role="status"><span>{motion.timing.mode === "full" ? "全程精确播放" : motion.timing.mode === "suffix" ? "前段示意 · 从B精确计时" : "仅展示已知状态 · 用时未知"}：{motion.timing.reason}
             {motion.calculations?.map(c => <span key={c.quantity}>　{{ initial_elastic_energy: "初始弹性势能", release_speed: "脱离速度", arc_entry_speed: "入弧速度" }[c.quantity] ?? c.quantity} = {Number(c.value.toPrecision(6))} {c.unit}（{c.source === "derived" ? "物理推导" : "题设/用户给定"}）</span>)}</span></div>}
           {motion?.motionStatus&&<div className="notice info" role="status"><span>{motion.motionStatus.state==='model_limit'?'有限求解范围':motion.motionStatus.state==='range_end'?'播放范围终点':'真实静止结局'}：{motion.motionStatus.message}</span></div>}
-          {motion?.primaryBodyId&&<label className="body-tracking">跟踪物体<select aria-label="跟踪物体" value={trackedBodyId??motion.primaryBodyId} onChange={e=>setTrackedBodyId(e.target.value)}>{motion.stageGeometry?.bodies?.map(b=><option value={b.bodyId} key={b.bodyId}>{b.bodyId}</option>)}</select><span>物体与绳共用同一物理时间</span></label>}
+          {motion?.primaryBodyId&&<label className="body-tracking">跟踪物体<select aria-label="跟踪物体" value={trackedBodyId??motion.primaryBodyId} onChange={e=>setTrackedBodyId(e.target.value)}>{motion.stageGeometry?.bodies?.map(b=><option value={b.bodyId} key={b.bodyId}>{b.bodyId}</option>)}</select><span>{(motion.stageGeometry?.bodies?.length??0)>1?'两物体共用同一物理时间':'物体与绳共用同一物理时间'}</span></label>}
           {motion && (
             <ul className={'scene-legend'+(motion.primaryBodyId?' body-scene-legend':'')} aria-label="路段与动摩擦因数">
               {stagePlan ? motion.segments.map((segment) => {

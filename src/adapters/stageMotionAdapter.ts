@@ -94,6 +94,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
           ? "spring_contact"
           : "incline_slide";
     return {
+      collision:event.collision,
       bodyIds:event.bodyIds,stagePath:event.stagePath,
       bodyStatesBefore:event.bodyStatesBefore?mapBodies(event.bodyStatesBefore):undefined,
       bodyStatesAfter:event.bodyStatesAfter?mapBodies(event.bodyStatesAfter):undefined,

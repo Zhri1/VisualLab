@@ -16,6 +16,8 @@
 .body-plan-editor .cond-table .val { width: 40%; min-width: 0; white-space: normal; }
 .multi-body-readouts { padding: 9px 12px; border-top: 1px solid var(--border); flex: none; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px 12px; font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; }
 .body-body-value { min-height: 50px; }
+.multi-body-readouts.has-horizontal-states .body-body-value { min-height: 108px; }
+.multi-body-readouts.has-horizontal-states.has-long-ids .body-body-value { min-height: 144px; }
 .multi-body-readouts.has-long-ids .body-body-value { min-height: 84px; }
 .multi-body-readouts span { overflow-wrap: anywhere; }
 .multi-body-readouts .body-constraint { grid-column: 1 / -1; min-height: 36px; }
