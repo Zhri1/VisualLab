@@ -77,7 +77,7 @@
 
 | 首段类型 | 形状 | 说明 |
 |---|---|---|
-| 斜面 / 水平 / 弹簧 / 竖直圆弧 | `{ "speedMps": 0 }` | 标量速率，非负；圆弧从最低点水平向右入射，其他方向由首段决定 |
+| 斜面 / 水平 / 弹簧 / 竖直圆弧 | `{ "speedMps": 0 }` | 标量速率，非负；旧圆弧从最低点水平向右，显式path由入口角和direction确定切线，见第11节 |
 | 抛体 | `{ "vxMps": 4, "vyMps": 0 }` | 分量可带符号，y 向上为正 |
 
 同时写标量和分量是错误；首段不是抛体却用分量也是错误。
@@ -91,7 +91,7 @@
 | `horizontal_slide` | `kineticFrictionCoefficient`、`end` | `end` 二选一：`{ "kind": "distance", "distanceM": 5 }` 或 `{ "kind": "stop" }`。`distanceM` **从本水平段起点量起**（通常就是坡底/转向点） |
 | `spring_contact` | `springConstantNpm`、`frictionless`、`unattached` | `frictionless` 指水平接触面光滑；`unattached` 指滑块与弹簧不连接。二者为 `false` → 超范围 |
 | `spring_release` | `springConstantNpm`、`initialCompressionM`、`kineticFrictionCoefficient`、`unattached`、`slidesAfterRelease`，必要时releaseCompleteByM | 静止预压释放首段；完整或缺参条件见第8节，由B计算能量与精确范围 |
-| `vertical_arc` | `radiusM`、`endAngleDeg`、`side`、`frictionless` | 光滑竖直圆弧内侧，半径 >0，最低点水平向右入射，沿右半圆向上；端点角从最低点量起，0<角度≤180°，半圆最高点为180°；`side` 仅支持 `"inside"`；光滑前提未知填 `null` |
+| `vertical_arc` | `radiusM`、旧 `endAngleDeg` 或互斥的显式 `path`、`side`、`frictionless` | 旧模式为最低点向右的半圆范围；完整内轨或不同角度入口按第11节提取固定圆心、入口角、方向与实体/观察终点；仍只支持inside和光滑，未知事实填null |
 | `projectile` | `dropHeightM` 或 `landingPlaneYM`，只能保留一个键 | 旧 `dropHeightM` 是相对发射点的非负落差。`landingPlaneYM` 是固定世界坐标的落地高度，可带符号；圆弧后必须用固定高度，最低点地面且首段从最低点开始时为0。依据不足填 `null`，不要按最终脱轨位置猜地面 |
 | `pendulum_swing` | bodyIds、lengthM、initialAngleDeg、initialStringState、理想绳/支点事实、end；碰后用inheritFromStageIndex | 第9节；不能将60°按小角近似、不能把绳当可推的杆 |
 | `collision_1d` | bodyIds、mode、normalXM、contact、targetApproach、externalImpulseNegligible | 第9节；两质量和带方向速度，碰撞算式由B执行 |
@@ -115,7 +115,7 @@
 
 V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
-1. `incline_slide` → `lossless_turn`，或题面明确到檐口沿坡切线飞出时直接接 `projectile`（见下方及样例D）
+1. `incline_slide` → `lossless_turn`，或题面明确到檐口沿坡切线飞出时直接接 `projectile`（见下方及样例D）；题设明确末端切向进入有半径圆弧时可直接接带显式path的vertical_arc（第11节）
 2. `lossless_turn` → `horizontal_slide`、`spring_contact` 或 `vertical_arc`
 3. `horizontal_slide`（定距） → `spring_contact`、`projectile` 或 `vertical_arc`
 4. `vertical_arc` → `projectile`，后者使用固定 `landingPlaneYM`；实际到端点、先脱轨或回滑由物理库判定，不由模型预先删段
@@ -138,7 +138,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 `incline_slide → projectile` 表示斜面末端（檐口）沿真实切线飞出；不补转向或水平段，不在后段写发射速度分量，不预先因会停下而删掉计划后缀，B会计算是否实际离檐。檐口为世界原点(0,0)，`dropHeightM`从檐口量到地面，不能用坡顶到地面的高度冒填；固定地面可用互斥的`landingPlaneYM`，本组合实际发射时地面y≤0。仅知坡顶总高却不能确定檐口高度时保留待补，不按图像比例或运动答案反推。若题面又要求到斜面末端瞬间变成水平速度、却未给转向机制，应保留真实题面并说明矛盾，不能暗添光滑转向来凑答案。
 
-`horizontal_slide` 接 `vertical_arc` 时，`distanceM` 是到圆弧最低点的距离。坐标原点仍是全场景第一段起点（斜面起始时沿用坡底原点），圆弧入口不得重置到0。只有无高度差的短光滑过渡才用 `lossless_turn`；给出半径且高度变化不可忽略的竖直圆轨道必须用 `vertical_arc`。外侧、双面卡槽、粗糙或超过半圈暂不支持。预压释放和临界能量条件见第8节；不要伪造初速、劲度系数或压缩量。
+`horizontal_slide` 接旧 `vertical_arc` 时，`distanceM` 是到圆弧最低点的距离；接显式path则是到实际入口的距离，须匹配世界圆心和切线。斜面起始仍沿用坡底原点，圆弧入口不得重置到0。只有无高度差的短光滑过渡才用 `lossless_turn`；给出半径且高度变化不可忽略的竖直圆轨道用 `vertical_arc`。外侧、双面卡槽或粗糙圆弧暂不支持；超过半圈及完整一圈按第11节。预压释放和临界能量条件见第8节；不要伪造初速、劲度系数或压缩量。
 
 ### 4.1 省略水平段 = 断言「弹簧紧贴坡底」
 
@@ -368,7 +368,27 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - 已有绳只在对应initial.bodies条目写constraint:{kind:"pendulum_string",pivotXM,lengthM,pivotFixed:true,lightInextensibleString:true,airResistanceNegligible:true,initialStringState:"taut"}。水平等待的已有绳物体须静止在最低点；非零水平初速仅能在t=0立即碰撞，不把绷紧摆误画成碰前直线运动。碰后pendulum_swing用inheritFromBodyId引用它，不能临时造绳或绕过张紧绳直接飞行；实际松绳由B判定。
 - 相遇/追及、先停后被追上、无碰撞、共速无冲击或再次相遇均由B按实际轨迹判定。不填写这些答案，不为未发生的后段输出假时间；当前只求一次冲击，再次接触保留入射边界。
 
-## 11. 提交前自检
+## 11. 完整内轨与非最低点切向入弧
+
+共享契约 CIRCULAR_TRACK.md，沿用schemaVersion:1、vertical_arc及顶层m/g，不注册整题。旧半圆字段继续有效。题给完整圆轨、非最低点入口或明确世界圆心时，提取互斥分支：
+
+```json
+{
+  "kind":"vertical_arc","radiusM":0.4,"side":"inside","frictionless":true,
+  "path":{"center":{"xM":0,"yM":0.4},"startAngleDeg":0,"direction":"positive",
+    "end":{"kind":"observation","sweepAngleDeg":360}}
+}
+```
+
+上例表示题面明确从最低点向右绕内轨、只观察一圈，绝不据此声称完成一圈时轨道断开。`path`与旧`endAngleDeg`不得同时输出。圆心米制固定世界坐标；入口角从最低点量，0在低点、90在右、180在顶；输入[-180,180]，direction positive角度增大、negative减小，角程为正。physical_endpoint表示题面确有实体端点（角程<360），observation表示有限观察（角程≤360）；方向、端点性质或几何无法确定时相应字段null，不默认为实体断口。
+
+后缀projectile继续固定landingPlaneYM，不按计划最高点猜落差。实际是否脱轨、顶点N=0是否仍保持接触、落地/回滑和用时都由B计算；不因模型预判“不够高”删计划，不输出自行计算的速度或事件。首段speedMps是题给速率，方向来自path；后段速度继承。斜面直入弧保留沿坡切线及世界(0,0)入口，不能插lossless_turn或把速度压水平。若圆心是由题给几何明确确定的，可换算到同一参考点，并在assumptions说明坐标约定；不从图像像素比例猜圆心/半径/高度。
+
+例如题给无摩擦30°、长1.6m斜面静止释放，末端切向进入R=.4内弧、入口-30°正向至60°实体端点，圆心相对斜面末端为(.2,.2√3)，则输出incline_slide→显式vertical_arc→固定平面projectile，角程90°。不要把0.8s、4m/s或离弧速度写作题给初态。
+
+原预压弹簧的critical_arc_top继续只指旧最低点到180°内轨，不能把该临界条件套给新path；已经归一化的energy及basis不改写。轻绳张力/松绳、同钟bodyId和再次张紧前边界沿第9节，不能用圆轨替换绳。
+
+## 12. 提交前自检
 
 圆弧提取示例：质量0.1 kg，最低点水平入射速度4 m/s，半径0.4 m的光滑竖直半圆内侧，到最高点后可飞出，地面与最低点同高，g=10。输出保留全部计划，不预判提前脱轨：
 

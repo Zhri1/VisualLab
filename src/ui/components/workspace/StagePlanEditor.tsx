@@ -90,6 +90,18 @@ export function updateStagePlanKind(draft: StagePlanDraft, index: number, kind: 
   return next;
 }
 
+export function updateCircularField(draft:StagePlanDraft,index:number,keys:string[],value:unknown):StagePlanDraft{
+  const next=structuredClone(draft),stage=next.stages[index];let object=stage;
+  for(const key of ['path',...keys.slice(0,-1)]){if(!object[key]||typeof object[key]!=='object')object[key]={};object=object[key] as Record<string,unknown>;}
+  object[keys[keys.length-1]]=value;return next;
+}
+export function updateCircularMode(draft:StagePlanDraft,index:number,explicit:boolean):StagePlanDraft{
+  const next=structuredClone(draft),stage=next.stages[index];
+  if(explicit){delete stage.endAngleDeg;if(!stage.path)stage.path={center:{xM:null,yM:null},startAngleDeg:null,direction:null,end:{kind:null,sweepAngleDeg:null}};}
+  else{delete stage.path;stage.endAngleDeg=null;}
+  return next;
+}
+
 export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: Props) {
   if(draft.bodies||draft.stages.some(s=>s.kind==='pendulum_swing'))return <MultiBodyPlanEditor draft={draft} onChange={onChange} missingKeys={missingKeys} fieldErrors={fieldErrors}/>;
   const errorMap = new Map(fieldErrors.filter((error) => error.path).map((error) => [error.path!, error.message]));
@@ -243,7 +255,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
             {known && (
               <table className="cond-table">
                 <tbody>
-                  {(NUMBER_FIELDS[kind] ?? []).map((meta) => numberRow({
+                  {(NUMBER_FIELDS[kind] ?? []).filter(meta=>!(kind==='vertical_arc'&&meta.key==='endAngleDeg'&&Object.prototype.hasOwnProperty.call(stage,'path'))).map((meta) => numberRow({
                     ...meta,
                     path: `/stages/${index}/${meta.key}`,
                     value: stage[meta.key],
@@ -255,6 +267,21 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                   {kind === "spring_release" && <>{factRow(index, "unattached", "滑块与弹簧不连接")}{factRow(index, "slidesAfterRelease", "释放后开始滑动")}</>}
                   {kind === "vertical_arc" && (
                     <>
+                      <tr><td className="name">圆轨几何模式</td><td className="val"><select className="stage-select" aria-label={`阶段 ${index+1} 圆轨几何模式`} value={Object.prototype.hasOwnProperty.call(stage,'path')?'explicit':'legacy'} onChange={e=>onChange(updateCircularMode(draft,index,e.target.value==='explicit'))}>
+                        <option value="legacy">最低点右侧半圆</option><option value="explicit">显式圆心与入射弧段</option>
+                      </select></td><td/></tr>
+                      {Object.prototype.hasOwnProperty.call(stage,'path')&&(()=>{
+                        const p=(stage.path??{}) as Record<string,unknown>,center=(p.center??{}) as Record<string,unknown>,end=(p.end??{}) as Record<string,unknown>;
+                        const rows=[{key:'xM',keys:['center','xM'],label:'圆心 x',unit:'m',value:center.xM},{key:'yM',keys:['center','yM'],label:'圆心 y',unit:'m',value:center.yM},
+                          {key:'startAngleDeg',keys:['startAngleDeg'],label:'入口角 φ₀',unit:'°',value:p.startAngleDeg},{key:'sweepAngleDeg',keys:['end','sweepAngleDeg'],label:'计划角程',unit:'°',value:end.sweepAngleDeg}];
+                        const select=(keys:string[],label:string,value:unknown,options:[string,string][])=>{const path=`/stages/${index}/path/${keys.join('/')}`;return<tr key={path} data-field-path={path}><td className="name">{label}</td><td className="val"><select className={'stage-select'+(flagged(path)?' invalid':'')} aria-label={`阶段 ${index+1} ${label}`} aria-invalid={flagged(path)} value={typeof value==='string'?value:''} onChange={e=>onChange(updateCircularField(draft,index,keys,e.target.value||null))}><option value="">待确认</option>{options.map(([v,text])=><option key={v} value={v}>{text}</option>)}</select></td><td/></tr>;};
+                        return<>{rows.map(row=>numberRow({...row,label:`阶段 ${index+1} ${row.label}`,path:`/stages/${index}/path/${row.keys.join('/')}`,onChange:raw=>onChange(updateCircularField(draft,index,row.keys,asNumber(raw)))}))}
+                          {select(['direction'],'行进方向',p.direction,[['positive','角度增大'],['negative','角度减小']])}
+                          {select(['end','kind'],'圆轨结束方式',end.kind,[['physical_endpoint','实体端点，正速离轨'],['observation','仅观察，轨道仍延续']])}
+                          <tr><td colSpan={3} className="hint">角从最低点量起；观察终点保留速度与支持力。圆心使用固定世界坐标。</td></tr>
+                          {'endAngleDeg'in stage&&<tr><td colSpan={3}><button type="button" className="link" onClick={()=>onChange(updateCircularMode(draft,index,true))}>保留显式路径，移除旧端点角</button></td></tr>}
+                        </>;
+                      })()}
                       <tr data-field-path={`/stages/${index}/side`}>
                         <td className="name">圆轨道接触侧</td>
                         <td className="val"><select className={"stage-select" + (flagged(`/stages/${index}/side`) ? " invalid" : "")}

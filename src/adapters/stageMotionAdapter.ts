@@ -130,6 +130,10 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
       startSeconds: segment.startSeconds,
       endSeconds: segment.endSeconds,
       ...segmentText[segment.kind],
+      ...(segment.kind==='vertical_arc'&&(plan?.stages[segment.stageIndex] as {path?:unknown}|undefined)?.path?{
+        summary:'按真实入射角和切线运动；只有继续需要负支持力才脱轨，观察范围结束仍保持约束。',
+        formula:'q² = u² + 2gR(cosφ − cosφ₀)，N = m(q²/R + gcosφ)',
+      }:{}),
     })),
     events,
     endReason: source.endReason,

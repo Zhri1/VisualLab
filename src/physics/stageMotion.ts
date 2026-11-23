@@ -193,7 +193,7 @@ function arc(stage: Extract<Stage, { kind: "vertical_arc" }>, start: MotionSampl
       events.push(make('arc_turn',solved.ascentSeconds,solved.boundary,solved.boundary,'圆轨转折','瞬时速度为零，随后沿原轨反向，保持真实支持力。'));
       events.push(make('arc_return_entry',solved.duration,solved.end,solved.end,'返回圆弧入口','原路返回入口，保留反向速度与约束；未计算前序轨道的返程。'));
     }else if(reason==='range_end')events.push(make('arc_range_end',solved.duration,solved.end,solved.end,'圆轨观察终点','仅结束观察范围，物体仍沿轨道运动并保持支持力。'));
-    else events.push(make(reason==='contact_lost'?'arc_contact_lost':'arc_endpoint',solved.duration,solved.boundary,solved.end,reason==='contact_lost'?'失去接触':'到达圆弧端点','从真实位置沿实际切线离开圆轨。'));
+    else events.push(make(reason==='contact_lost'?'arc_contact_lost':'arc_endpoint',solved.duration,solved.boundary,solved.end,reason==='contact_lost'?'失去接触':'到达圆弧端点',`从真实位置沿实际切线离开圆轨；离轨前支持力约 ${solved.boundary.constraint!.normalForceN.toFixed(4)} N，之后不再受圆轨约束。`));
     // 同刻极值在边界前，返回途中极值与转折按真实时间归位。
     events.sort((a,b)=>a.time-b.time);
     return{...solved,events,reason:solved.returns?'returned_to_entry':reason==='range_end'?'prefix_end':continues?undefined:'arc_detached'};
