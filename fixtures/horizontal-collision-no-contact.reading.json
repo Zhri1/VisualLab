@@ -1,0 +1,61 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "bodies": [
+    {
+      "bodyId": "one",
+      "massKg": 1
+    },
+    {
+      "bodyId": "two",
+      "massKg": 2
+    }
+  ],
+  "primaryBodyId": "one",
+  "initial": {
+    "bodies": [
+      {
+        "bodyId": "one",
+        "xM": 0,
+        "vxMps": 4
+      },
+      {
+        "bodyId": "two",
+        "xM": 3,
+        "vxMps": 1
+      }
+    ]
+  },
+  "stages": [
+    {
+      "kind": "horizontal_approach",
+      "tracks": [
+        {
+          "bodyId": "one",
+          "kineticFrictionCoefficient": 1
+        },
+        {
+          "bodyId": "two",
+          "kineticFrictionCoefficient": 0.2
+        }
+      ],
+      "end": {
+        "kind": "contact_or_rest"
+      }
+    },
+    {
+      "kind": "collision_1d",
+      "bodyIds": [
+        "one",
+        "two"
+      ],
+      "mode": "elastic",
+      "contact": {
+        "kind": "horizontal_meeting",
+        "approachStageIndex": 0
+      },
+      "externalImpulseNegligible": true
+    }
+  ]
+}

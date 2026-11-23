@@ -1,0 +1,166 @@
+{
+  "description": "契约期望，非运行时回包；初位与初速来自各共享输入。",
+  "epsilonSeconds": 1e-7,
+  "boundaryAbsoluteToleranceSI": 1e-10,
+  "cases": [
+    {
+      "name": "elastic",
+      "contactSeconds": 1,
+      "contactXM": 5,
+      "before": [
+        5,
+        -1
+      ],
+      "after": [
+        -4,
+        2
+      ],
+      "momentum": 2,
+      "energyBeforeJ": 14,
+      "energyAfterJ": 14,
+      "energyLostJ": 0
+    },
+    {
+      "name": "sticky",
+      "contactSeconds": 1,
+      "contactXM": 5,
+      "before": [
+        5,
+        -1
+      ],
+      "after": [
+        0.5,
+        0.5
+      ],
+      "momentum": 2,
+      "energyBeforeJ": 14,
+      "energyAfterJ": 0.5,
+      "energyLostJ": 13.5
+    },
+    {
+      "name": "catch-after-stop",
+      "contactSeconds": 0.8125,
+      "contactXM": 3.25,
+      "before": [
+        4,
+        0
+      ],
+      "after": [
+        -1.3333333333333333,
+        2.6666666666666665
+      ],
+      "momentum": 4,
+      "energyBeforeJ": 8,
+      "energyAfterJ": 8,
+      "energyLostJ": 0,
+      "stopBeforeContact": {
+        "bodyId": "two",
+        "timeSeconds": 0.5,
+        "xM": 3.25
+      }
+    },
+    {
+      "name": "no-contact",
+      "contactSeconds": null,
+      "durationSeconds": 0.5,
+      "endReason": "no_collision",
+      "motionStatus": "complete",
+      "final": [
+        {
+          "bodyId": "one",
+          "xM": 0.8,
+          "vxMps": 0
+        },
+        {
+          "bodyId": "two",
+          "xM": 3.25,
+          "vxMps": 0
+        }
+      ],
+      "eventKinds": [
+        "release",
+        "stop",
+        "stop"
+      ]
+    },
+    {
+      "name": "slides",
+      "contactSeconds": 1,
+      "contactXM": 5,
+      "before": [
+        4,
+        -1
+      ],
+      "after": [
+        -3.5,
+        1.5
+      ],
+      "durationSeconds": 2.75,
+      "endReason": "stopped",
+      "motionStatus": "complete",
+      "final": [
+        {
+          "bodyId": "one",
+          "xM": 1.9375,
+          "vxMps": 0
+        },
+        {
+          "bodyId": "two",
+          "xM": 5.5625,
+          "vxMps": 0
+        }
+      ]
+    },
+    {
+      "name": "flight",
+      "contactSeconds": 1,
+      "contactXM": 5,
+      "before": [
+        5,
+        1
+      ],
+      "after": [
+        -1,
+        3
+      ],
+      "durationSeconds": 1.5,
+      "endReason": "landed",
+      "motionStatus": "range_end",
+      "final": [
+        {
+          "bodyId": "one",
+          "xM": 4.5,
+          "yM": 0,
+          "vxMps": -1,
+          "vyMps": 0
+        },
+        {
+          "bodyId": "two",
+          "xM": 6.5,
+          "yM": -1.25,
+          "vxMps": 3,
+          "vyMps": -5
+        }
+      ]
+    },
+    {
+      "name": "pendulum",
+      "contactSeconds": 0.5,
+      "contactXM": 1,
+      "before": [
+        2,
+        0
+      ],
+      "after": [
+        -1,
+        1
+      ],
+      "turnAngleDeg": 18.194872338766785,
+      "pendulumPivot": {
+        "xM": 1,
+        "yM": 1
+      },
+      "tensionAfterN": 33
+    }
+  ]
+}

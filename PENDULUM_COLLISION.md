@@ -1,5 +1,7 @@
 # 轻绳摆与最低点正碰契约（联审稿）
 
+后续独立水平正碰扩展见 [HORIZONTAL_COLLISION.md](HORIZONTAL_COLLISION.md)。它单独登记两物体初态、水平接近和horizontal_meeting，复用本文的状态/事件表；本文原有pendulum_lowest、targetApproach和继承摆阶段路径保持兼容。新并行中两个有限轨道、已有初态绳约束引用与首次落地的范围规则以该扩展联审版为准。
+
 本文件扩展 [阶段组合契约](STAGE_COMPOSITION.md)，对应 [扩展规划第8节](https://github.com/Zhri1/VisualLab/blob/fb781ba169c041d71c40d7d6159b8d7245dd4884/PROJECT_PLAN_FINAL.md)。本PR只交契约、共享输入和独立计算基准；合并后再实现。当前生产入口尚未登记本文的新阶段。
 
 ## 1. 范围、坐标和物体标识

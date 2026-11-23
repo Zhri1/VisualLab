@@ -1,5 +1,7 @@
 # 运动阶段组合契约（供 A、B、C 联审）
 
+独立水平正碰的待联审扩展见 [HORIZONTAL_COLLISION.md](HORIZONTAL_COLLISION.md)：新增按bodyId给定的两物体初态和horizontal_approach，collision_1d增加horizontal_meeting接触来源；碰后复用并行轨道。不能把本文件旧单物体initial或摆的targetApproach套入新入口。
+
 本契约对应 [参赛规划](PROJECT_PLAN_FINAL.md) 的动态组合要求。B 维护校验、装配与运动接口，A 核对绘图、时间轴和编辑，C 核对识别、指令与两套后端的回包。三方先用第 5 节的开发样例联调，正式五道真题另选。
 
 新增 `vertical_arc`、固定落地平面及圆弧状态的约定见 [圆弧扩展契约](VERTICAL_ARC.md)。该扩展单独联审，旧阶段和本文件第 5 节的基准保持兼容。
