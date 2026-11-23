@@ -79,7 +79,7 @@ await openPicker();
 const options = await evaluate(
   '[...document.querySelectorAll(".sample-option")].map(o => ({ title: o.querySelector(".sample-option-title")?.textContent, level: o.querySelector(".sample-option-level")?.textContent, desc: o.querySelector(".sample-option-desc")?.textContent }))',
 );
-check("示例选择器列出 6 道题", options.length === 6, String(options.length));
+check("示例选择器至少 9 道题", options.length >= 9, String(options.length));
 check("至少 3 道压轴", options.filter((o) => o.level === "压轴").length >= 3, JSON.stringify(options.map((o) => o.level)));
 check("每道都有标题与描述", options.every((o) => o.title && o.desc));
 await shot("picker-1280");
@@ -107,6 +107,34 @@ for (let i = 0; i < options.length; i += 1) {
   if (i === 3) await shot("sample-pendulum");
   await home();
 }
+
+// 临界对照：同一道题切换两组条件
+await openPicker();
+const compareIndex = await evaluate(
+  '[...document.querySelectorAll(".sample-option")].findIndex(o => o.textContent.includes("对照"))',
+);
+await evaluate(`document.querySelectorAll(".sample-option")[${compareIndex}].click()`);
+await sleep(1000);
+const beforeToggle = await evaluate(`(() => {
+  const b = document.querySelector(".compare-toggle");
+  return { exists: !!b, pressed: b?.getAttribute("aria-pressed"), label: b?.textContent?.trim() ?? "" };
+})()`);
+check("对照题出现切换按钮", beforeToggle.exists, beforeToggle.label);
+await evaluate('document.querySelector(".compare-toggle").click()');
+await sleep(900);
+const afterToggle = await evaluate(`(() => {
+  const b = document.querySelector(".compare-toggle");
+  return { pressed: b?.getAttribute("aria-pressed"), label: b?.textContent?.trim() ?? "", events: document.querySelectorAll(".event-item").length, error: document.querySelector(".notice.error")?.textContent ?? "" };
+})()`);
+check("切到差一点后按钮翻转", afterToggle.pressed === "true", afterToggle.label);
+check("对照切换后仍有动画", (await inkPixels()) > 200);
+check("对照切换无错误", !afterToggle.error, afterToggle.error);
+await shot("compare-near-miss");
+await evaluate('document.querySelector(".compare-toggle").click()');
+await sleep(900);
+const backToggle = await evaluate('document.querySelector(".compare-toggle")?.getAttribute("aria-pressed")');
+check("能切回恰好过顶", backToggle === "false", String(backToggle));
+await home();
 
 // 题面抽屉
 await openPicker();

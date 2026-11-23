@@ -40,4 +40,29 @@ describe("内置示例题库", () => {
     expect(motion.segments.map((segment) => segment.kind)).toContain("pendulum");
     expect(motion.events.some((event) => event.eventKind === "collision")).toBe(true);
   });
+
+  it("粘连后共速滑行到停", () => {
+    const motion = build(getSample("sticky-collision").reading);
+    const kinds = motion.events.map((event) => event.eventKind);
+    expect(kinds).toContain("collision");
+    expect(kinds).toContain("stop");
+    expect(motion.durationSeconds).toBeGreaterThan(1.5);
+  });
+
+  it("碰后飞出桌沿并落地", () => {
+    const motion = build(getSample("collision-flight").reading);
+    const kinds = motion.events.map((event) => event.eventKind);
+    expect(kinds).toContain("projectile_launch");
+    expect(kinds).toContain("land");
+  });
+
+  it("临界对照的两组条件走出不同结局", () => {
+    const sample = getSample("circular-compare");
+    expect(sample.compare).toBeTruthy();
+    const passes = build(sample.reading).events.map((event) => event.eventKind);
+    const misses = build(sample.compare!.reading).events.map((event) => event.eventKind);
+    expect(passes).toContain("arc_endpoint");
+    expect(passes).not.toContain("arc_contact_lost");
+    expect(misses).toContain("arc_contact_lost");
+  });
 });

@@ -8,6 +8,7 @@ import { mockChatService } from "../services/chatService";
 import { requestPlan, requestStageCommand } from "../services/imageRecognition";
 import type { StagePlanDraft } from "../physics/stagePlan";
 import { truncateStagePlan } from '../physics/truncateStagePlan';
+import { getSample } from "../data/samples";
 import { segmentAt } from "../ui/components/workspace/playback";
 import { isStageReading } from "../types";
 import type {
@@ -56,6 +57,10 @@ export function useWorkspace() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   /** 内置示例的题面；识别题图时为 null。 */
   const [problemText, setProblemText] = useState<string | null>(null);
+  /** 当前内置示例 id 与「对照」开关。 */
+  const [sampleId, setSampleId] = useState<string | null>(null);
+  const [compareOn, setCompareOn] = useState(false);
+  const sampleCompare = sampleId ? getSample(sampleId).compare : undefined;
 
   const [notice, setNotice] = useState<Notice | null>(null);
   /** 缺项：需要用户在核对表里补齐 */
@@ -173,6 +178,8 @@ export function useWorkspace() {
       if (res.status === "ok") {
         setPhase("workspace");
         setProblemText(res.problemText ?? null);
+        setSampleId(res.sampleId ?? null);
+        setCompareOn(false);
         applyReading(res.reading);
         // 假设不写在正文里重复：有假设时正文只报条数，条目交给对话胶囊；
         // 没有假设就退回回包 message（或通用开场白），离线 mock 与真实服务保持一致。
@@ -257,6 +264,14 @@ export function useWorkspace() {
     [recognize]
   );
 
+  /** 题内对照：在示例的两组条件之间切换，保持同一道题的题面与上下文。 */
+  const toggleSampleCompare = useCallback(() => {
+    if (!sampleCompare || !sampleId) return;
+    const next = compareOn ? getSample(sampleId).reading : sampleCompare.reading;
+    const res = applyReading(next);
+    if (res.ok) setCompareOn((value) => !value);
+  }, [applyReading, compareOn, sampleCompare, sampleId]);
+
   const restartHome = useCallback(() => {
     setSegmentPlayback(null);
     setPhase("home");
@@ -269,6 +284,8 @@ export function useWorkspace() {
     setNotice(null);
     setMissingKeys([]);
     setProblemText(null);
+    setSampleId(null);
+    setCompareOn(false);
     setImageFile(null);
     setImageUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
@@ -588,9 +605,12 @@ export function useWorkspace() {
       problemText,
       notice,
       missingKeys,
+      sampleCompare,
+      compareOn,
       // actions
       recognize,
       loadSample,
+      toggleSampleCompare,
       restartHome,
       seek,
       seekEvent,
@@ -610,8 +630,8 @@ export function useWorkspace() {
     }),
     [
       phase, reading, appliedReading, motion, currentTime, isPlaying, playbackRate, autoPauseEvents, segmentPlayback, messages,
-      isRecognizing, isChatLoading, imageUrl, imageFile, problemText, notice, missingKeys,
-      recognize, loadSample, restartHome, seek, seekEvent, nextEvent, togglePlay,
+      isRecognizing, isChatLoading, imageUrl, imageFile, problemText, notice, missingKeys, sampleCompare, compareOn,
+      recognize, loadSample, toggleSampleCompare, restartHome, seek, seekEvent, nextEvent, togglePlay,
       replay, sendChat, undoChange, applyConditions, slowCurrentSegment, exitSegmentPlayback,
     ]
   );

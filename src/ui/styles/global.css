@@ -556,6 +556,11 @@ textarea {
   border-color: rgba(138, 75, 75, 0.32);
   background: rgba(138, 75, 75, 0.06);
 }
+.compare-toggle[aria-pressed="true"] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #ffffff;
+}
 .problem-text {
   padding: 12px 14px;
   border: 1px solid var(--hair);
@@ -2206,6 +2211,9 @@ textarea {
     max-width: none;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+  .sample-picker-list {
+    max-height: 52dvh;
   }
 }
 
