@@ -1881,9 +1881,36 @@ textarea {
 .mobile-tabs {
   display: none;
 }
-.meta-toggle,
 .explain-toggle {
   display: none;
+}
+/* 桌面也允许折叠「路段与计时」，默认收起，保证画布与单物体版同高 */
+.meta-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 2px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.meta-toggle .chev {
+  transition: transform 0.15s ease;
+  color: var(--text-tertiary);
+}
+.meta-toggle[aria-expanded="true"] .chev {
+  transform: rotate(180deg);
+}
+.player-meta.is-collapsed {
+  display: none;
+}
+.scene-legend {
+  margin-top: 10px;
+}
+/* 原理区限高内滚：多物体的碰撞表格不再把画布挤到最小高度 */
+.explanation-slot {
+  max-height: 140px;
+  overflow-y: auto;
 }
 
 @media (max-width: 720px) {
@@ -1960,6 +1987,10 @@ textarea {
   .player-meta .notice {
     margin-bottom: 8px;
     font-size: 12px;
+  }
+  /* 手机收起时路段图例随折叠区隐藏，把高度让给画布 */
+  #player-meta.is-collapsed ~ .scene-legend {
+    display: none;
   }
 
   .canvas-frame {
