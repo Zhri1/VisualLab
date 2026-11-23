@@ -2,6 +2,7 @@
 // 改动请改源文件后重新运行：node scripts/sync-functions.mjs
 import type {HorizontalInitial} from './horizontalTypes.ts';
 import { resolveSpringEnergy } from "./springEnergy.ts";
+import { circularEntry, circularGeometry, type ExplicitArcPath } from './circularArc.ts';
 import { validateMultiBodyPlan } from './multiBodyPlan.ts';
 import type { BodyDefinition, BodyStage } from './multiBodyTypes.ts';
 export type Energy = { stageIndex: number; elasticEnergyJ: number; origin: "given" | "user" | "spring_parameters" | "critical_arc_top"; basis?: Record<string, number> };
@@ -14,7 +15,7 @@ export type SingleStage =
   | { kind: "horizontal_slide"; kineticFrictionCoefficient: number; end: { kind: "distance"; distanceM: number } | { kind: "stop" } | { kind: "distance_from_stage_start"; stageIndex: number; distanceM: number } }
   | { kind: "spring_release"; springConstantNpm: number | null; initialCompressionM: number | null; kineticFrictionCoefficient: number; unattached: true; slidesAfterRelease: boolean; releaseCompleteByM?: number | null }
   | { kind: "spring_contact"; springConstantNpm: number; frictionless: true; unattached: true }
-  | { kind: "vertical_arc"; radiusM: number; endAngleDeg: number; side: "inside"; frictionless: true }
+  | { kind: "vertical_arc"; radiusM: number; endAngleDeg?: number; path?: ExplicitArcPath; side: "inside"; frictionless: true }
   | ({ kind: "projectile" } & ({ dropHeightM: number; landingPlaneYM?: never } | { landingPlaneYM: number; dropHeightM?: never }));
 export type Stage = SingleStage | BodyStage;
 
@@ -172,7 +173,10 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
     if (source.kind == null) continue;
     const stage = draft.stages[i];
     const path = "/stages/" + i;
-    for (const [key, rule] of Object.entries(numericRules[source.kind])) numberField(source, stage, key, path + "/" + key, rule);
+    for (const [key, rule] of Object.entries(numericRules[source.kind])) {
+      if (source.kind === 'vertical_arc' && key === 'endAngleDeg' && Object.prototype.hasOwnProperty.call(source, 'path')) continue;
+      numberField(source, stage, key, path + "/" + key, rule);
+    }
     if (source.kind === "incline_slide" && i === 0 && normalizedInitial.speedMps === 0) fact(stage, "slidesAfterRelease", path + "/slidesAfterRelease");
     else if (source.kind === "incline_slide" && source.slidesAfterRelease != null && typeof source.slidesAfterRelease !== "boolean") {
       issue(path + "/slidesAfterRelease", "TYPE", "前提事实须为布尔值或 null。");
@@ -186,6 +190,33 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       if (i !== 0 || normalizedInitial.speedMps !== 0) issue(path, "PRECONDITION_CONFLICT", "预压释放须为从静止开始的首段。");
     }
     if (source.kind === "vertical_arc") {
+      if (Object.prototype.hasOwnProperty.call(source, 'path')) {
+        if (Object.prototype.hasOwnProperty.call(source, 'endAngleDeg')) issue(path, 'PRECONDITION_CONFLICT', '显式圆轨path与旧endAngleDeg互斥。');
+        const readObject = (value: unknown, at: string): Record<string, unknown> | null => {
+          if (value == null) { missingKeys.push(at); return null; }
+          if (!record(value)) { issue(at, 'TYPE', '需要对象。'); return null; }
+          return value;
+        };
+        const choice = (target: Record<string, unknown>, key: string, choices: string[], at: string) => {
+          if (target[key] == null) { target[key] = null; missingKeys.push(at); }
+          else if (typeof target[key] !== 'string') issue(at, 'TYPE', '判别字段须为字符串。');
+          else if (!choices.includes(target[key] as string)) issue(at, 'UNSUPPORTED', '未登记的圆轨选项。');
+        };
+        const raw = readObject(source.path, path + '/path');
+        if (raw) {
+          const p = { ...raw }; stage.path = p;
+          numberField(raw, p, 'startAngleDeg', path + '/path/startAngleDeg', v => v >= -180 && v <= 180);
+          choice(p, 'direction', ['positive','negative'], path + '/path/direction');
+          const center = readObject(raw.center, path + '/path/center');
+          if (center) { p.center = { ...center }; for (const key of ['xM','yM']) numberField(center, p.center as Record<string, unknown>, key, path + '/path/center/' + key, finite); }
+          else p.center = null;
+          const end = readObject(raw.end, path + '/path/end');
+          if (end) {
+            p.end = { ...end }; choice(p.end as Record<string, unknown>, 'kind', ['physical_endpoint','observation'], path + '/path/end/kind');
+            numberField(end, p.end as Record<string, unknown>, 'sweepAngleDeg', path + '/path/end/sweepAngleDeg', v => v > 0 && (end.kind === 'physical_endpoint' ? v < 360 : v <= 360));
+          } else p.end = null;
+        } else stage.path = null;
+      }
       fact(stage, "frictionless", path + "/frictionless");
       if (source.side == null) { stage.side = null; missingKeys.push(path + "/side"); }
       else if (typeof source.side !== "string") issue(path + "/side", "TYPE", "轨道内外侧须为字符串。");
@@ -224,7 +255,7 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
     const previous = stages[i - 1]?.kind;
     const permitted = i === 0 ? source.kind !== "lossless_turn"
       : previous == null ? true
-      : previous === "incline_slide" ? source.kind === "lossless_turn" || source.kind === "projectile"
+      : previous === "incline_slide" ? source.kind === "lossless_turn" || source.kind === "projectile" || source.kind === 'vertical_arc' && Object.prototype.hasOwnProperty.call(source, 'path')
       : previous === "lossless_turn" ? source.kind === "horizontal_slide" || source.kind === "spring_contact" || source.kind === "vertical_arc"
       : previous === "horizontal_slide" ? source.kind === "spring_contact" || source.kind === "projectile" || source.kind === "vertical_arc"
       : previous === "vertical_arc" ? source.kind === "projectile"
@@ -247,7 +278,15 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       issue("/stages/0/kineticFrictionCoefficient", "PRECONDITION_CONFLICT", "当前倾角与摩擦无法支持从静止开始下滑。");
     }
   }
+  if(!missingKeys.length&&!fieldErrors.length)for(const [i,s]of draft.stages.entries())if(s.kind==='vertical_arc'&&s.path){
+    try{circularGeometry(s as unknown as Extract<Stage,{kind:'vertical_arc'}>&{path:ExplicitArcPath},i);}
+    catch(e){issue('/stages/'+i+((e as {field?:string}).field??'/path'),'RANGE',(e as Error).message);}
+  }
   const playback = resolveSpringEnergy(input, draft, missingKeys, issue, numberField);
+  if (!missingKeys.length && !fieldErrors.length && draft.stages[0].kind === 'vertical_arc' && draft.stages[0].path) {
+    try { circularEntry(draft.stages[0] as unknown as Extract<Stage,{kind:'vertical_arc'}> & {path:ExplicitArcPath}, normalizedInitial.speedMps!, draft.gravityMps2!, draft.massKg!, 0); }
+    catch (e) { issue('/stages/0' + ((e as {field?:string}).field??('/path' + (e instanceof Error && e.message.includes('方向') ? '/direction' : ''))), e instanceof RangeError ? 'RANGE' : 'PRECONDITION_CONFLICT', (e as Error).message); }
+  }
   if (missingKeys.length || fieldErrors.length) return result();
   const resolved: ResolvedStagePlan = {
     kind: "stage_plan", schemaVersion: 1,

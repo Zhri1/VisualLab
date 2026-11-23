@@ -1,4 +1,5 @@
 import { solveVerticalArc } from "./verticalArc.ts";
+import { circularEntry, circularGeometry, solveCircularArc } from './circularArc.ts';
 import type { StageSample as MotionSample, VerticalArcGeometry } from "./verticalArc.ts";
 export type { StageSample, ArcConstraint, VerticalArcGeometry } from "./verticalArc.ts";
 import type { Point } from "./scene.ts";
@@ -17,7 +18,7 @@ export type StageGeometry = BodyGeometry & {
   verticalArc?: VerticalArcGeometry;
   springRelease?: { stageIndex: number; start: Point; naturalContact: Point; initialCompressionM: number; anchor: Point | null };
   landmarks?: { label: string; position: Point }[];
-  schematic?: { stageIndices: number[]; horizontal?: { start: Point; plannedEnd: Point }; springIconAt?: Point; verticalArc?: Omit<VerticalArcGeometry, "stageIndex" | "actualExit" | "startAngleDeg">; reason: string };
+  schematic?: { stageIndices: number[]; horizontal?: { start: Point; plannedEnd: Point }; springIconAt?: Point; verticalArc?: Omit<VerticalArcGeometry, "stageIndex" | "actualExit" | "startAngleDeg"> & {startAngleDeg?:number}; reason: string };
   blockSizeM: number;
   positionReference: "front_bottom" | "particle";
 };
@@ -178,6 +179,25 @@ function spring(stage: Extract<Stage, { kind: "spring_contact" }>, start: Motion
 }
 
 function arc(stage: Extract<Stage, { kind: "vertical_arc" }>, start: MotionSample, gravity: number, mass: number, geometry: StageGeometry, index: number, continues: boolean): Run {
+  if (stage.path) {
+    const solved=solveCircularArc({...stage,path:stage.path},start,gravity,mass,index);
+    geometry.verticalArc=solved.geometry;
+    const make=(kind:string,t:number,before:MotionSample,after:MotionSample,label:string,explanation:string):EventState=>({
+      ...event(kind,t,before,after,label,explanation),position:point(after),normalForceBeforeN:before.constraint?.normalForceN??0,normalForceAfterN:after.constraint?.normalForceN??0,
+    });
+    const events=[make('arc_enter',0,index===0?solved.entry:start,solved.entry,'进入圆弧','按实际入口位置和带方向的切线速度进入内轨。')];
+    for(const marker of solved.markers)events.push(make(marker.kind,marker.time,marker.state,marker.state,marker.kind==='arc_top'?'经过圆轨最高点':'经过圆轨最低点','仍按圆轨约束运动，支持力由当前速度与位置计算。'));
+    const reason=solved.geometry.actualExit.reason;
+    if(reason==='stationary'){events.push(make('stop',0,solved.entry,solved.end,'最低点静止','重力与支持力平衡。'));return{...solved,events,reason:'stopped'};}
+    if(solved.returns){
+      events.push(make('arc_turn',solved.ascentSeconds,solved.boundary,solved.boundary,'圆轨转折','瞬时速度为零，随后沿原轨反向，保持真实支持力。'));
+      events.push(make('arc_return_entry',solved.duration,solved.end,solved.end,'返回圆弧入口','原路返回入口，保留反向速度与约束；未计算前序轨道的返程。'));
+    }else if(reason==='range_end')events.push(make('arc_range_end',solved.duration,solved.end,solved.end,'圆轨观察终点','仅结束观察范围，物体仍沿轨道运动并保持支持力。'));
+    else events.push(make(reason==='contact_lost'?'arc_contact_lost':'arc_endpoint',solved.duration,solved.boundary,solved.end,reason==='contact_lost'?'失去接触':'到达圆弧端点','从真实位置沿实际切线离开圆轨。'));
+    // 同刻极值在边界前，返回途中极值与转折按真实时间归位。
+    events.sort((a,b)=>a.time-b.time);
+    return{...solved,events,reason:solved.returns?'returned_to_entry':reason==='range_end'?'prefix_end':continues?undefined:'arc_detached'};
+  }
   const solved = solveVerticalArc(stage, start, gravity, mass, index);
   geometry.verticalArc = solved.geometry;
   const arcEvent = (kind: string, time: number, before: MotionSample, after: MotionSample, label: string, explanation: string): EventState => ({
@@ -227,6 +247,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     || stage.kind === "incline_slide" && plan.stages[i + 1]?.kind === "projectile") ? "particle" : "front_bottom" };
   const first = plan.stages[0];
   let state = "speedMps" in plan.initial ? moving(0, 0, plan.initial.speedMps) : "vxMps" in plan.initial ? moving(0, 0, plan.initial.vxMps, plan.initial.vyMps) : moving(0,0,"tangentialSpeedMps" in plan.initial ? plan.initial.tangentialSpeedMps : 0);
+  if(first.kind==='vertical_arc'&&first.path)state=circularEntry({...first,path:first.path},Math.hypot(state.vxMps,state.vyMps),plan.gravityMps2!,plan.massKg!,0);
   if (first.kind === "spring_release" && scope?.mode === "full") state.springCompressionM = first.initialCompressionM!;
   if (scope && scope.mode !== "full") state = moving(scope.xM!, 0, scope.vxMps!);
   const ref = plan.stages[1];
@@ -234,11 +255,11 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   if (scope) {
     geometry.landmarks = [{ label: "A", position: { xM: 0, yM: 0 } }, ...(target === undefined ? [] : [{ label: "B", position: { xM: target, yM: 0 } }])];
     const arcStage = plan.stages[2];
-    if (target !== undefined && arcStage?.kind === "vertical_arc") {
-      const phi = arcStage.endAngleDeg * Math.PI / 180;
+    if (target !== undefined && arcStage?.kind === "vertical_arc" && !arcStage.path) {
+      const phi = arcStage.endAngleDeg! * Math.PI / 180;
       const plannedEnd = { xM: target + arcStage.radiusM * (arcStage.endAngleDeg === 180 ? 0 : Math.sin(phi)), yM: arcStage.radiusM * (1 - Math.cos(phi)) };
       geometry.landmarks.push({ label: arcStage.endAngleDeg === 180 ? "C" : "端点", position: plannedEnd });
-      if (scope.mode === "state_only") geometry.schematic = { stageIndices: plan.stages.map((_, i) => i), reason: scope.reason, verticalArc: { entry: { xM: target, yM: 0 }, center: { xM: target, yM: arcStage.radiusM }, radiusM: arcStage.radiusM, endAngleDeg: arcStage.endAngleDeg, plannedEnd } };
+      if (scope.mode === "state_only") geometry.schematic = { stageIndices: plan.stages.map((_, i) => i), reason: scope.reason, verticalArc: { entry: { xM: target, yM: 0 }, center: { xM: target, yM: arcStage.radiusM }, radiusM: arcStage.radiusM, endAngleDeg: arcStage.endAngleDeg!, plannedEnd } };
     }
     if (scope.mode !== "full") geometry.schematic = { ...geometry.schematic, stageIndices: scope.mode === "suffix" ? [0, 1] : plan.stages.map((_, i) => i), horizontal: { start: { xM: 0, yM: 0 }, plannedEnd: { xM: target!, yM: 0 } }, springIconAt: { xM: 0, yM: 0 }, reason: scope.reason };
   }
@@ -277,7 +298,18 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     if (stage.kind === "projectile" && stage.landingPlaneYM !== undefined && stage.landingPlaneYM > state.yM) {
       return failure("固定落地平面不能高于实际发射点。", "/stages/" + index + "/landingPlaneYM", "PRECONDITION_CONFLICT");
     }
-    if (stage.kind === "vertical_arc" && (state.vxMps < 0 || state.vyMps !== 0)) return failure("圆弧入口需要水平向右的切向速度。", "/stages/" + index, "PRECONDITION_CONFLICT");
+    if (stage.kind === "vertical_arc") {
+      if(!stage.path&&(state.vxMps < 0 || state.vyMps !== 0)) return failure("圆弧入口需要水平向右的切向速度。", "/stages/" + index, "PRECONDITION_CONFLICT");
+      if(stage.path){
+        try{
+          const expected=circularEntry({...stage,path:stage.path},Math.hypot(state.vxMps,state.vyMps),plan.gravityMps2!,plan.massKg!,index);
+          const positionScale=Math.max(stage.radiusM,Math.abs(state.xM),Math.abs(state.yM),Math.abs(expected.xM),Math.abs(expected.yM));
+          const velocityScale=Math.max(Math.hypot(state.vxMps,state.vyMps),Number.MIN_VALUE);
+          if(Math.hypot(state.xM-expected.xM,state.yM-expected.yM)>32*Number.EPSILON*positionScale
+            ||Math.hypot(state.vxMps-expected.vxMps,state.vyMps-expected.vyMps)>32*Number.EPSILON*velocityScale)return failure('圆轨入口位置或速度不符合声明的切线与方向。','/stages/'+index+'/path','PRECONDITION_CONFLICT');
+        }catch(e){return failure((e as Error).message,'/stages/'+index+((e as {field?:string}).field??'/path'),e instanceof RangeError?'RANGE':'PRECONDITION_CONFLICT');}
+      }
+    }
     try { switch (stage.kind) {
       case "incline_slide": run = incline(stage, state, plan.gravityMps2!, geometry, plan.stages[index + 1]?.kind === "projectile"); break;
       case "lossless_turn": run = turn(state); break;
@@ -286,7 +318,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       case "spring_release": run = release(stage, state, plan.massKg!, plan.gravityMps2 ?? 0, geometry, index + 1 < plan.stages.length); break;
       case "projectile": run = projectile(stage, state, plan.gravityMps2!, geometry, plan.stages[index - 1]?.kind); break;
       case "vertical_arc": run = arc(stage, state, plan.gravityMps2!, plan.massKg!, geometry, index, plan.stages[index + 1]?.kind === "projectile"); break;
-    } } catch (error) { if (error instanceof RangeError) return failure(error.message); throw error; }
+    } } catch (error) { if (error instanceof RangeError) return failure(error.message,'/stages/'+index+((error as {field?:string}).field??'')); throw error; }
     const nextTime = time + run.duration;
     const sampleNumbers = (s: MotionSample) => [s.xM, s.yM, s.vxMps, s.vyMps, s.springCompressionM,
       ...(s.constraint ? [s.constraint.angleDeg, s.constraint.angularVelocityRadps, s.constraint.normalForceN] : [])];
@@ -310,6 +342,8 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     if (run.reason) { reason = run.reason; break; }
   }
   const final = { ...state };
+  if(!geometry.verticalArc){const i=plan.stages.findIndex(s=>s.kind==='vertical_arc'&&s.path);const s=plan.stages[i];
+    if(s?.kind==='vertical_arc'&&s.path){const {stageIndex:_,actualExit:__,...planned}=circularGeometry({...s,path:s.path},i);geometry.schematic={...geometry.schematic,stageIndices:[i],reason:'题设圆弧尚未到达，仅作示意。',verticalArc:planned};}}
   const last = events[events.length - 1];
   const termination = { reason, eventId: last.id, stageIndex: last.stageIndex };
   const calculations: NonNullable<StageMotion["calculations"]> = plan.energy ? [{ quantity: "initial_elastic_energy", value: plan.energy.elasticEnergyJ, unit: "J", source: plan.energy.origin === "given" || plan.energy.origin === "user" ? plan.energy.origin : "derived", rule: plan.energy.origin, inputPaths: ["/energy"] }] : [];
@@ -328,6 +362,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     calculations.push({ quantity: e.kind === "spring_release_end" ? "release_speed" : "arc_entry_speed", value: Math.hypot(e.velocityAfter.vxMps, e.velocityAfter.vyMps), unit: "m/s", source: "derived", rule: "energy_with_friction", inputPaths });
   }
   return {
+    ...(plan.stages.some(s=>s.kind==='vertical_arc'&&s.path)?{motionStatus:{state:['stopped','stop_at_target','stop_before_target'].includes(reason)?'complete' as const:'range_end' as const,reason,bodyIds:[],message:reason==='prefix_end'?'观察范围结束，仍保持真实速度与支持力。':reason==='returned_to_entry'?'返回入口的已求范围结束，保留反向速度和约束。':reason==='landed'?'首次接地，保留入射速度。':reason==='arc_detached'?'实际离轨，保留切向速度。':'物体真实静止。'}}:{}),
     ...(scope ? { timing: { ...scope, anchor: { label: scope.mode === "full" ? "A" : scope.mode === "suffix" || scope.stopReason === "prefix_end" ? "B" : "静止点", position: scope.mode === "full" ? { xM: 0, yM: 0 } : { xM: scope.xM!, yM: 0 } }, absoluteStartSeconds: scope.mode === "full" ? 0 : null, excludedStageIndices: scope.mode === "full" ? [] : scope.mode === "suffix" ? Array.from({ length: from }, (_, i) => i) : plan.stages.map((_, i) => i) }, calculations } : {}),
     geometry, durationSeconds: time, segments, events, termination,
     get endReason() { return termination.reason; },
@@ -336,7 +371,8 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       // 同刻的最后一个事件状态优先，确保转向、接触和零时长终止可精确停靠。
       // 吸收累加时刻和十进制播放值的 ulp 误差，按物理时刻缩放。
       // 固定绝对容差会把极短圆弧的离弧事件错误吸附到 t=0。
-      const copy = (s: MotionSample): MotionSample => ({ ...s, ...(s.constraint ? { constraint: { ...s.constraint } } : {}) });
+      const copy = (s: MotionSample): MotionSample => ({ ...s, ...(s.constraint ? { constraint: { ...s.constraint, ...(s.constraint.normalDirection?{normalDirection:{...s.constraint.normalDirection}}:{}) } } : {}) });
+      if(timeSeconds<0&&plan.stages.some(s=>s.kind==='vertical_arc'&&s.path))return copy(eventStates[0]);
       let nearestIndex = -1, nearestDistance = Infinity;
       for (let i = events.length - 1; i >= 0; i--) {
         const eventTime = events[i].timeSeconds;

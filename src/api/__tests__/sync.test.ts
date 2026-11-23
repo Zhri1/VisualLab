@@ -18,6 +18,8 @@ const ROOT = resolve(__dirname, '../../..');
 
 /** 与 scripts/sync-functions.mjs 的 FILES 一致 */
 const FILES = [
+  { from: 'src/physics/arcTypes.ts', to: 'functions/arcTypes.ts' },
+  { from: 'src/physics/circularArc.ts', to: 'functions/circularArc.ts' },
   { from: 'src/physics/bodyPlanError.ts', to: 'functions/bodyPlanError.ts' },
   { from: 'src/physics/horizontalKinematics.ts', to: 'functions/horizontalKinematics.ts' },
   { from: 'src/physics/horizontalTypes.ts', to: 'functions/horizontalTypes.ts' },

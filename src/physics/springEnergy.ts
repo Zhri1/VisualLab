@@ -68,7 +68,8 @@ export function resolveSpringEnergy(input: Obj, draft: StagePlanDraft, missing: 
   if (!(m > 0) || !(mu >= 0) || (mu > 0 && !(g > 0))) return;
   if (condition) {
     const a = draft.stages[Number(condition.stageIndex)];
-    if (!a || a.kind !== "vertical_arc" || a.endAngleDeg !== 180 || condition.stageIndex !== 2 || !Number.isFinite(L)) issue("/constraints/0/stageIndex", "PRECONDITION_CONFLICT", "临界条件须指向引用A的水平段后的180度内轨。");
+    if(a?.kind==='vertical_arc'&&a.path)issue('/constraints/0/stageIndex','UNSUPPORTED','活动临界过顶条件暂不用于显式圆轨path。');
+    else if (!a || a.kind !== "vertical_arc" || a.endAngleDeg !== 180 || condition.stageIndex !== 2 || !Number.isFinite(L)) issue("/constraints/0/stageIndex", "PRECONDITION_CONFLICT", "临界条件须指向引用A的水平段后的180度内轨。");
     else {
       // 已识别临界条件保留在草稿中；缺可补前提时不把其可推导量再列成独立缺项。
       if (!(typeof a.radiusM === "number" && a.radiusM > 0 && Number.isFinite(a.radiusM)) || !(muh >= 0) || !(g > 0)) return;
