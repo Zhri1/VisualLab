@@ -58,6 +58,7 @@ export function WorkspaceLayout({ ws }: Props) {
     incline_slide: "斜面",
     lossless_turn: "转向",
     horizontal_slide: "水平",
+    constant_force_1d: "常力",
     spring_contact: "弹簧",
     projectile: "抛体",
     vertical_arc: "圆弧",

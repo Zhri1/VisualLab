@@ -1,0 +1,39 @@
+{
+  "description": "常力作用与分段匀变速独立计算基准，不是运行时回包。",
+  "toleranceSI": 1e-9,
+  "cases": [
+    {
+      "id": "benchmark",
+      "readingFile": "constant-force-benchmark.reading.json",
+      "durationSeconds": 6,
+      "endReason": "stopped",
+      "checkpoints": [
+        { "timeSeconds": 2, "xM": 4, "yM": 0, "vxMps": 4, "vyMps": 0 },
+        { "timeSeconds": 6, "xM": 12, "yM": 0, "vxMps": 0, "vyMps": 0 }
+      ]
+    },
+    {
+      "id": "reversal",
+      "readingFile": "constant-force-reversal.reading.json",
+      "durationSeconds": 7,
+      "endReason": "stopped",
+      "checkpoints": [
+        { "timeSeconds": 3, "xM": 9, "yM": 0, "vxMps": 0, "vyMps": 0 },
+        { "timeSeconds": 5, "xM": 5, "yM": 0, "vxMps": -4, "vyMps": 0 },
+        { "timeSeconds": 7, "xM": 1, "yM": 0, "vxMps": 0, "vyMps": 0 }
+      ]
+    },
+    {
+      "id": "three_stage_projectile",
+      "readingFile": "constant-force-three-stage.reading.json",
+      "durationSeconds": 5.9,
+      "endReason": "landed",
+      "checkpoints": [
+        { "timeSeconds": 2, "xM": 4, "yM": 0, "vxMps": 4, "vyMps": 0 },
+        { "timeSeconds": 3.5, "xM": 10, "yM": 0, "vxMps": 4, "vyMps": 0 },
+        { "timeSeconds": 5.5, "xM": 16, "yM": 0, "vxMps": 2, "vyMps": 0 },
+        { "timeSeconds": 5.9, "xM": 16.8, "yM": -0.8, "vxMps": 2, "vyMps": -4 }
+      ]
+    }
+  ]
+}

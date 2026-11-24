@@ -14,6 +14,7 @@ type Velocity = { vxMps: number; vyMps: number };
 export type StageGeometry = BodyGeometry & {
   incline?: { start: Point; end: Point };
   horizontal?: { start: Point; plannedEnd: Point | null };
+  linearTrack?: { minXM: number; maxXM: number; yM: number };
   spring?: { contact: Point; anchor: Point };
   projectile?: { launch: Point; landingPlane: { yM: number } };
   verticalArc?: VerticalArcGeometry;
@@ -122,6 +123,45 @@ function turn(start: MotionSample): Run {
     duration: 0, end,
     events: [event("lossless_turn", 0, start, end, "无损转向", "光滑过渡保持位置和速率，速度转为水平向右。")],
     sampleAt: () => ({ ...end }),
+  };
+}
+
+function constantForce(stage: Extract<Stage, { kind: "constant_force_1d" }>, start: MotionSample, mass: number, geometry: StageGeometry, hasNext: boolean): Run {
+  const ax = stage.netForceXN / mass;
+  const v0 = start.vxMps;
+  const duration = stage.end.kind === "duration" ? stage.end.durationSeconds : v0 === 0 ? 0 : -v0 / ax;
+  const sampleAt = (time: number) => linearState(start.xM, start.yM, v0, 0, ax, 0, time);
+  const end = stage.end.kind === "stop"
+    ? moving(start.xM + v0 * duration + 0.5 * ax * duration * duration, start.yM, 0)
+    : moving(start.xM + v0 * duration + 0.5 * ax * duration * duration, start.yM, v0 + ax * duration);
+  const xs = [start.xM, end.xM];
+  const events: EventState[] = [
+    event("force_segment_start", 0, start, start, "常力段开始", `恒定合力 ${stage.netForceXN.toFixed(2)} N，加速度 a = ${ax.toFixed(4)} m/s²。`),
+  ];
+  if (stage.end.kind === "duration" && ax !== 0 && v0 !== 0) {
+    const turnTime = -v0 / ax;
+    if (turnTime > 0 && turnTime < duration) {
+      const turn = moving(start.xM + v0 * turnTime + 0.5 * ax * turnTime * turnTime, start.yM, 0);
+      xs.push(turn.xM);
+      events.push(event("turn_around", turnTime, turn, turn, "速度为零折返", `速度降为零（x = ${turn.xM.toFixed(4)} m），随后在恒定合力作用下反向匀加速。`));
+    }
+  }
+  const prevTrack = geometry.linearTrack;
+  geometry.linearTrack = {
+    minXM: Math.min(...xs, prevTrack ? prevTrack.minXM : Infinity),
+    maxXM: Math.max(...xs, prevTrack ? prevTrack.maxXM : -Infinity),
+    yM: start.yM,
+  };
+  if (stage.end.kind === "stop") {
+    events.push(event("stop", duration, end, end, "减速至静止", `速度降为零，位置 x = ${end.xM.toFixed(4)} m。`));
+  } else {
+    events.push(event("force_segment_end", duration, end, end, "常力段结束", `经过 ${duration.toFixed(2)} s，位置 x = ${end.xM.toFixed(4)} m，速度 vₓ = ${end.vxMps.toFixed(4)} m/s。`));
+  }
+  return {
+    duration, end,
+    reason: stage.end.kind === "stop" && !hasNext ? "stopped" : undefined,
+    events,
+    sampleAt,
   };
 }
 
@@ -274,7 +314,7 @@ function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: Motion
   const sampleAt = (time: number) => linearState(start.xM, start.yM, start.vxMps, start.vyMps, 0, -gravity, time);
   const end = { ...sampleAt(duration), yM: planeYM };
   const events: EventState[] = [];
-  if (from === "horizontal_slide") events.push(event("leave_table", 0, start, start, "离开桌沿", "以正水平速度到达桌沿，开始平抛。"));
+  if (from === "horizontal_slide" || from === "constant_force_1d") events.push(event("leave_table", 0, start, start, "离开桌沿", "以当前水平速度离开平台，开始平抛。"));
   if (from === "vertical_arc") events.push(event("projectile_launch", 0, start, start, "沿切线飞出", "以实际离弧位置和切向速度开始抛体运动，落地平面保持固定。"));
   if (from === "incline_slide") events.push(event("projectile_launch", 0, start, start, "离开檐口", "离开斜面末端，沿坡切向斜抛；水平与向下的竖直速度连续，此后只受重力。"));
   const apexTime = start.vyMps / gravity;
@@ -356,16 +396,26 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
         }catch(e){return failure((e as Error).message,'/stages/'+index+((e as {field?:string}).field??'/path'),e instanceof RangeError?'RANGE':'PRECONDITION_CONFLICT');}
       }
     }
-    if (stage.kind === "spring_contact" && "kineticFrictionCoefficient" in stage) {
-      if (!(state.vxMps > 0) || state.vyMps !== 0) return failure("粗糙弹簧接触需要水平向右的正速入射。", "/stages/" + index, "PRECONDITION_CONFLICT");
-      const checked = solveRoughSpring({ speedMps: state.vxMps, massKg: plan.massKg!, gravityMps2: plan.gravityMps2!, springConstantNpm: stage.springConstantNpm,
-        kineticFrictionCoefficient: stage.kineticFrictionCoefficient!, staticFrictionCoefficient: stage.staticFrictionCoefficient, reboundAtMaxCompression: stage.reboundAtMaxCompression });
-      if ("conflict" in checked) return failure((checked as RoughSpringConflict).conflict, "/stages/" + index + (checked as RoughSpringConflict).path, "PRECONDITION_CONFLICT");
+    if (stage.kind === "spring_contact") {
+      if (!(state.vxMps > 0) || state.vyMps !== 0) return failure("弹簧接触需要水平向右的正速入射。", "/stages/" + index, "PRECONDITION_CONFLICT");
+      if ("kineticFrictionCoefficient" in stage) {
+        const checked = solveRoughSpring({ speedMps: state.vxMps, massKg: plan.massKg!, gravityMps2: plan.gravityMps2!, springConstantNpm: stage.springConstantNpm,
+          kineticFrictionCoefficient: stage.kineticFrictionCoefficient!, staticFrictionCoefficient: stage.staticFrictionCoefficient, reboundAtMaxCompression: stage.reboundAtMaxCompression });
+        if ("conflict" in checked) return failure((checked as RoughSpringConflict).conflict, "/stages/" + index + (checked as RoughSpringConflict).path, "PRECONDITION_CONFLICT");
+      }
+    }
+    if (stage.kind === "horizontal_slide" && (state.vxMps < 0 || state.vyMps !== 0)) {
+      return failure("水平滑动段需要非负水平向右速度。", "/stages/" + index, "PRECONDITION_CONFLICT");
+    }
+    if (stage.kind === "constant_force_1d" && stage.end.kind === "stop") {
+      if (state.vxMps === 0 && stage.netForceXN !== 0) return failure("初速度为零且合力非零，物体将加速离开静止而非停止。", "/stages/" + index + "/end", "PRECONDITION_CONFLICT");
+      if (state.vxMps !== 0 && (stage.netForceXN === 0 || Math.sign(stage.netForceXN) === Math.sign(state.vxMps))) return failure("合力方向与当前速度相同或为零，无法减速至零。", "/stages/" + index + "/end", "PRECONDITION_CONFLICT");
     }
     try { switch (stage.kind) {
       case "incline_slide": run = incline(stage, state, plan.gravityMps2!, geometry, plan.stages[index + 1]?.kind === "projectile"); break;
       case "lossless_turn": run = turn(state); break;
       case "horizontal_slide": run = horizontal(stage, state, plan.gravityMps2 ?? 0, geometry); break;
+      case "constant_force_1d": run = constantForce(stage, state, plan.massKg!, geometry, index + 1 < plan.stages.length); break;
       case "spring_contact": run = "kineticFrictionCoefficient" in stage ? roughSpring(stage, state, plan.massKg!, plan.gravityMps2!, geometry) : spring(stage, state, plan.massKg!, geometry); break;
       case "spring_release": run = release(stage, state, plan.massKg!, plan.gravityMps2 ?? 0, geometry, index + 1 < plan.stages.length); break;
       case "projectile": run = projectile(stage, state, plan.gravityMps2!, geometry, plan.stages[index - 1]?.kind); break;
