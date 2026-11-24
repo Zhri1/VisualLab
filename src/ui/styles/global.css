@@ -1884,7 +1884,18 @@ textarea {
 .explain-toggle {
   display: none;
 }
-/* 桌面也允许折叠「路段与计时」，默认收起，保证画布与单物体版同高 */
+/* 桌面也允许折叠「路段与计时」，默认收起，保证画布与单物体版同高；展开或切换事件时面板滚动而不挤压或抖动画布 */
+@media (min-width: 961px) {
+  .player-panel {
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+  .canvas-frame,
+  .canvas-frame.body-canvas-frame {
+    flex: 0 0 clamp(320px, 40vh, 420px);
+    min-height: clamp(320px, 40vh, 420px);
+  }
+}
 .meta-toggle {
   display: inline-flex;
   align-items: center;

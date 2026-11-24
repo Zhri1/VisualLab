@@ -11,7 +11,6 @@
 .body-scene-legend li { white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
 .body-tracking select { max-width: 180px; }
 .player-panel.body-player-panel { overflow-y: auto; }
-.canvas-frame.body-canvas-frame { min-height: 200px; }
 .body-plan-editor .cond-table { table-layout: fixed; }
 .body-plan-editor .cond-table .val { width: 40%; min-width: 0; white-space: normal; }
 /* 读数放在「路段与计时」折叠区：高度随内容自适应，不再用 min-height 撑出空白块，

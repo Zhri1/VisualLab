@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { Motion, Vec2 } from "../../../types";
 import { formatSpeed } from "./playback";
 import { EnergyReadout, energyText, showsEnergy } from "./EnergyReadout";
+import { computeWorldBounds, fitViewport, type WorldBounds } from "./canvasViewport";
 
 const INK = "#1c1c1c";
 const SOFT = "#8e8e88";
@@ -23,15 +24,9 @@ interface Props {
   isPlaying?: boolean;
 }
 
-type Bounds = { x1: number; x2: number; y1: number; y2: number };
-
-export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: number, motion: Motion, time: number) {
+export function stageWorldBounds(motion: Motion): WorldBounds {
   const g = motion.stageGeometry!;
-  const inclineLaunch = hasInclineLaunch(motion);
   const displayArc = g.verticalArc ?? g.schematic?.verticalArc;
-  const explicitArc=displayArc?.direction!==undefined;
-  const size = g.blockSizeM;
-  const sample = motion.sampleAt(time);
   const first = motion.sampleAt(0);
   const last = motion.sampleAt(motion.durationSeconds);
   const points: Vec2[] = [first.position, last.position];
@@ -48,6 +43,14 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     points.push({ x: g.conveyor.minXM, y: 0 }, { x: g.conveyor.maxXM, y: 0 });
   }
   if (g.spring) points.push({ x: g.spring.contact.xM, y: g.spring.contact.yM }, { x: g.spring.anchor.xM, y: g.spring.anchor.yM });
+  if (g.springRelease) {
+    points.push({ x: g.springRelease.start.xM, y: g.springRelease.start.yM }, { x: g.springRelease.naturalContact.xM, y: g.springRelease.naturalContact.yM });
+    if (g.springRelease.anchor) points.push({ x: g.springRelease.anchor.xM, y: g.springRelease.anchor.yM });
+  }
+  if (g.schematic?.horizontal) {
+    points.push({ x: g.schematic.horizontal.start.xM, y: g.schematic.horizontal.start.yM });
+    if (g.schematic.horizontal.plannedEnd) points.push({ x: g.schematic.horizontal.plannedEnd.xM, y: g.schematic.horizontal.plannedEnd.yM });
+  }
   if (g.projectile) {
     points.push({ x: g.projectile.launch.xM, y: g.projectile.launch.yM }, { x: last.position.x, y: g.projectile.landingPlane.yM });
     const projSeg = motion.segments.find((s) => s.kind === "projectile");
@@ -63,24 +66,28 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     const start=arc.startAngleDeg??0,low=Math.min(start,arc.endAngleDeg),high=Math.max(start,arc.endAngleDeg);
     for(let a=Math.ceil(low/90)*90;a<=high;a+=90)points.push({x:arc.center.xM+arc.radiusM*Math.sin(a*Math.PI/180),y:arc.center.yM-arc.radiusM*Math.cos(a*Math.PI/180)});
   }
+  return computeWorldBounds(points);
+}
 
-  const xs = points.map((point) => point.x);
-  const ys = points.map((point) => point.y);
-  const margin=explicitArc?Math.max(.04,displayArc!.radiusM*.35):size*2;
-  const bounds: Bounds = {
-    x1: Math.min(...xs) - margin,
-    x2: Math.max(...xs) + margin,
-    y1: Math.min(...ys) - (explicitArc?margin:size*2.2),
-    y2: Math.max(...ys) + (explicitArc?margin:size*2.3),
-  };
-  const bw = Math.max(1, bounds.x2 - bounds.x1);
-  const bh = Math.max(1, bounds.y2 - bounds.y1);
-  const pad = Math.max(22, Math.min(W, H) * 0.09);
-  const S = Math.min((W - pad * 2) / bw, (H - pad * 2) / bh);
-  const ox = pad + ((W - pad * 2) - bw * S) / 2 - bounds.x1 * S;
-  const oy = pad + ((H - pad * 2) - bh * S) / 2 + bounds.y2 * S;
-  const X = (x: number) => ox + x * S;
-  const Y = (y: number) => oy - y * S;
+export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: number, motion: Motion, time: number, precomputedBounds?: WorldBounds) {
+  const g = motion.stageGeometry!;
+  const inclineLaunch = hasInclineLaunch(motion);
+  const displayArc = g.verticalArc ?? g.schematic?.verticalArc;
+  const explicitArc=displayArc?.direction!==undefined;
+  const size = g.blockSizeM;
+  const sample = motion.sampleAt(time);
+  const first = motion.sampleAt(0);
+  const last = motion.sampleAt(motion.durationSeconds);
+  const worldBounds = precomputedBounds ?? stageWorldBounds(motion);
+  const narrow = W < 420;
+  const hasTopHud = inclineLaunch || explicitArc || !!g.conveyor || !!g.linearTrack;
+  const vp = fitViewport(W, H, worldBounds, {
+    top: hasTopHud ? 48 : 34,
+    right: narrow ? 30 : 48,
+    bottom: showsEnergy(motion) ? 44 : 38,
+    left: narrow ? 30 : 48,
+  });
+  const { S, X, Y } = vp;
 
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = PAPER;
@@ -319,6 +326,7 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   const nx = Math.sin(rotation);
   const ny = Math.cos(rotation);
 
+  const halfPx = Math.max(9, Math.min(22, half * S));
   const block = (point: Vec2, ghost: boolean) => {
     if (g.positionReference === "particle") {
       ctx.save(); ctx.beginPath(); ctx.arc(X(point.x), Y(point.y), 6, 0, 2 * Math.PI);
@@ -326,12 +334,13 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
       else { ctx.fillStyle = INK; ctx.fill(); }
       ctx.restore(); return point;
     }
-    const centerX = point.x + nx * half - tx * half;
-    const centerY = point.y + ny * half - ty * half;
+    const effHalf = halfPx / S;
+    const centerX = point.x + nx * effHalf - tx * effHalf;
+    const centerY = point.y + ny * effHalf - ty * effHalf;
     ctx.save();
     ctx.translate(X(centerX), Y(centerY));
     ctx.rotate(rotation);
-    const pixels = half * S;
+    const pixels = halfPx;
     ctx.beginPath();
     ctx.rect(-pixels, -pixels, pixels * 2, pixels * 2);
     if (ghost) {
@@ -366,15 +375,15 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.font = `500 12px ${SANS}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    ctx.fillText("停止点", X(last.position.x), Y(last.position.y) + size * S + 10);
+    ctx.fillText("停止点", X(last.position.x), Math.min(H - 16, Y(last.position.y) + halfPx + 8));
   }
 
   const speed = Math.hypot(sample.velocity.x, sample.velocity.y);
   if (speed > 0.08) {
     const ux = sample.velocity.x / speed;
     const uy = sample.velocity.y / speed;
-    const length = Math.min(1.4, 0.45 + speed * 0.08, displayArc ? 38 / S : Infinity);
-    const offset = displayArc ? 9 / S : size * 0.8;
+    const length = Math.min(1.4, 0.45 + speed * 0.08, (displayArc ? 38 : 46) / S);
+    const offset = displayArc ? 9 / S : (halfPx + 4) / S;
     const startX = center.x + ux * offset;
     const startY = center.y + uy * offset;
     const endX = startX + ux * length;
@@ -408,7 +417,7 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   const labelWidth = ctx.measureText(label).width;
   const preferredX = g.positionReference === "particle" ? X(center.x) + labelWidth / 2 + 16 : X(center.x);
   const labelX = explicitArc?W-labelWidth/2-12:Math.min(W - labelWidth / 2 - 8, Math.max(labelWidth / 2 + 8, preferredX));
-  const labelY = explicitArc?20:Math.min(H - 28, Math.max(20, Y(center.y) - (g.positionReference === "particle" ? 18 : half * S + 9)));
+  const labelY = explicitArc?20:Math.min(H - 28, Math.max(20, Y(center.y) - (g.positionReference === "particle" ? 18 : halfPx + 9)));
   if(!explicitArc){ctx.fillStyle = PAPER; ctx.fillRect(labelX - labelWidth / 2 - 3, labelY - 15, labelWidth + 6, sample.constraint ? 35 : 18);}
   ctx.fillStyle = INK; ctx.fillText(label, labelX, labelY);
   if (sample.constraint) {
@@ -432,17 +441,18 @@ export function StagePhysicsCanvas({ motion, time, isPlaying = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<number | null>(null);
   const sizeRef = useRef({ w: 0, h: 0 });
-  const stateRef = useRef({ motion, time });
-  stateRef.current = { motion, time };
+  const stableBounds = useMemo(() => stageWorldBounds(motion), [motion]);
+  const stateRef = useRef({ motion, time, stableBounds });
+  stateRef.current = { motion, time, stableBounds };
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const { motion: currentMotion, time: currentTime } = stateRef.current;
+    const { motion: currentMotion, time: currentTime, stableBounds: bounds } = stateRef.current;
     const { w, h } = sizeRef.current;
     if (!w || !h) return;
     const ctx = canvas.getContext("2d");
-    if (ctx) drawStageScene(ctx, w, h, currentMotion, currentTime);
+    if (ctx) drawStageScene(ctx, w, h, currentMotion, currentTime, bounds);
   }, []);
 
   useEffect(() => {

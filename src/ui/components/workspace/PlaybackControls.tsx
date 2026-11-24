@@ -13,6 +13,7 @@ interface Props {
   onSeekEvent: (id: string) => void;
   onScrubStart: () => void;
   playbackRate: number;
+  defaultPace?: number;
   onRateChange: (rate: number) => void;
   autoPauseEvents: boolean;
   onAutoPauseChange: (enabled: boolean) => void;
@@ -32,6 +33,7 @@ export function PlaybackControls({
   onSeekEvent,
   onScrubStart,
   playbackRate,
+  defaultPace = 1,
   onRateChange,
   autoPauseEvents,
   onAutoPauseChange,
@@ -105,7 +107,11 @@ export function PlaybackControls({
           </label>
         </div>
         <p className="playback-mode" role="status">
-          {segmentName ? `本段慢放 · ${segmentName} · 段末停止` : "全程播放"}
+          {segmentName
+            ? `本段慢放 · ${segmentName} · 段末停止${defaultPace < 0.99 ? `（物理流速 ${(playbackRate * defaultPace).toFixed(2)}×）` : ""}`
+            : defaultPace < 0.99
+              ? `默认已按观看节奏放慢至 ${defaultPace.toFixed(2)}× 物理时间${playbackRate !== 1 ? `（当前 ${(playbackRate * defaultPace).toFixed(2)}×）` : ""}`
+              : "全程播放"}
         </p>
       </div>}
     </div>

@@ -9,7 +9,7 @@ import { PhysicsExplanation } from "./PhysicsExplanation";
 import { MultiBodyExplanation } from './MultiBodyExplanation';
 import { PlaybackControls } from "./PlaybackControls";
 import { OriginalProblemViewer } from "./OriginalProblemViewer";
-import { advancePlayback, segmentAt } from "./playback";
+import { advancePlayback, computeDefaultPace, segmentAt } from "./playback";
 import "./player.css";
 
 interface Props {
@@ -50,6 +50,7 @@ export function WorkspaceLayout({ ws }: Props) {
   const clockTimeRef = useRef(currentTime);
   clockTimeRef.current = currentTime;
   const activeSegment = motion ? segmentAt(motion.segments, currentTime) : undefined;
+  const defaultPace = useMemo(() => (motion ? computeDefaultPace(motion) : 1), [motion]);
   const stagePlan = isStageReading(ws.appliedReading) ? ws.appliedReading : isStageReading(ws.reading)?ws.reading:null;
   const legacyReading = ws.appliedReading && !isStageReading(ws.appliedReading) ? ws.appliedReading : null;
   const stageLabels = {
@@ -115,7 +116,7 @@ export function WorkspaceLayout({ ws }: Props) {
       lastRef.current = ts;
 
       const next = advancePlayback(
-        clockTimeRef.current, dt, ws.playbackRate,
+        clockTimeRef.current, dt, ws.playbackRate * defaultPace,
         ws.segmentPlayback?.endSeconds ?? motion.durationSeconds,
         ws.autoPauseEvents ? motion.events : []
       );
@@ -131,7 +132,7 @@ export function WorkspaceLayout({ ws }: Props) {
       rafRef.current = null;
       lastRef.current = null;
     };
-  }, [motion, isPlaying, ws.playbackRate, ws.autoPauseEvents, ws.segmentPlayback]);
+  }, [motion, isPlaying, ws.playbackRate, defaultPace, ws.autoPauseEvents, ws.segmentPlayback]);
 
   return (
     <>
@@ -289,6 +290,7 @@ export function WorkspaceLayout({ ws }: Props) {
                 onSeekEvent={ws.seekEvent}
                 onScrubStart={() => ws.setIsPlaying(false)}
                 playbackRate={ws.playbackRate}
+                defaultPace={defaultPace}
                 onRateChange={ws.setPlaybackRate}
                 autoPauseEvents={ws.autoPauseEvents}
                 onAutoPauseChange={ws.setAutoPauseEvents}
