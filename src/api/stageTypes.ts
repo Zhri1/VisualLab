@@ -16,6 +16,7 @@ export interface StagePlanDraft {
   initial:
     | { speedMps: number | null }
     | { vxMps: number | null; vyMps: number | null }
+    | { vxMps: number | null }
     | { tangentialSpeedMps: number | null }
     | { bodies: Array<Record<string, unknown>> };
   bodies?: Array<{ bodyId: string | null; massKg: number | null }>;

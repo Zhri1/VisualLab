@@ -10,6 +10,7 @@ const STAGE_LABELS: Record<StageKind, string> = {
   lossless_turn: "无损转向",
   horizontal_slide: "水平滑动",
   constant_force_1d: "常力匀变速",
+  conveyor_belt: "传送带与滑块",
   spring_contact: "弹簧接触",
   projectile: "抛体运动",
 };
@@ -42,6 +43,12 @@ const NUMBER_FIELDS: Partial<Record<StageKind, NumberMeta[]>> = {
   ],
   constant_force_1d: [
     { key: "netForceXN", label: "水平恒定合力 F", unit: "N", step: 0.5, hint: "向右为正，向左为负，0 为匀速" },
+  ],
+  conveyor_belt: [
+    { key: "initialBeltSpeedMps", label: "带面初速度 v带₀", unit: "m/s", step: 0.5, hint: "向右为正" },
+    { key: "kineticFrictionCoefficient", label: "动摩擦因数 μₖ", unit: "", step: 0.05 },
+    { key: "staticFrictionCoefficient", label: "静摩擦因数 μₛ", unit: "", step: 0.05, hint: "加速带必填，不默认等于 μₖ" },
+    { key: "beltLengthM", label: "带长 L（可选）", unit: "m", step: 0.5 },
   ],
   spring_contact: [{ key: "springConstantNpm", label: "弹簧劲度系数 k", unit: "N/m", step: 10 }],
   vertical_arc: [
@@ -91,6 +98,9 @@ function blankStage(kind: StageKind): Record<string, unknown> {
   }
   if (kind === "constant_force_1d") {
     return { kind, netForceXN: null, end: { kind: "duration", durationSeconds: null } };
+  }
+  if (kind === "conveyor_belt") {
+    return { kind, initialBeltSpeedMps: null, segments: [{ accelerationMps2: 0, durationSeconds: null }], kineticFrictionCoefficient: null, staticFrictionCoefficient: null };
   }
   if (kind === "spring_contact") return { kind, springConstantNpm: null, frictionless: null, unattached: null };
   if (kind === "vertical_arc") return { kind, radiusM: null, endAngleDeg: null, side: null, frictionless: null };
@@ -226,6 +236,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
   const initial = draft.initial ?? { speedMps: null };
   const firstKind = draft.stages[0]?.kind;
   const components = firstKind === "projectile" || "vxMps" in initial || "vyMps" in initial;
+  const conveyorInit = firstKind === "conveyor_belt";
   const showMass = "massKg" in draft || flagged("/massKg") || draft.stages.some((stage) => stage.kind === "spring_release" || stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "constant_force_1d");
 
   return (
@@ -237,11 +248,11 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
             path: "/gravityMps2", value: draft.gravityMps2, onChange: (raw) => setTopNumber("gravityMps2", raw) })}
           {showMass && numberRow({ key: "massKg", label: "滑块质量 m", unit: "kg", step: 0.1,
             path: "/massKg", value: draft.massKg, onChange: (raw) => setTopNumber("massKg", raw) })}
-          {components ? (
+          {components || conveyorInit ? (
             <>
-              {numberRow({ key: "vxMps", label: "水平初速度 vₓ", unit: "m/s", step: 0.1,
+              {numberRow({ key: "vxMps", label: conveyorInit ? "滑块对地初速 v₀" : "水平初速度 vₓ", unit: "m/s", step: 0.1,
                 path: "/initial/vxMps", value: "vxMps" in initial ? initial.vxMps : null, onChange: (raw) => setInitialNumber("vxMps", raw) })}
-              {numberRow({ key: "vyMps", label: "竖直初速度 vᵧ", unit: "m/s", step: 0.1,
+              {!conveyorInit && numberRow({ key: "vyMps", label: "竖直初速度 vᵧ", unit: "m/s", step: 0.1,
                 path: "/initial/vyMps", value: "vyMps" in initial ? initial.vyMps : null, onChange: (raw) => setInitialNumber("vyMps", raw) })}
             </>
           ) : numberRow({ key: "speedMps", label: "初始速率 v₀", unit: "m/s", step: 0.1,
@@ -361,6 +372,19 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                       })}
                     </>
                   )}
+                  {kind === "conveyor_belt" && Array.isArray(stage.segments) && stage.segments.map((seg, j) => {
+                    const sObj = (seg && typeof seg === "object" ? seg : {}) as Record<string, unknown>;
+                    const updateSeg = (field: string, raw: string) => {
+                      const nextSegs = (stage.segments as Record<string, unknown>[]).map((item, k) => k === j ? { ...item, [field]: asNumber(raw) } : item);
+                      setStage(index, { ...stage, segments: nextSegs });
+                    };
+                    return (
+                      <tr key={`conv-${j}`}><td colSpan={3}><table className="cond-table"><tbody>
+                        {numberRow({ key: `a-${j}`, label: `带速段 ${j + 1} 加速度 a带`, unit: "m/s²", step: 0.5, path: `/stages/${index}/segments/${j}/accelerationMps2`, value: sObj.accelerationMps2, onChange: (raw) => updateSeg("accelerationMps2", raw) })}
+                        {numberRow({ key: `t-${j}`, label: `带速段 ${j + 1} 时长`, unit: "s", step: 0.5, path: `/stages/${index}/segments/${j}/durationSeconds`, value: sObj.durationSeconds, onChange: (raw) => updateSeg("durationSeconds", raw) })}
+                      </tbody></table></td></tr>
+                    );
+                  })}
                   {kind === "constant_force_1d" && (
                     <>
                       <tr data-field-path={`/stages/${index}/end`}>

@@ -1,0 +1,18 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "initial": { "vxMps": 0 },
+  "stages": [
+    {
+      "kind": "conveyor_belt",
+      "initialBeltSpeedMps": 2,
+      "segments": [
+        { "accelerationMps2": 1, "durationSeconds": 3 },
+        { "accelerationMps2": 3, "durationSeconds": 1 }
+      ],
+      "kineticFrictionCoefficient": 0.2,
+      "staticFrictionCoefficient": 0.25
+    }
+  ]
+}

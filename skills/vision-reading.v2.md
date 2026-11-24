@@ -448,7 +448,27 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - 共速后若题面施加恒定水平外力，填 `postCommonForce: { blockForceXN, plankForceXN, durationSeconds }`；此时若所需静摩擦非零，必须从题面提取 `staticFrictionCoefficient`（未给则填 `null`，**绝不默认等于 μₖ**）。
 - 先共速还是先到板边、相对位移、离板速度以及共速后是否重新滑动均由 B 计算，模型不代算也不编造木板离地高度。
 
-## 15. 提交前自检
+## 15. 传送带与滑块
+
+共享契约 `CONVEYOR_BELT.md`。水平传送带（匀速或分段恒加速）与滑块使用 `initial: { vxMps: 带符号对地初速 }`、顶层 `gravityMps2` 与单段 `conveyor_belt`：
+
+```json
+{
+  "kind": "stage_plan", "schemaVersion": 1, "gravityMps2": 10,
+  "initial": { "vxMps": 0 },
+  "stages": [{
+    "kind": "conveyor_belt", "initialBeltSpeedMps": 2,
+    "segments": [{ "accelerationMps2": 1, "durationSeconds": 3 }],
+    "kineticFrictionCoefficient": 0.2, "staticFrictionCoefficient": 0.25
+  }],
+  "assumptions": []
+}
+```
+
+- 匀速带只需 `accelerationMps2: 0`，此时不要求 `staticFrictionCoefficient`；存在非零带加速度时，必须提取题给 `staticFrictionCoefficient`（未给填 `null`，**绝不默认等于 μₖ**）。
+- 题面给定带长时填 `beltLengthM`；未给则省略。对地位移、相对带面位移、共速时刻及是否重新滑动均由 B 计算。
+
+## 16. 提交前自检
 
 圆弧提取示例：质量0.1 kg，最低点水平入射速度4 m/s，半径0.4 m的光滑竖直半圆内侧，到最高点后可飞出，地面与最低点同高，g=10。输出保留全部计划，不预判提前脱轨：
 
