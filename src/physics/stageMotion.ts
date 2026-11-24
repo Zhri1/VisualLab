@@ -553,7 +553,11 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       list.push({ label, position: point(pos) });
     };
     addLandmark(labeled.startLabel, state);
-    addLandmark(labeled.endLabel, run.end);
+    const sameEndAsStart = Math.hypot(run.end.xM - state.xM, run.end.yM - state.yM) < 1e-6;
+    const endLandmarkPos = stage.kind === "vertical_arc" && sameEndAsStart && geometry.verticalArc
+      ? (run.events.find((item) => item.kind === "arc_top")?.position ?? { xM: geometry.verticalArc.center.xM, yM: geometry.verticalArc.center.yM + geometry.verticalArc.radiusM })
+      : run.end;
+    addLandmark(labeled.endLabel, endLandmarkPos);
     heatBase += run.heatAt?.(run.duration) ?? 0;
     for (const item of run.events) append(item, index, time);
     state = run.end;
@@ -565,7 +569,10 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     if(s?.kind==='vertical_arc'&&s.path){const fallbackEntry=geometry.horizontal?.plannedEnd??geometry.incline?.end;const {stageIndex:_,actualExit:__,...planned}=circularGeometry({...s,path:s.path},i,fallbackEntry);geometry.schematic={...geometry.schematic,stageIndices:[i],reason:'题设圆弧尚未到达，仅作示意。',verticalArc:planned};}}
   const last = events[events.length - 1];
   const termination = { reason, eventId: last.id, stageIndex: last.stageIndex };
-  const calculations: NonNullable<StageMotion["calculations"]> = plan.energy ? [{ quantity: "initial_elastic_energy", value: plan.energy.elasticEnergyJ, unit: "J", source: plan.energy.origin === "given" || plan.energy.origin === "user" ? plan.energy.origin : "derived", rule: plan.energy.origin, inputPaths: ["/energy"] }] : [];
+  const calculations: NonNullable<StageMotion["calculations"]> = [
+    ...(plan.energy ? [{ quantity: "initial_elastic_energy", value: plan.energy.elasticEnergyJ, unit: "J", source: (plan.energy.origin === "given" || plan.energy.origin === "user" ? plan.energy.origin : "derived") as "given" | "user" | "derived", rule: plan.energy.origin, inputPaths: ["/energy"] }] : []),
+    ...(plan.derivedCalculations ?? []).map((c) => ({ quantity: c.quantity, value: c.value, unit: c.unit, source: c.source, rule: c.rule, inputPaths: c.inputPaths })),
+  ];
   if (scope) for (const e of events) {
     if (e.kind !== "spring_release_end" && e.kind !== "arc_enter") continue;
     const inputPaths = ["/massKg", "/gravityMps2"];
@@ -582,7 +589,8 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   }
   return {
     ...(plan.stages.some(s=>s.kind==='vertical_arc'&&s.path)?{motionStatus:{state:['stopped','stop_at_target','stop_before_target'].includes(reason)?'complete' as const:'range_end' as const,reason,bodyIds:[],message:reason==='prefix_end'?'观察范围结束，仍保持真实速度与支持力。':reason==='returned_to_entry'?'返回入口的已求范围结束，保留反向速度和约束。':reason==='landed'?'首次接地，保留入射速度。':reason==='arc_detached'?'实际离轨，保留切向速度。':'物体真实静止。'}}:{}),
-    ...(scope ? { timing: { ...scope, anchor: { label: scope.mode === "full" ? "A" : scope.mode === "suffix" || scope.stopReason === "prefix_end" ? "B" : "静止点", position: scope.mode === "full" ? { xM: 0, yM: 0 } : { xM: scope.xM!, yM: 0 } }, absoluteStartSeconds: scope.mode === "full" ? 0 : null, excludedStageIndices: scope.mode === "full" ? [] : scope.mode === "suffix" ? Array.from({ length: from }, (_, i) => i) : plan.stages.map((_, i) => i) }, calculations } : {}),
+    ...(scope ? { timing: { ...scope, anchor: { label: scope.mode === "full" ? "A" : scope.mode === "suffix" || scope.stopReason === "prefix_end" ? "B" : "静止点", position: scope.mode === "full" ? { xM: 0, yM: 0 } : { xM: scope.xM!, yM: 0 } }, absoluteStartSeconds: scope.mode === "full" ? 0 : null, excludedStageIndices: scope.mode === "full" ? [] : scope.mode === "suffix" ? Array.from({ length: from }, (_, i) => i) : plan.stages.map((_, i) => i) } } : {}),
+    ...(calculations.length ? { calculations } : {}),
     geometry, durationSeconds: time, segments, events, termination,
     get endReason() { return termination.reason; },
     conveyorAt(timeSeconds) {

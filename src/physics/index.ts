@@ -10,6 +10,8 @@ import type { StageScene } from "./stageMotion.ts";
 export type { Scene } from "./scene.ts";
 export type { Motion, MotionEvent, MotionSample } from "./motion.ts";
 export { validateStagePlan } from "./stagePlan.ts";
+export { deriveProjectileTangentDrop, deriveArcRadiusFromDrop, deriveCriticalArcTopRadius, resolveGaokaoImplicitParams } from "./gaokaoConstraints.ts";
+export type { DerivedCalculation } from "./gaokaoConstraints.ts";
 export type { Energy, PlaybackScope } from "./stagePlan.ts";
 export type { Stage, StageKind, StagePlanDraft, ResolvedStagePlan, StagePlanValidation, StagePlanFailure, StageFieldError } from "./stagePlan.ts";
 export type { StageScene, StageMotion, StageGeometry, StageEvent, EndReason, EnergyReading } from "./stageMotion.ts";

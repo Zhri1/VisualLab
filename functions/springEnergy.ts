@@ -11,7 +11,7 @@ export function resolveSpringEnergy(input: Obj, draft: StagePlanDraft, missing: 
   numberField: (source: Obj, target: Obj, key: string, path: string, rule: (v: number) => boolean, required?: boolean) => void): PlaybackScope | undefined {
   const s = draft.stages[0];
   if (s.kind !== "spring_release") {
-    if (input.energy != null || input.constraints != null) issue("/energy", "PRECONDITION_CONFLICT", "能量条件需要预压释放首段。");
+    if (input.energy != null) issue("/energy", "PRECONDITION_CONFLICT", "能量条件需要预压释放首段。");
     return;
   }
   const h = draft.stages[1], end = object(h?.end) ? h.end : undefined;

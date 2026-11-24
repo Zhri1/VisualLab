@@ -413,4 +413,29 @@ describe('高考多阶段接续矩阵与显式圆弧自动圆心', () => {
       fieldErrors: [{ path: '/stages/1/path', code: 'PRECONDITION_CONFLICT' }],
     });
   });
+
+  it('端到端联调：共享声明式高考四段样例通过 validateStagePlan → assembleScene → buildMotion 并保留推导来源、多圆弧几何与 A~E 地标', () => {
+    const raw = JSON.parse(
+      readFileSync(new URL('../../../fixtures/gaokao-proj-arc-horiz-loop.reading.json', import.meta.url), 'utf8'),
+    );
+    const validated = validateStagePlan(raw);
+    expect(validated.ok).toBe(true);
+    if (!validated.ok) throw new Error(JSON.stringify(validated));
+    const motion = build(validated.reading);
+    expect(motion.segments.map((s) => s.kind)).toEqual(['projectile', 'vertical_arc', 'horizontal_slide', 'vertical_arc']);
+    expect(motion.geometry.verticalArcs?.length).toBe(2);
+    expect(motion.geometry.horizontals?.length).toBe(1);
+    expect(motion.geometry.projectiles?.length).toBe(1);
+    expect(motion.geometry.landmarks?.map((l) => l.label)).toEqual(['A', 'B', 'C', 'D', 'E']);
+    const dPos = motion.geometry.landmarks!.find((l) => l.label === 'D')!.position;
+    const ePos = motion.geometry.landmarks!.find((l) => l.label === 'E')!.position;
+    expect(ePos.yM).toBeGreaterThan(dPos.yM + 3.5);
+    expect(motion.calculations?.map((c) => c.quantity)).toEqual([
+      'projectile_drop_height',
+      'arc_radius',
+      'critical_arc_top_radius',
+    ]);
+    const arcTop = motion.events.find((e) => e.stageIndex === 3 && e.kind === 'arc_top')!;
+    expect(arcTop.normalForceAfterN).toBeCloseTo(0, 6);
+  });
 });
