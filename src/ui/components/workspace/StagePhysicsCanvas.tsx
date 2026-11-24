@@ -340,12 +340,21 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     if (!projSeg && !isInclineProj) continue;
     const floorY = proj.landingPlane.yM;
     const projEndX = projSeg ? motion.sampleAt(projSeg.endSeconds).position.x : last.position.x;
-    ctx.strokeStyle = INK;
-    ctx.lineWidth = 1.6;
+    const isIntermediateProj = proj.stageIndex >= 0 && !!motion.stagePlan && proj.stageIndex + 1 < motion.stagePlan.stages.length;
+    ctx.save();
+    if (isIntermediateProj) {
+      ctx.setLineDash([3, 4]);
+      ctx.strokeStyle = HAIR;
+      ctx.lineWidth = 1.1;
+    } else {
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 1.6;
+    }
     ctx.beginPath();
     ctx.moveTo(X(Math.min(proj.launch.xM, projEndX) - size), Y(floorY));
     ctx.lineTo(X(Math.max(proj.launch.xM, projEndX) + size), Y(floorY));
     ctx.stroke();
+    ctx.restore();
     if (isInclineProj) {
       const launch = proj.launch;
       ctx.save(); ctx.setLineDash([3, 4]); ctx.strokeStyle = HAIR; ctx.lineWidth = 1;

@@ -554,7 +554,8 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     };
     addLandmark(labeled.startLabel, state);
     const sameEndAsStart = Math.hypot(run.end.xM - state.xM, run.end.yM - state.yM) < 1e-6;
-    const endLandmarkPos = stage.kind === "vertical_arc" && sameEndAsStart && geometry.verticalArc
+    const isFullLoop = stage.kind === "vertical_arc" && stage.path?.end.sweepAngleDeg === 360;
+    const endLandmarkPos = isFullLoop && sameEndAsStart && geometry.verticalArc
       ? (run.events.find((item) => item.kind === "arc_top")?.position ?? { xM: geometry.verticalArc.center.xM, yM: geometry.verticalArc.center.yM + geometry.verticalArc.radiusM })
       : run.end;
     addLandmark(labeled.endLabel, endLandmarkPos);
