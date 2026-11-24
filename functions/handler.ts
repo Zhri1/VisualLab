@@ -385,6 +385,7 @@ class VisionError extends Error {
 
 const DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const DEFAULT_MODEL = "qwen4-max";
+const DEFAULT_MAX_TOKENS = 2048;
 
 function env(name: string): string {
   let fromRuntime = "";
@@ -406,6 +407,15 @@ function timeoutMs(): number {
   return Number.isFinite(value) && value > 0 ? value : 25_000;
 }
 
+function maxTokens(): number {
+  const value = Number(env("VISION_MAX_TOKENS"));
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : DEFAULT_MAX_TOKENS;
+}
+
+function repairRetryEnabled(): boolean {
+  return env("VISION_REPAIR_RETRY") !== "0";
+}
+
 function extractJson(text: string): unknown {
   let body = text.trim();
   if (!body) throw new VisionError("parse", "识别服务返回了空内容");
@@ -423,10 +433,84 @@ function extractJson(text: string): unknown {
   }
 }
 
+interface VisionRepairError {
+  path: string;
+  code: string;
+  message: string;
+}
+
+interface VisionRepairContext {
+  previousRaw: unknown;
+  errors: VisionRepairError[];
+  missingKeys?: string[];
+}
+
 interface VisionRequest {
   imageBase64?: string;
   mime?: string;
   text?: string;
+  repairContext?: VisionRepairContext;
+}
+
+function formatRepairPrompt(repairContext: VisionRepairContext): string {
+  const previousJson = JSON.stringify(repairContext.previousRaw);
+  const errorLines =
+    repairContext.errors.length > 0
+      ? repairContext.errors
+          .map((err, index) => `${index + 1}. [${err.code}] ${err.path || "/"}: ${err.message}`)
+          .join("\n")
+      : "1. [INVALID_READING] /: 整体结构或字段类型不符合 schema 契约";
+  const missingLine =
+    Array.isArray(repairContext.missingKeys) && repairContext.missingKeys.length > 0
+      ? `\n当前标记的缺项路径（若题面确实未给仍保持 null，绝不猜测）：${repairContext.missingKeys.join("、")}`
+      : "";
+
+  return [
+    "你上一次输出的 JSON 未通过后端校验，请根据报错只修正出错字段并重新输出单个合法 JSON 对象：",
+    `上一次输出的 JSON：\n${previousJson}`,
+    `后端校验报错列表：\n${errorLines}${missingLine}`,
+    "要求：只修正上述报错字段，保持其他正确识别的题面条件不变；题面未给的数值一律保持 null，绝不猜数；只输出一个纯 JSON 对象，不要任何额外文字。",
+  ].join("\n\n");
+}
+
+function buildRepairContext(raw: unknown, result: PlanResponse): VisionRepairContext | null {
+  if (!isStagePlanResult(result)) return null;
+  if (result.status === "invalid_reading") {
+    return {
+      previousRaw: raw,
+      errors: [{ path: "/", code: "INVALID_READING", message: result.message }],
+    };
+  }
+  if (result.status === "needs_input" && result.fieldErrors.length > 0) {
+    return {
+      previousRaw: raw,
+      errors: result.fieldErrors,
+      missingKeys: result.missingKeys.length > 0 ? result.missingKeys : undefined,
+    };
+  }
+  return null;
+}
+
+function isRepairImproved(before: PlanResponse, after: PlanResponse): boolean {
+  if (after.status === "ok") return true;
+  if (before.status === "invalid_reading") {
+    return after.status === "needs_input" || after.status === "unsupported";
+  }
+  if (
+    before.status === "needs_input" &&
+    isStagePlanResult(before) &&
+    after.status === "needs_input" &&
+    isStagePlanResult(after)
+  ) {
+    if (after.fieldErrors.length < before.fieldErrors.length) return true;
+    if (
+      after.fieldErrors.length === before.fieldErrors.length &&
+      after.missingKeys.length < before.missingKeys.length
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function callOnce(model: string, request: VisionRequest, apiKey: string): Promise<{ raw: unknown; model: string }> {
@@ -449,7 +533,14 @@ async function callOnce(model: string, request: VisionRequest, apiKey: string): 
       text: `学生补充的文字描述（与图片冲突时以文字为准）：\n${request.text}`,
     });
   }
-  userContent.push({ type: "text", text: "按 Skill 输出这一个 JSON 对象，不要任何额外文字。" });
+  if (request.repairContext) {
+    userContent.push({
+      type: "text",
+      text: formatRepairPrompt(request.repairContext),
+    });
+  } else {
+    userContent.push({ type: "text", text: "按 Skill 输出这一个 JSON 对象，不要任何额外文字。" });
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), limit);
@@ -462,7 +553,7 @@ async function callOnce(model: string, request: VisionRequest, apiKey: string): 
       body: JSON.stringify({
         model,
         temperature: 0,
-        max_tokens: 1200,
+        max_tokens: maxTokens(),
         messages: [
           { role: "system", content: [{ type: "text", text: SKILL_TEXT }] },
           { role: "user", content: userContent },
@@ -621,7 +712,27 @@ export async function handler(request: Request): Promise<Response> {
 
   // 内部统一按 stage_plan 校验，对外形状由 API_CONTRACT_MODE 决定：
   // 默认 legacy（A 的前端尚未接入），设成 stage_plan 才吐新契约。
-  const internal = buildPlanResponse(vision.raw);
+  let internal = buildPlanResponse(vision.raw);
+  const repairContext = repairRetryEnabled() ? buildRepairContext(vision.raw, internal) : null;
+  if (repairContext) {
+    try {
+      const repairedVision = await callVisionModel({
+        imageBase64,
+        mime,
+        text,
+        repairContext,
+      });
+      const repairedInternal = buildPlanResponse(repairedVision.raw);
+      if (isRepairImproved(internal, repairedInternal)) {
+        vision = repairedVision;
+        internal = repairedInternal;
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(`[plan] ${requestId} repair_fallback ${reason}`);
+    }
+  }
+
   const result: ClientResult =
     isStagePlanResult(internal) && outputContractFromEnv(env("API_CONTRACT_MODE")) === "legacy"
       ? applyLegacyContract(internal, validateReading, UNSUPPORTED_PREFIX)

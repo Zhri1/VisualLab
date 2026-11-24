@@ -57,6 +57,7 @@ describe("常力与分段匀变速：Node 与 Qoder 真实图文入口（模拟�
   }
 
   it("无法减速至零时，两端同源返回 needs_input 与 PRECONDITION_CONFLICT", async () => {
+    vi.stubEnv("VISION_REPAIR_RETRY", "0");
     const bad = read("constant-force-benchmark.reading.json");
     bad.stages[1].netForceXN = 2;
     upstream.mockResolvedValueOnce(answer(bad)).mockResolvedValueOnce(answer(bad));

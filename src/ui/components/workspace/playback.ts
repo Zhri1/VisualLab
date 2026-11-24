@@ -63,9 +63,25 @@ export function computeDefaultPace(
   }
   const sg = motion.stageGeometry;
   if (sg) {
-    if (sg.spring) { addPt(sg.spring.contact.xM, sg.spring.contact.yM); addPt(sg.spring.anchor.xM, sg.spring.anchor.yM); }
-    if (sg.incline) { addPt(sg.incline.start.xM, sg.incline.start.yM); addPt(sg.incline.end.xM, sg.incline.end.yM); }
-    if (sg.verticalArc) { addPt(sg.verticalArc.center.xM - sg.verticalArc.radiusM, sg.verticalArc.center.yM - sg.verticalArc.radiusM); addPt(sg.verticalArc.center.xM + sg.verticalArc.radiusM, sg.verticalArc.center.yM + sg.verticalArc.radiusM); }
+    const springs = sg.springs?.length ? sg.springs : sg.spring ? [sg.spring] : [];
+    for (const sp of springs) { addPt(sp.contact.xM, sp.contact.yM); addPt(sp.anchor.xM, sp.anchor.yM); }
+    const inclines = sg.inclines?.length ? sg.inclines : sg.incline ? [sg.incline] : [];
+    for (const inc of inclines) { addPt(inc.start.xM, inc.start.yM); addPt(inc.end.xM, inc.end.yM); }
+    const horizontals = sg.horizontals?.length ? sg.horizontals : sg.horizontal ? [sg.horizontal] : [];
+    for (const hor of horizontals) {
+      addPt(hor.start.xM, hor.start.yM);
+      if (hor.plannedEnd) addPt(hor.plannedEnd.xM, hor.plannedEnd.yM);
+    }
+    const projectiles = sg.projectiles?.length ? sg.projectiles : sg.projectile ? [sg.projectile] : [];
+    for (const proj of projectiles) {
+      addPt(proj.launch.xM, proj.launch.yM);
+      addPt(proj.launch.xM, proj.landingPlane.yM);
+    }
+    const verticalArcs = sg.verticalArcs?.length ? sg.verticalArcs : sg.verticalArc ? [sg.verticalArc] : [];
+    for (const arc of verticalArcs) {
+      addPt(arc.center.xM - arc.radiusM, arc.center.yM - arc.radiusM);
+      addPt(arc.center.xM + arc.radiusM, arc.center.yM + arc.radiusM);
+    }
     if (sg.plank) {
       for (const s of samples) {
         const pb = s.bodies?.[sg.plank.plankBodyId];

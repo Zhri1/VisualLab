@@ -2,6 +2,7 @@
 // 改动请改源文件后重新运行：node scripts/sync-functions.mjs
 import type {HorizontalInitial} from './horizontalTypes.ts';
 import { resolveSpringEnergy } from "./springEnergy.ts";
+import { resolveGaokaoImplicitParams, type DerivedCalculation } from "./gaokaoConstraints.ts";
 import { solveRoughSpring } from "./roughSpring.ts";
 import { circularEntry, circularGeometry, type ExplicitArcPath } from './circularArc.ts';
 import { validateMultiBodyPlan } from './multiBodyPlan.ts';
@@ -19,8 +20,8 @@ export type SingleStage =
   | { kind: "spring_release"; springConstantNpm: number | null; initialCompressionM: number | null; kineticFrictionCoefficient: number; unattached: true; slidesAfterRelease: boolean; releaseCompleteByM?: number | null }
   | { kind: "spring_contact"; springConstantNpm: number; frictionless: true; unattached: true; kineticFrictionCoefficient?: never; staticFrictionCoefficient?: never; reboundAtMaxCompression?: never }
   | { kind: "spring_contact"; springConstantNpm: number; kineticFrictionCoefficient: number; staticFrictionCoefficient?: number | null; reboundAtMaxCompression?: boolean | null; unattached: true; frictionless?: never }
-  | { kind: "vertical_arc"; radiusM: number; endAngleDeg?: number; path?: ExplicitArcPath; side: "inside"; frictionless: true }
-  | ({ kind: "projectile" } & ({ dropHeightM: number; landingPlaneYM?: never } | { landingPlaneYM: number; dropHeightM?: never }));
+  | { kind: "vertical_arc"; radiusM: number; verticalDropM?: number; endAngleDeg?: number; path?: ExplicitArcPath; side: "inside"; frictionless: true; startLabel?: string; endLabel?: string }
+  | ({ kind: "projectile"; startLabel?: string; endLabel?: string } & ({ dropHeightM: number; landingPlaneYM?: never; end?: never } | { landingPlaneYM: number; dropHeightM?: never; end?: never } | { end: { kind: "tangent_to_next_arc" }; dropHeightM?: number; landingPlaneYM?: never }));
 export type Stage = SingleStage | BodyStage;
 
 export type ResolvedStagePlan = {
@@ -33,6 +34,7 @@ export type ResolvedStagePlan = {
   primaryBodyId?: string;
   stages: Stage[];
   energy?: Energy;
+  derivedCalculations?: DerivedCalculation[];
 };
 export type StagePlanDraft = {
   kind: "stage_plan";
@@ -180,12 +182,30 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
   const needsMass = stages.some((stage) => stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "constant_force_1d");
   numberField(input, draft, "gravityMps2", "/gravityMps2", positive, needsGravity);
   numberField(input, draft, "massKg", "/massKg", positive, needsMass);
+  const nonSpringConstraints = stages[0]?.kind !== "spring_release" && input.constraints != null;
+  const criticalTopIndices = new Set<number>();
+  if (nonSpringConstraints && Array.isArray(input.constraints)) {
+    for (const c of input.constraints) {
+      if (record(c) && c.kind === "critical_arc_top" && typeof c.stageIndex === "number" && Number.isInteger(c.stageIndex)) {
+        criticalTopIndices.add(c.stageIndex);
+      }
+    }
+  }
+  const hasGaokaoImplicit = nonSpringConstraints
+    || stages.some((s) => (s.kind === "projectile" && Object.prototype.hasOwnProperty.call(s, "end"))
+      || (s.kind === "vertical_arc" && Object.prototype.hasOwnProperty.call(s, "verticalDropM")));
+  if (nonSpringConstraints) draft.constraints = input.constraints;
   for (const [i, source] of stages.entries()) {
     if (source.kind == null) continue;
     const stage = draft.stages[i];
     const path = "/stages/" + i;
     for (const [key, rule] of Object.entries(numericRules[source.kind])) {
       if (source.kind === 'vertical_arc' && key === 'endAngleDeg' && Object.prototype.hasOwnProperty.call(source, 'path')) continue;
+      if (source.kind === 'vertical_arc' && key === 'radiusM' && source.radiusM == null
+        && ((Object.prototype.hasOwnProperty.call(source, 'verticalDropM') && source.verticalDropM != null) || criticalTopIndices.has(i))) {
+        stage.radiusM = null;
+        continue;
+      }
       numberField(source, stage, key, path + "/" + key, rule);
     }
     if (source.kind === "incline_slide" && i === 0 && normalizedInitial.speedMps === 0) fact(stage, "slidesAfterRelease", path + "/slidesAfterRelease");
@@ -218,9 +238,12 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
           const p = { ...raw }; stage.path = p;
           numberField(raw, p, 'startAngleDeg', path + '/path/startAngleDeg', v => v >= -180 && v <= 180);
           choice(p, 'direction', ['positive','negative'], path + '/path/direction');
-          const center = readObject(raw.center, path + '/path/center');
-          if (center) { p.center = { ...center }; for (const key of ['xM','yM']) numberField(center, p.center as Record<string, unknown>, key, path + '/path/center/' + key, finite); }
-          else p.center = null;
+          if (raw.center !== undefined && raw.center !== null) {
+            if (!record(raw.center)) { issue(path + '/path/center', 'TYPE', '需要对象。'); p.center = null; }
+            else { p.center = { ...raw.center }; for (const key of ['xM','yM']) numberField(raw.center, p.center as Record<string, unknown>, key, path + '/path/center/' + key, finite); }
+          } else {
+            delete p.center;
+          }
           const end = readObject(raw.end, path + '/path/end');
           if (end) {
             p.end = { ...end }; choice(p.end as Record<string, unknown>, 'kind', ['physical_endpoint','observation'], path + '/path/end/kind');
@@ -234,13 +257,20 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       else if (source.side !== "inside") issue(path + "/side", "UNSUPPORTED", "当前只支持竖直圆弧内侧。");
     }
     if (source.kind === "projectile") {
-      const hasDrop = Object.prototype.hasOwnProperty.call(source, "dropHeightM");
-      const hasPlane = Object.prototype.hasOwnProperty.call(source, "landingPlaneYM");
+      const hasDrop = Object.prototype.hasOwnProperty.call(source, "dropHeightM") && source.dropHeightM !== undefined;
+      const hasPlane = Object.prototype.hasOwnProperty.call(source, "landingPlaneYM") && source.landingPlaneYM !== undefined;
+      const hasEnd = Object.prototype.hasOwnProperty.call(source, "end") && source.end !== undefined;
       const fromArc = stages[i - 1]?.kind === "vertical_arc";
-      if (hasDrop && hasPlane) issue(path, "PRECONDITION_CONFLICT", "相对落差与固定落地平面互斥，请保留一种。");
-      else if (fromArc && hasDrop) issue(path, "PRECONDITION_CONFLICT", "圆弧后抛体需固定 landingPlaneYM，不能使用相对落差。");
-      if (hasDrop || (!hasPlane && !fromArc)) numberField(source, stage, "dropHeightM", path + "/dropHeightM", nonnegative);
-      if (hasPlane || (fromArc && !hasDrop)) numberField(source, stage, "landingPlaneYM", path + "/landingPlaneYM", finite);
+      if (hasEnd) {
+        if (hasDrop || hasPlane) {
+          // 互斥错误交由 gaokaoConstraints 统一给出精确路径提示
+        }
+      } else {
+        if (hasDrop && hasPlane) issue(path, "PRECONDITION_CONFLICT", "相对落差与固定落地平面互斥，请保留一种。");
+        else if (fromArc && hasDrop) issue(path, "PRECONDITION_CONFLICT", "圆弧后抛体需固定 landingPlaneYM，不能使用相对落差。");
+        if (hasDrop || (!hasPlane && !fromArc)) numberField(source, stage, "dropHeightM", path + "/dropHeightM", nonnegative);
+        if (hasPlane || (fromArc && !hasDrop)) numberField(source, stage, "landingPlaneYM", path + "/landingPlaneYM", finite);
+      }
     }
     if (source.kind === "spring_contact") {
       const rough = Object.prototype.hasOwnProperty.call(source, "kineticFrictionCoefficient");
@@ -324,7 +354,8 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       : previous === "lossless_turn" ? source.kind === "horizontal_slide" || source.kind === "spring_contact" || source.kind === "vertical_arc" || source.kind === "constant_force_1d"
       : previous === "horizontal_slide" ? source.kind === "spring_contact" || source.kind === "projectile" || source.kind === "vertical_arc" || source.kind === "constant_force_1d"
       : previous === "constant_force_1d" ? ["constant_force_1d", "horizontal_slide", "spring_contact", "projectile", "vertical_arc"].includes(source.kind)
-      : previous === "vertical_arc" ? source.kind === "projectile"
+      : previous === "vertical_arc" ? ["projectile", "horizontal_slide", "incline_slide", "spring_contact", "constant_force_1d", "vertical_arc"].includes(source.kind)
+      : previous === "projectile" ? source.kind === "vertical_arc" || source.kind === "incline_slide"
       : previous === "spring_release" ? ["horizontal_slide", "spring_contact", "vertical_arc", "projectile", "constant_force_1d"].includes(source.kind)
       : false;
     if (!permitted) issue(path + "/kind", "UNSUPPORTED", "当前版本不支持该阶段接续。");
@@ -346,6 +377,23 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
     const angle = first.angleDeg * Math.PI / 180;
     if (Math.sin(angle) - first.kineticFrictionCoefficient * Math.cos(angle) <= 0) {
       issue("/stages/0/kineticFrictionCoefficient", "PRECONDITION_CONFLICT", "当前倾角与摩擦无法支持从静止开始下滑。");
+    }
+  }
+  let derivedCalculations: DerivedCalculation[] = [];
+  if (hasGaokaoImplicit) {
+    const solved = resolveGaokaoImplicitParams({
+      gravityMps2: draft.gravityMps2,
+      massKg: draft.massKg,
+      initial: normalizedInitial,
+      stages: draft.stages,
+      ...(nonSpringConstraints ? { constraints: input.constraints } : {}),
+    });
+    if (solved.ok) {
+      draft.stages = solved.stages;
+      derivedCalculations = solved.calculations;
+    } else {
+      for (const mk of solved.missingKeys) missingKeys.push(mk);
+      for (const fe of solved.fieldErrors) issue(fe.path, fe.code, fe.message);
     }
   }
   if(!missingKeys.length&&!fieldErrors.length)for(const [i,s]of draft.stages.entries())if(s.kind==='vertical_arc'&&s.path){
@@ -397,6 +445,8 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
   if (typeof draft.gravityMps2 === "number") resolved.gravityMps2 = draft.gravityMps2;
   if (typeof draft.massKg === "number") resolved.massKg = draft.massKg;
   if (draft.energy) resolved.energy = draft.energy;
+  if (derivedCalculations.length) resolved.derivedCalculations = derivedCalculations;
+  else if (Array.isArray(input.derivedCalculations) && input.derivedCalculations.length) resolved.derivedCalculations = input.derivedCalculations as DerivedCalculation[];
   return { ok: true, reading: resolved, ...(playback ? { playback } : {}) };
 }
 
