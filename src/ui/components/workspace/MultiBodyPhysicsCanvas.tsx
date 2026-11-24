@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Motion, Vec2 } from '../../../types';
 import { formatSpeed } from './playback';
+import { computeWorldBounds, fitViewport } from './canvasViewport';
 import './multiBody.css';
 
 const INK='#1c1c1c',TARGET='#386e8a',SOFT='#777770',HAIR='#d6d6d1',PAPER='#fbfbf9';
@@ -15,14 +16,16 @@ function drawingData(motion:Motion){
   for(const p of motion.stageGeometry?.pendulums??[])points.push({x:p.pivot.xM,y:p.pivot.yM},{x:p.lowestPoint.xM,y:p.lowestPoint.yM});
   if(motion.stageGeometry?.pulley){const pl=motion.stageGeometry.pulley;points.push({x:pl.pulley.xM,y:pl.pulley.yM},{x:pl.body1Start.xM,y:pl.body1Start.yM},{x:pl.body2Start.xM,y:pl.body2Start.yM});if(pl.groundYM!=null)points.push({x:pl.body2Start.xM,y:pl.groundYM});}
   for(const tr of motion.stageGeometry?.bodyTracks??[]){if(tr.horizontal){points.push({x:tr.horizontal.start.xM,y:tr.horizontal.start.yM});if(tr.horizontal.plannedEnd)points.push({x:tr.horizontal.plannedEnd.xM,y:tr.horizontal.plannedEnd.yM});}if(tr.projectile?.landingPlane)points.push({x:tr.projectile.launch.xM,y:tr.projectile.landingPlane.yM});}
-  const xs=points.map(p=>p.x),ys=points.map(p=>p.y);
-  return{curves,ids:Object.keys(curves).sort(),bounds:{x1:Math.min(...xs)-.2,x2:Math.max(...xs)+.2,y1:Math.min(...ys)-.2,y2:Math.max(...ys)+.2}};
+  return{curves,ids:Object.keys(curves).sort(),bounds:computeWorldBounds(points)};
 }
 export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:number,motion:Motion,time:number,tracked?:string,data=drawingData(motion)){
   const horizontal=motion.stagePlan?.stages[0]?.kind==='horizontal_approach';
-  const snapshot=motion.sampleAt(time),b=data.bounds,bw=Math.max(.8,b.x2-b.x1),bh=Math.max(.8,b.y2-b.y1),pad=28;
-  const S=Math.min((W-2*pad)/bw,(H-2*pad)/bh),ox=(W-bw*S)/2-b.x1*S,oy=(H-bh*S)/2+b.y2*S;
-  const X=(x:number)=>ox+x*S,Y=(y:number)=>oy-y*S,color=(id:string)=>data.ids.indexOf(id)===0?INK:TARGET;
+  const snapshot=motion.sampleAt(time);
+  const narrow=W<420;
+  const vp=fitViewport(W,H,data.bounds,{top:44,right:narrow?34:54,bottom:48,left:narrow?34:54});
+  const {S,X,Y}=vp;
+  const b={x1:data.bounds.minX,x2:data.bounds.maxX,y1:data.bounds.minY,y2:data.bounds.maxY};
+  const color=(id:string)=>data.ids.indexOf(id)===0?INK:TARGET;
   ctx.clearRect(0,0,W,H);ctx.fillStyle=PAPER;ctx.fillRect(0,0,W,H);ctx.lineWidth=1.3;ctx.font=`12px ${FONT}`;ctx.textBaseline='alphabetic';
   for(const[id,points]of Object.entries(data.curves)){ctx.save();ctx.setLineDash([3,5]);ctx.strokeStyle=HAIR;ctx.beginPath();points.forEach((p,i)=>i===0?ctx.moveTo(X(p.x),Y(p.y)):ctx.lineTo(X(p.x),Y(p.y)));ctx.stroke();ctx.restore();
     const initial=points[0],now=snapshot.bodies?.[id];if(now&&Math.hypot(now.position.x-initial.x,now.position.y-initial.y)*S>18){ctx.save();ctx.setLineDash([3,3]);ctx.strokeStyle=color(id);ctx.beginPath();ctx.arc(X(initial.x),Y(initial.y),5,0,2*Math.PI);ctx.stroke();ctx.restore();}}
@@ -33,16 +36,17 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
   const occupied:{x:number;y:number;w:number;h:number}[]=[];
   const block=(x:number,y:number,r:number)=>occupied.push({x:x-r,y:y-r,w:2*r,h:2*r});
   const marked=new Set<string>();
+  const gx1=Math.max(8,X(b.x1)-14),gx2=Math.min(W-8,X(b.x2)+14);
   for(const tr of motion.stageGeometry?.bodyTracks??[]){
-    if(tr.horizontal){const p=tr.horizontal,end=p.plannedEnd??{xM:motion.sampleAt(motion.durationSeconds).bodies?.[tr.bodyIds[0]]?.position.x??p.start.xM,yM:p.start.yM};ctx.strokeStyle=INK;ctx.beginPath();ctx.moveTo(X(p.start.xM),Y(p.start.yM));ctx.lineTo(X(end.xM),Y(end.yM));ctx.stroke();if(p.plannedEnd){const label=horizontal&&tr.stagePath.startsWith('/stages/0/')?'实际接触点':'桌沿 / 目标',key=`${label}:${end.xM}:${end.yM}`;if(!marked.has(key)){reqs.push({text:label,color:SOFT,cx:X(end.xM),by:Y(end.yM)+19,dir:1});marked.add(key);}}}
-    if(tr.projectile?.landingPlane){const y=tr.projectile.landingPlane.yM;ctx.strokeStyle=INK;ctx.beginPath();ctx.moveTo(X(b.x1+.1),Y(y));ctx.lineTo(X(b.x2-.1),Y(y));ctx.stroke();const text=`地面 y = ${y} m`;reqs.push({text,color:SOFT,cx:X(b.x1+.1)+ctx.measureText(text).width/2,by:Y(y)+17,dir:1});}
+    if(tr.horizontal){const p=tr.horizontal,end=p.plannedEnd??{xM:motion.sampleAt(motion.durationSeconds).bodies?.[tr.bodyIds[0]]?.position.x??p.start.xM,yM:p.start.yM};ctx.strokeStyle=INK;ctx.beginPath();ctx.moveTo(X(p.start.xM),Y(p.start.yM));ctx.lineTo(X(end.xM),Y(end.yM));ctx.stroke();if(p.plannedEnd){const label=horizontal&&tr.stagePath.startsWith('/stages/0/')?'实际接触点':'桌沿 / 目标',key=`${label}:${end.xM}:${end.yM}`;if(!marked.has(key)){reqs.push({text:label,color:SOFT,cx:X(end.xM),by:Y(end.yM)+27,dir:1});marked.add(key);}}}
+    if(tr.projectile?.landingPlane){const y=tr.projectile.landingPlane.yM;ctx.strokeStyle=INK;ctx.beginPath();ctx.moveTo(gx1,Y(y));ctx.lineTo(gx2,Y(y));ctx.stroke();const text=`地面 y = ${y} m`;reqs.push({text,color:SOFT,cx:gx1+ctx.measureText(text).width/2,by:Y(y)+17,dir:1});}
   }
   for(const p of motion.stageGeometry?.pendulums??[]){const px=X(p.pivot.xM),py=Y(p.pivot.yM);ctx.strokeStyle=INK;ctx.lineWidth=1.6;ctx.beginPath();ctx.moveTo(px-19,py-6);ctx.lineTo(px+19,py-6);ctx.moveTo(px,py-6);ctx.lineTo(px,py+3);ctx.stroke();occupied.push({x:px-19,y:py-8,w:38,h:12});reqs.push({text:'P',color:INK,cx:px+26,by:py-2,dir:-1});reqs.push({text:'O',color:SOFT,cx:X(p.lowestPoint.xM)+13,by:Y(p.lowestPoint.yM)+18,dir:1});}
   if(motion.stageGeometry?.plank){
     const pg=motion.stageGeometry.plank,pb=snapshot.bodies?.[pg.plankBodyId];
     if(pb){
       const y0=Y(pb.position.y),xL=X(pb.position.x),xR=X(pb.position.x+pg.plankLengthM);
-      ctx.save();ctx.strokeStyle=HAIR;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(X(b.x1+.05),y0+10);ctx.lineTo(X(b.x2-.05),y0+10);ctx.stroke();
+      ctx.save();ctx.strokeStyle=HAIR;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(gx1,y0+10);ctx.lineTo(gx2,y0+10);ctx.stroke();
       ctx.fillStyle='#eaeae6';ctx.strokeStyle=TARGET;ctx.lineWidth=1.6;ctx.fillRect(xL,y0+2,Math.max(8,xR-xL),8);ctx.strokeRect(xL,y0+2,Math.max(8,xR-xL),8);ctx.restore();
       occupied.push({x:xL,y:y0+2,w:Math.max(8,xR-xL),h:10});
       reqs.push({text:`木板 L=${pg.plankLengthM} m`,color:SOFT,cx:(xL+xR)/2,by:y0+26,dir:1});
@@ -55,7 +59,7 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
       ctx.beginPath();ctx.moveTo(X(pl.body1Start.xM),Y(pl.body1Start.yM));ctx.lineTo(px,py);ctx.stroke();
     }
     if(pl.groundYM!=null){
-      const gy=Y(pl.groundYM);ctx.beginPath();ctx.moveTo(X(b.x1+.1),gy);ctx.lineTo(X(b.x2-.1),gy);ctx.stroke();
+      const gy=Y(pl.groundYM);ctx.beginPath();ctx.moveTo(gx1,gy);ctx.lineTo(gx2,gy);ctx.stroke();
       reqs.push({text:'地面支撑',color:SOFT,cx:X(pl.body2Start.xM)+36,by:gy+16,dir:1});
     }
     ctx.fillStyle=PAPER;ctx.beginPath();ctx.arc(px,py,9,0,2*Math.PI);ctx.fill();ctx.stroke();
@@ -93,7 +97,7 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
     const cand=[q.by,q.by+q.dir*16,q.by+q.dir*32,q.by-q.dir*16,q.by+q.dir*48,q.by-q.dir*32];
     let by:number|null=null,rect:{x:number;y:number;w:number;h:number}|null=null;
     for(const t of cand){const r={x:cx-w/2,y:t-13,w,h};if(r.y<2||r.y+h>H-2)continue;if(fits(r)){by=t;rect=r;break;}}
-    if(by===null||!rect){by=Math.max(15,Math.min(H-6,cand[cand.length-1]));rect={x:cx-w/2,y:by-13,w,h};}
+    if(by===null||!rect){by=Math.max(15,Math.min(H-6,cand[0]));rect={x:cx-w/2,y:by-13,w,h};}
     rects.push(rect);
     if(q.leader&&Math.abs(by-q.by)>=12){ctx.save();ctx.strokeStyle=HAIR;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(q.leader.x,q.leader.y);ctx.lineTo(cx,by+(q.dir===-1?4:-13));ctx.stroke();ctx.restore();}
     ctx.fillStyle=PAPER;ctx.fillRect(rect.x,rect.y,w,h);ctx.fillStyle=q.color;ctx.textAlign='center';ctx.fillText(q.text,cx,by);
