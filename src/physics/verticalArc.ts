@@ -3,16 +3,8 @@ import type { Point } from "./scene.ts";
 import type { Stage } from "./stagePlan.ts";
 import { integrate } from './quadrature.ts';
 
-export type ArcConstraint = {
-  kind: "vertical_arc"; stageIndex: number; angleDeg: number;
-  angularVelocityRadps: number; normalForceN: number;
-};
-export type StageSample = MotionSample & { constraint?: ArcConstraint };
-export type VerticalArcGeometry = {
-  stageIndex: number; entry: Point; center: Point; radiusM: number;
-  startAngleDeg: 0; endAngleDeg: number; plannedEnd: Point;
-  actualExit: { position: Point; angleDeg: number; reason: "endpoint" | "contact_lost" | "returned_to_entry" | "stationary" };
-};
+import type {StageSample,VerticalArcGeometry} from './arcTypes.ts';
+export type {StageSample,ArcConstraint,VerticalArcGeometry} from './arcTypes.ts';
 
 function trig(phi: number) {
   if (phi === 0) return { sin: 0, cos: 1 };
@@ -28,7 +20,7 @@ export function solveVerticalArc(stage: Extract<Stage, { kind: "vertical_arc" }>
   if (![ratio, scale, mass * gravity, speed / radius].every(Number.isFinite) || scale <= 0) throw new RangeError("圆弧数值量级无法表示。");
   // 仅吸收无量纲能量比的舍入误差，保留临界值两侧的真实分支。
   for (const boundary of [2, 5]) if (Math.abs(ratio - boundary) <= 16 * Number.EPSILON * Math.max(ratio, boundary)) ratio = boundary;
-  const plannedPhi = stage.endAngleDeg * Math.PI / 180;
+  const plannedPhi = stage.endAngleDeg! * Math.PI / 180;
   const turnPhi = ratio <= 2 ? 2 * Math.asin(Math.sqrt(ratio) / 2) : Infinity;
   const lossPhi = ratio > 2 && ratio < 5 ? Math.acos((2 - ratio) / 3) : Infinity;
   const angleTolerance = 16 * Number.EPSILON * Math.PI;
@@ -52,7 +44,7 @@ export function solveVerticalArc(stage: Extract<Stage, { kind: "vertical_arc" }>
   const geometry: VerticalArcGeometry = {
     stageIndex, entry: { xM: start.xM, yM: start.yM },
     center: { xM: start.xM, yM: start.yM + radius }, radiusM: radius,
-    startAngleDeg: 0, endAngleDeg: stage.endAngleDeg,
+    startAngleDeg: 0, endAngleDeg: stage.endAngleDeg!,
     plannedEnd: { xM: start.xM + radius * trig(plannedPhi).sin, yM: start.yM + radius * (1 - trig(plannedPhi).cos) },
     actualExit: { position: { xM: start.xM, yM: start.yM }, angleDeg: 0, reason: exitReason },
   };

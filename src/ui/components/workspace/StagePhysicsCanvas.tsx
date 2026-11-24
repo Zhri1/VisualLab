@@ -14,6 +14,7 @@ function hasInclineLaunch(motion: Motion): boolean {
   return !!motion.stagePlan?.stages.some((stage, i, stages) => stage.kind === "incline_slide" && stages[i + 1]?.kind === "projectile");
 }
 const componentText = (value: number) => Math.abs(value) < .005 ? "0" : value.toFixed(2);
+const normalText=(value:number,explicit:boolean)=>explicit&&value>0&&value<.01?value.toPrecision(2):value.toFixed(2);
 
 interface Props {
   motion: Motion;
@@ -27,6 +28,7 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   const g = motion.stageGeometry!;
   const inclineLaunch = hasInclineLaunch(motion);
   const displayArc = g.verticalArc ?? g.schematic?.verticalArc;
+  const explicitArc=displayArc?.direction!==undefined;
   const size = g.blockSizeM;
   const sample = motion.sampleAt(time);
   const first = motion.sampleAt(0);
@@ -39,20 +41,30 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     if (g.horizontal.plannedEnd) points.push({ x: g.horizontal.plannedEnd.xM, y: g.horizontal.plannedEnd.yM });
   }
   if (g.spring) points.push({ x: g.spring.contact.xM, y: g.spring.contact.yM }, { x: g.spring.anchor.xM, y: g.spring.anchor.yM });
-  if (g.projectile) points.push({ x: g.projectile.launch.xM, y: g.projectile.launch.yM }, { x: last.position.x, y: g.projectile.landingPlane.yM });
+  if (g.projectile) {
+    points.push({ x: g.projectile.launch.xM, y: g.projectile.launch.yM }, { x: last.position.x, y: g.projectile.landingPlane.yM });
+    const projSeg = motion.segments.find((s) => s.kind === "projectile");
+    if (projSeg) {
+      for (let i = 1; i < 6; i += 1) {
+        points.push(motion.sampleAt(projSeg.startSeconds + (projSeg.endSeconds - projSeg.startSeconds) * (i / 6)).position);
+      }
+    }
+  }
   if (displayArc) {
     const arc = displayArc;
-    points.push({ x: arc.entry.xM, y: arc.entry.yM }, { x: arc.plannedEnd.xM, y: arc.plannedEnd.yM },
-      { x: arc.center.xM + arc.radiusM * Math.sin(Math.min(90, arc.endAngleDeg) * Math.PI / 180), y: arc.center.yM });
+    points.push({ x: arc.entry.xM, y: arc.entry.yM }, { x: arc.plannedEnd.xM, y: arc.plannedEnd.yM });
+    const start=arc.startAngleDeg??0,low=Math.min(start,arc.endAngleDeg),high=Math.max(start,arc.endAngleDeg);
+    for(let a=Math.ceil(low/90)*90;a<=high;a+=90)points.push({x:arc.center.xM+arc.radiusM*Math.sin(a*Math.PI/180),y:arc.center.yM-arc.radiusM*Math.cos(a*Math.PI/180)});
   }
 
   const xs = points.map((point) => point.x);
   const ys = points.map((point) => point.y);
+  const margin=explicitArc?Math.max(.04,displayArc!.radiusM*.35):size*2;
   const bounds: Bounds = {
-    x1: Math.min(...xs) - size * 2,
-    x2: Math.max(...xs) + size * 2,
-    y1: Math.min(...ys) - size * 2.2,
-    y2: Math.max(...ys) + size * 2.3,
+    x1: Math.min(...xs) - margin,
+    x2: Math.max(...xs) + margin,
+    y1: Math.min(...ys) - (explicitArc?margin:size*2.2),
+    y2: Math.max(...ys) + (explicitArc?margin:size*2.3),
   };
   const bw = Math.max(1, bounds.x2 - bounds.x1);
   const bh = Math.max(1, bounds.y2 - bounds.y1);
@@ -165,23 +177,31 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.lineWidth = sample.constraint ? 2.4 : 1.6;
     ctx.beginPath();
     for (let i = 0; i <= 80; i++) {
-      const phi = arc.endAngleDeg * Math.PI / 180 * i / 80;
-      const x = X(arc.entry.xM + arc.radiusM * Math.sin(phi));
-      const y = Y(arc.entry.yM + arc.radiusM * (1 - Math.cos(phi)));
+      const phi = ((arc.startAngleDeg??0)+(arc.endAngleDeg-(arc.startAngleDeg??0))*i/80)*Math.PI/180;
+      const x = X(arc.center.xM + arc.radiusM * Math.sin(phi));
+      const y = Y(arc.center.yM - arc.radiusM * Math.cos(phi));
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke(); ctx.restore();
+    const fullCircle = explicitArc && Math.abs(Math.abs(arc.endAngleDeg - (arc.startAngleDeg ?? 0)) - 360) < 1e-9;
+    const radiusRad = (!explicitArc || fullCircle ? 90 : ((arc.startAngleDeg ?? 0) + arc.endAngleDeg) / 2) * Math.PI / 180;
+    const radEndX = arc.center.xM + arc.radiusM * Math.sin(radiusRad);
+    const radEndY = arc.center.yM - arc.radiusM * Math.cos(radiusRad);
     ctx.save(); ctx.setLineDash([3, 4]); ctx.strokeStyle = HAIR; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(X(arc.center.xM), Y(arc.center.yM));
-    ctx.lineTo(X(arc.center.xM + arc.radiusM), Y(arc.center.yM)); ctx.stroke(); ctx.restore();
+    ctx.lineTo(X(radEndX), Y(radEndY)); ctx.stroke(); ctx.restore();
     ctx.font = `500 12px ${SANS}`; ctx.fillStyle = SOFT; ctx.textAlign = "center";
-    ctx.fillText("R", X(arc.center.xM + arc.radiusM / 2), Y(arc.center.yM) - 7);
-    if (!g.landmarks?.length) ctx.fillText(arc.endAngleDeg === 180 ? "C" : "端点", X(arc.plannedEnd.xM) - 10, Y(arc.plannedEnd.yM) - 12);
+    ctx.fillText("R", X((arc.center.xM + radEndX) / 2), Y((arc.center.yM + radEndY) / 2) - 7);
+    const fullObservation = fullCircle && arc.endMode === "observation";
+    if (!g.landmarks?.length) ctx.fillText(fullObservation?'入口 · 观察一圈':explicitArc?arc.endMode==='observation'?'观察终点':'实体端点':arc.endAngleDeg === 180 ? "C" : "端点", X(arc.plannedEnd.xM) - (fullObservation?0:10), Y(arc.plannedEnd.yM) + (fullObservation?22:-12));
+    if(explicitArc&&g.verticalArc?.actualExit.reason==='contact_lost'){
+      const end=g.verticalArc.actualExit.position;ctx.fillStyle=SOFT;ctx.fillText('实际脱轨',X(end.xM)+12,Y(end.yM)+20);
+    }
   }
   const arcEntry = g.verticalArc?.entry ?? (hasPlannedArc ? plannedEnd : undefined);
-  if (arcEntry && !g.landmarks?.length) {
+  if (arcEntry && !g.landmarks?.length && !(explicitArc&&displayArc?.endMode==='observation'&&Math.abs(Math.abs(displayArc.endAngleDeg-(displayArc.startAngleDeg??0))-360)<1e-9)) {
     ctx.font = `500 12px ${SANS}`; ctx.fillStyle = SOFT; ctx.textAlign = "center";
-    ctx.fillText("B", X(arcEntry.xM), Y(arcEntry.yM) + 19);
+    ctx.fillText(explicitArc?"入口":"B", X(arcEntry.xM), Y(arcEntry.yM) + 19);
     if (g.horizontal) ctx.fillText("A", X(g.horizontal.start.xM), Y(g.horizontal.start.yM) + 19);
   }
 
@@ -297,6 +317,11 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   block(first.position, true);
   const center = block(sample.position, false);
 
+  if(explicitArc&&sample.constraint?.normalDirection&&sample.constraint.normalForceN>0){
+    const n=sample.constraint.normalDirection,len=30,sx=X(center.x)+n.x*10,sy=Y(center.y)-n.y*10,ex=sx+n.x*len,ey=sy-n.y*len,a=Math.atan2(ey-sy,ex-sx);
+    ctx.save();ctx.strokeStyle='#386e8a';ctx.fillStyle='#386e8a';ctx.lineWidth=1.6;ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(ex,ey);ctx.moveTo(ex-6*Math.cos(a-.45),ey-6*Math.sin(a-.45));ctx.lineTo(ex,ey);ctx.lineTo(ex-6*Math.cos(a+.45),ey-6*Math.sin(a+.45));ctx.stroke();ctx.font=`12px ${SANS}`;ctx.textAlign='left';ctx.textBaseline='middle';ctx.fillText('N',ex+7,ey);ctx.restore();
+  }
+
   // 末帧停止点与 plannedEnd 分开标记。
   if (time >= motion.durationSeconds - 1e-9 && motion.endReason?.startsWith("stop")) {
     ctx.fillStyle = SOFT;
@@ -310,9 +335,10 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   if (speed > 0.08) {
     const ux = sample.velocity.x / speed;
     const uy = sample.velocity.y / speed;
-    const length = Math.min(1.4, 0.45 + speed * 0.08);
-    const startX = center.x + ux * size * 0.8;
-    const startY = center.y + uy * size * 0.8;
+    const length = Math.min(1.4, 0.45 + speed * 0.08, displayArc ? 38 / S : Infinity);
+    const offset = displayArc ? 9 / S : size * 0.8;
+    const startX = center.x + ux * offset;
+    const startY = center.y + uy * offset;
     const endX = startX + ux * length;
     const endY = startY + uy * length;
     ctx.strokeStyle = "#3a3a36";
@@ -343,14 +369,14 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   const label = `v = ${speedText} m/s`;
   const labelWidth = ctx.measureText(label).width;
   const preferredX = g.positionReference === "particle" ? X(center.x) + labelWidth / 2 + 16 : X(center.x);
-  const labelX = Math.min(W - labelWidth / 2 - 8, Math.max(labelWidth / 2 + 8, preferredX));
-  const labelY = Math.min(H - 28, Math.max(20, Y(center.y) - (g.positionReference === "particle" ? 18 : half * S + 9)));
-  ctx.fillStyle = PAPER; ctx.fillRect(labelX - labelWidth / 2 - 3, labelY - 15, labelWidth + 6, sample.constraint ? 35 : 18);
+  const labelX = explicitArc?W-labelWidth/2-12:Math.min(W - labelWidth / 2 - 8, Math.max(labelWidth / 2 + 8, preferredX));
+  const labelY = explicitArc?20:Math.min(H - 28, Math.max(20, Y(center.y) - (g.positionReference === "particle" ? 18 : half * S + 9)));
+  if(!explicitArc){ctx.fillStyle = PAPER; ctx.fillRect(labelX - labelWidth / 2 - 3, labelY - 15, labelWidth + 6, sample.constraint ? 35 : 18);}
   ctx.fillStyle = INK; ctx.fillText(label, labelX, labelY);
   if (sample.constraint) {
-    ctx.fillStyle = SOFT; ctx.fillText(`N = ${sample.constraint.normalForceN.toFixed(2)} N`, labelX, labelY + 18);
+    ctx.fillStyle = SOFT; ctx.fillText(`N = ${normalText(sample.constraint.normalForceN,explicitArc)} N`, labelX, labelY + 18);
   }
-  if (inclineLaunch) {
+  if (inclineLaunch||explicitArc) {
     ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = SOFT;
     ctx.fillText(`vₓ = ${componentText(sample.velocity.x)}，vᵧ = ${componentText(sample.velocity.y)} m/s`, 12, 12);
   }
@@ -401,6 +427,7 @@ export function StagePhysicsCanvas({ motion, time, isPlaying = false }: Props) {
 
   const velocity = motion.sampleAt(time).velocity;
   const constraint = motion.sampleAt(time).constraint;
+  const explicit=motion.stagePlan?.stages.some(s=>s.kind==='vertical_arc'&&s.path);
   const speedText = formatSpeed(Math.hypot(velocity.x, velocity.y));
   return (
     <figure className="physics-figure" data-renderer="stage">
@@ -408,7 +435,8 @@ export function StagePhysicsCanvas({ motion, time, isPlaying = false }: Props) {
       <figcaption id="player-speed" className="player-sr-only" aria-live={isPlaying ? "off" : "polite"}>
         当前速度大小 {speedText.startsWith("<") ? "小于 0.01" : speedText} 米每秒；
         {hasInclineLaunch(motion) && `檐口为坐标原点；水平速度 ${componentText(velocity.x)}，竖直速度 ${componentText(velocity.y)} 米每秒；`}
-        {constraint && `圆弧角度 ${constraint.angleDeg.toFixed(2)} 度，法向力 ${constraint.normalForceN.toFixed(2)} 牛顿；`}
+        {explicit&&`水平速度 ${componentText(velocity.x)}，竖直速度 ${componentText(velocity.y)} 米每秒；${constraint?'保持圆轨接触，支持力指向圆心；':'当前无圆轨约束；'}`}
+        {constraint && `圆弧角度 ${constraint.angleDeg.toFixed(2)} 度，法向力 ${normalText(constraint.normalForceN,!!explicit)} 牛顿；`}
         结束原因 {motion.endReason ?? "进行中"}
       </figcaption>
     </figure>

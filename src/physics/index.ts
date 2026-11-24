@@ -14,6 +14,7 @@ export type { Energy, PlaybackScope } from "./stagePlan.ts";
 export type { Stage, StageKind, StagePlanDraft, ResolvedStagePlan, StagePlanValidation, StagePlanFailure, StageFieldError } from "./stagePlan.ts";
 export type { StageScene, StageMotion, StageGeometry, StageEvent, EndReason } from "./stageMotion.ts";
 export type { StageSample, ArcConstraint, VerticalArcGeometry } from "./stageMotion.ts";
+export type { ExplicitArcPath } from './circularArc.ts';
 export { assembleStageScene, buildStageMotion } from "./stageMotion.ts";
 export { collide1D } from './collision.ts';
 export { truncateStagePlan } from './truncateStagePlan.ts';
