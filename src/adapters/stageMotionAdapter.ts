@@ -42,6 +42,11 @@ const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "f
     summary: "由恒定合力与质量求加速度，继承上一段位置与带方向速度。",
     formula: "a = F/m，v = v₀ + at，x = x₀ + v₀t + ½at²",
   },
+  conveyor_belt: {
+    name: "传送带与滑块",
+    summary: "按相对带面速度确定摩擦方向；共速后依带面加速度与静摩擦上限决定随带或重新滑动。",
+    formula: "v相对 = v块 − v带，Δx相对 = x块 − x带；|a带| ≤ μₛg",
+  },
   spring_contact: {
     name: "压缩与反弹",
     summary: "弹簧压缩到最大后恢复原长，滑块在不连接前提下反向脱离。",
@@ -149,6 +154,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
     endReason: source.endReason,
     termination: source.termination,
     ...(source.energyAt ? { energyAt: (time: number) => source.energyAt!(Number.isNaN(time) ? 0 : time) } : {}),
+    ...(source.conveyorAt ? { conveyorAt: (time: number) => source.conveyorAt!(Number.isNaN(time) ? 0 : time) } : {}),
     sampleAt(timeSeconds) {
       const sample = source.sampleAt(Number.isNaN(timeSeconds) ? 0 : timeSeconds);
       return {

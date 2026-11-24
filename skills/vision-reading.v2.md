@@ -426,7 +426,27 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - 只提取题给质量、每段恒定合力（保留左右方向符号）与持续时间或“直至静止”；不要由模型代算加速度、中间速度、总用时或总位移，全部由 B 继承上一段位置与带符号速度计算。
 - 可与 `projectile`、`horizontal_slide`、`spring_contact`、`vertical_arc` 按顺序组合。
 
-## 14. 提交前自检
+## 14. 传送带与滑块
+
+共享契约 `CONVEYOR_BELT.md`。水平传送带（匀速或分段恒加速）与滑块使用 `initial: { vxMps: 带符号对地初速 }`、顶层 `gravityMps2` 与单段 `conveyor_belt`：
+
+```json
+{
+  "kind": "stage_plan", "schemaVersion": 1, "gravityMps2": 10,
+  "initial": { "vxMps": 0 },
+  "stages": [{
+    "kind": "conveyor_belt", "initialBeltSpeedMps": 2,
+    "segments": [{ "accelerationMps2": 1, "durationSeconds": 3 }],
+    "kineticFrictionCoefficient": 0.2, "staticFrictionCoefficient": 0.25
+  }],
+  "assumptions": []
+}
+```
+
+- 匀速带只需 `accelerationMps2: 0`，此时不要求 `staticFrictionCoefficient`；存在非零带加速度时，必须提取题给 `staticFrictionCoefficient`（未给填 `null`，**绝不默认等于 μₖ**）。
+- 题面给定带长时填 `beltLengthM`；未给则省略。对地位移、相对带面位移、共速时刻及是否重新滑动均由 B 计算。
+
+## 15. 提交前自检
 
 圆弧提取示例：质量0.1 kg，最低点水平入射速度4 m/s，半径0.4 m的光滑竖直半圆内侧，到最高点后可飞出，地面与最低点同高，g=10。输出保留全部计划，不预判提前脱轨：
 

@@ -183,6 +183,8 @@ export interface Motion {
   sampleAt(timeSeconds: number): MotionSample;
   /** 与 sampleAt 同钟的能量读数；缺条件为 null，无此能力的运动省略。 */
   energyAt?(timeSeconds: number): import("../physics").EnergyReading | null;
+  /** 与 sampleAt 同钟的传送带读数（带速、相对带面位移等）。 */
+  conveyorAt?(timeSeconds: number): import("../physics").ConveyorReading | null;
 }
 
 /* ---------------- 错误 ---------------- */

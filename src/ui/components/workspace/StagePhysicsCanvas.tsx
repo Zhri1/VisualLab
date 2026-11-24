@@ -44,6 +44,9 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   if (g.linearTrack) {
     points.push({ x: g.linearTrack.minXM, y: g.linearTrack.yM }, { x: g.linearTrack.maxXM, y: g.linearTrack.yM });
   }
+  if (g.conveyor) {
+    points.push({ x: g.conveyor.minXM, y: 0 }, { x: g.conveyor.maxXM, y: 0 });
+  }
   if (g.spring) points.push({ x: g.spring.contact.xM, y: g.spring.contact.yM }, { x: g.spring.anchor.xM, y: g.spring.anchor.yM });
   if (g.projectile) {
     points.push({ x: g.projectile.launch.xM, y: g.projectile.launch.yM }, { x: last.position.x, y: g.projectile.landingPlane.yM });
@@ -149,6 +152,27 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
       ctx.lineTo(X(x - 0.12), Y(start.yM) + 6);
       ctx.stroke();
     }
+  }
+  if (g.conveyor) {
+    const xL = X(g.conveyor.minXM - size), xR = X(g.conveyor.maxXM + size), y0 = Y(0);
+    const beltH = 14, r = beltH / 2;
+    ctx.save();
+    ctx.fillStyle = FILL;
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.roundRect(xL, y0, Math.max(24, xR - xL), beltH, r);
+    ctx.fill();
+    ctx.stroke();
+    // 随带面位移移动的刻度线，直观体现带面参考系
+    const cState = motion.conveyorAt?.(time);
+    const shiftPx = ((cState?.beltDisplacementM ?? 0) * S) % 24;
+    ctx.strokeStyle = SOFT;
+    ctx.lineWidth = 1;
+    for (let px = xL + r + ((shiftPx % 24) + 24) % 24; px < xR - r; px += 24) {
+      ctx.beginPath(); ctx.moveTo(px, y0 + 2); ctx.lineTo(px, y0 + beltH - 2); ctx.stroke();
+    }
+    ctx.restore();
   }
   if (g.linearTrack) {
     const { minXM, maxXM, yM } = g.linearTrack;
@@ -393,6 +417,11 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   if (inclineLaunch||explicitArc) {
     ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = SOFT;
     ctx.fillText(`vₓ = ${componentText(sample.velocity.x)}，vᵧ = ${componentText(sample.velocity.y)} m/s`, 12, 12);
+  } else if (g.conveyor) {
+    const cState = motion.conveyorAt?.(time);
+    ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = SOFT;
+    ctx.fillText(`对地 x = ${componentText(sample.position.x)} m，相对带面 Δx = ${componentText(cState?.relativeDisplacementM ?? 0)} m`, 12, 12);
+    ctx.fillText(`v块 = ${componentText(sample.velocity.x)} m/s，v带 = ${componentText(cState?.beltSpeedMps ?? 0)} m/s`, 12, 28);
   } else if (g.linearTrack) {
     ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = SOFT;
     ctx.fillText(`x = ${componentText(sample.position.x)} m，vₓ = ${componentText(sample.velocity.x)} m/s`, 12, 12);
