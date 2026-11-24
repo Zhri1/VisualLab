@@ -13,13 +13,13 @@ export function renamePlanBody(draft:StagePlanDraft,index:number,value:string|nu
   if(value&&draft.bodies?.some((b,i)=>i!==index&&b.bodyId===value))return structuredClone(draft);
   const old=draft.bodies?.[index]?.bodyId??previous,next=replacePlanValue(draft,`/bodies/${index}/bodyId`,value);
   if(value&&old&&old!==value){
-    function visit(v:unknown){if(!v||typeof v!=='object')return;for(const[k,x]of Object.entries(v)){if(k==='bodyIds'&&Array.isArray(x))(v as Obj)[k]=x.map(id=>id===old?value:id);else if((k==='bodyId'||k==='inheritFromBodyId')&&x===old)(v as Obj)[k]=value;else visit(x);}}
+    function visit(v:unknown){if(!v||typeof v!=='object')return;for(const[k,x]of Object.entries(v)){if(k==='bodyIds'&&Array.isArray(x))(v as Obj)[k]=x.map(id=>id===old?value:id);else if((k==='bodyId'||k==='inheritFromBodyId'||k==='blockBodyId'||k==='plankBodyId')&&x===old)(v as Obj)[k]=value;else visit(x);}}
     next.stages.forEach(visit);visit(next.initial);if(next.primaryBodyId===old)next.primaryBodyId=value;
   }return next;
 }
 export function MultiBodyPlanEditor({draft,onChange,missingKeys,fieldErrors}:{draft:StagePlanDraft;onChange:(p:StagePlanDraft)=>void;missingKeys:string[];fieldErrors:FieldError[]}){
   const root=draft as unknown as Obj,bodies=list(root.bodies),ids=bodies.map(b=>record(b).bodyId).filter((s):s is string=>typeof s==='string');
-  const horizontal=draft.stages[0]?.kind==='horizontal_approach'||'bodies'in record(root.initial);
+  const horizontal=draft.stages[0]?.kind==='horizontal_approach'||draft.stages[0]?.kind==='block_plank'||'bodies'in record(root.initial);
   const lastIds=useRef<Record<number,string>>({});bodies.forEach((b,i)=>{const id=record(b).bodyId;if(typeof id==='string'&&id)lastIds.current[i]=id;});
   const [idConflict,setIdConflict]=useState<number|null>(null);
   const get=(p:string)=>p.split('/').slice(1).reduce<unknown>((v,k)=>v!=null&&typeof v==='object'?(v as Obj)[k]:undefined,root);
@@ -33,7 +33,22 @@ export function MultiBodyPlanEditor({draft,onChange,missingKeys,fieldErrors}:{dr
   const ref=(p:string,label:string)=>select(p,label,ids.map(id=>({value:id,label:id})));
   function stage(s:Obj,path:string,owners:string[],index:number):React.ReactNode{
     const owner=owners.join(' + ')||'物体',kind=s.kind;
-    return <section className="stage-editor-card" data-stage-path={path} key={path}><p className="body-stage-title">{owner} · {kind==='horizontal_approach'?'水平接近':kind==='pendulum_swing'?'轻绳摆':kind==='horizontal_slide'?'水平滑动':kind==='projectile'?'抛体运动':kind==='collision_1d'?'水平正碰':'同步运动'}</p><table className="cond-table"><tbody>
+    return <section className="stage-editor-card" data-stage-path={path} key={path}><p className="body-stage-title">{owner} · {kind==='block_plank'?'滑块与可移动木板':kind==='horizontal_approach'?'水平接近':kind==='pendulum_swing'?'轻绳摆':kind==='horizontal_slide'?'水平滑动':kind==='projectile'?'抛体运动':kind==='collision_1d'?'水平正碰':'同步运动'}</p><table className="cond-table"><tbody>
+      {kind==='block_plank'&&<>
+        {ref(path+'/blockBodyId','滑块 ID')}
+        {ref(path+'/plankBodyId','木板 ID')}
+        {number(path+'/plankLengthM','木板长度 L','m')}
+        {number(path+'/kineticFrictionCoefficient','块-板动摩擦因数 μₖ','')}
+        {number(path+'/staticFrictionCoefficient','块-板静摩擦因数 μₛ','','共速后有外力且影响判定时必填，不默认等于 μₖ')}
+        {select(path+'/groundFrictionless','光滑地面',facts)}
+        <tr><td className="name">共速后外力</td><td className="val"><select className="stage-select" aria-label="共速后外力开关" value={s.postCommonForce!=null?'on':'off'} onChange={e=>set(path+'/postCommonForce',e.target.value==='on'?{blockForceXN:0,plankForceXN:0,durationSeconds:1}:undefined)}><option value="off">无外力</option><option value="on">施加恒定外力</option></select></td><td/></tr>
+        {s.postCommonForce!=null&&<>
+          {number(path+'/postCommonForce/blockForceXN','共速后块外力 F块','N')}
+          {number(path+'/postCommonForce/plankForceXN','共速后板外力 F板','N')}
+          {number(path+'/postCommonForce/durationSeconds','外力作用时长','s')}
+        </>}
+        {s.postCommonForce==null&&number(path+'/postCommonDurationSeconds','共速后继续观察时长','s','可选，留空则在共速处结束')}
+      </>}
       {kind==null&&select(path+'/kind','待确认的运动阶段',choices(path.includes('/tracks/')?[['pendulum_swing','轻绳摆'],['horizontal_slide','水平滑动'],['projectile','抛体运动']]:horizontal&&index===0?[['horizontal_approach','水平接近']]:[['pendulum_swing','轻绳摆'],['collision_1d','正碰'],['parallel_motion','同时运动']]))}
       {kind==='horizontal_approach'&&<>
         {(list(s.tracks).length?list(s.tracks):ids.map(()=>({}))).map((tr,j)=><tr key={j}><td colSpan={3}><table className="cond-table"><tbody>{ref(path+`/tracks/${j}/bodyId`,`接近轨道${j+1} 物体 ID`)}{number(path+`/tracks/${j}/kineticFrictionCoefficient`,`${String(record(tr).bodyId??`轨道${j+1}`)} 接近摩擦 μ`,'')}</tbody></table></td></tr>)}
@@ -119,5 +134,5 @@ export function MultiBodyPlanEditor({draft,onChange,missingKeys,fieldErrors}:{dr
         {select(p+'/constraint/pivotFixed',`${id} 支点固定`,facts)}{select(p+'/constraint/lightInextensibleString',`${id} 轻且不可伸长的绳`,facts)}{select(p+'/constraint/airResistanceNegligible',`${id} 忽略空气阻力`,facts)}
       </>}
     </tbody></table></td></tr>;})}
-  </tbody></table><p className="section-label">有序阶段与同时运动</p>{draft.stages.map((s,i)=>stage(s,`/stages/${i}`,list(s.bodyIds).filter((v):v is string=>typeof v==='string'),i))}</div>;
+  </tbody></table><p className="section-label">有序阶段与同时运动</p>{draft.stages.map((s,i)=>stage(s,`/stages/${i}`,s.kind==='block_plank'?[s.blockBodyId,s.plankBodyId].filter((v):v is string=>typeof v==='string'):list(s.bodyIds).filter((v):v is string=>typeof v==='string'),i))}</div>;
 }

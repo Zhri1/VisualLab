@@ -426,7 +426,29 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - 只提取题给质量、每段恒定合力（保留左右方向符号）与持续时间或“直至静止”；不要由模型代算加速度、中间速度、总用时或总位移，全部由 B 继承上一段位置与带符号速度计算。
 - 可与 `projectile`、`horizontal_slide`、`spring_contact`、`vertical_arc` 按顺序组合。
 
-## 14. 提交前自检
+## 14. 滑块与可移动木板
+
+共享契约 `BLOCK_PLANK.md`。光滑地面上的滑块与可移动木板使用 `bodies`（两个物体，含各自 `bodyId` 与质量）、`initial.bodies`（各自初始水平位置 `xM` 与带符号速度 `vxMps`）以及 `stages: [{ kind: "block_plank", ... }]`：
+
+```json
+{
+  "kind": "stage_plan", "schemaVersion": 1, "gravityMps2": 10,
+  "bodies": [{ "bodyId": "block", "massKg": 1 }, { "bodyId": "plank", "massKg": 3 }],
+  "primaryBodyId": "block",
+  "initial": { "bodies": [{ "bodyId": "block", "xM": 0, "vxMps": 4 }, { "bodyId": "plank", "xM": 0, "vxMps": 0 }] },
+  "stages": [{
+    "kind": "block_plank", "blockBodyId": "block", "plankBodyId": "plank",
+    "plankLengthM": 3, "kineticFrictionCoefficient": 0.3, "groundFrictionless": true
+  }],
+  "assumptions": []
+}
+```
+
+- 木板左端位于 `plank.xM`，右端位于 `plank.xM + plankLengthM`。
+- 共速后若题面施加恒定水平外力，填 `postCommonForce: { blockForceXN, plankForceXN, durationSeconds }`；此时若所需静摩擦非零，必须从题面提取 `staticFrictionCoefficient`（未给则填 `null`，**绝不默认等于 μₖ**）。
+- 先共速还是先到板边、相对位移、离板速度以及共速后是否重新滑动均由 B 计算，模型不代算也不编造木板离地高度。
+
+## 15. 提交前自检
 
 圆弧提取示例：质量0.1 kg，最低点水平入射速度4 m/s，半径0.4 m的光滑竖直半圆内侧，到最高点后可飞出，地面与最低点同高，g=10。输出保留全部计划，不预判提前脱轨：
 

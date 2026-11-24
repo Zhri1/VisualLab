@@ -1,0 +1,26 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "bodies": [
+    { "bodyId": "block", "massKg": 1 },
+    { "bodyId": "plank", "massKg": 3 }
+  ],
+  "primaryBodyId": "block",
+  "initial": {
+    "bodies": [
+      { "bodyId": "block", "xM": 0, "vxMps": 4 },
+      { "bodyId": "plank", "xM": 0, "vxMps": 0 }
+    ]
+  },
+  "stages": [
+    {
+      "kind": "block_plank",
+      "blockBodyId": "block",
+      "plankBodyId": "plank",
+      "plankLengthM": 3,
+      "kineticFrictionCoefficient": 0.3,
+      "groundFrictionless": true
+    }
+  ]
+}
