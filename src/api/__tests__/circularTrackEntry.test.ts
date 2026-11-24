@@ -22,6 +22,7 @@ describe.each([['Node',handlePlan],['Qoder',handler]] as const)('%s圆轨实际�
   const p=read(name),form=new FormData();form.set('command',command);form.set('currentPlan',JSON.stringify(p));const r=await entry(new Request('http://localhost/api/animation/plan',{method:'POST',body:form})),body=await r.json();expect(body.intent?.throughStageIndex).toBe(index);const m=build(truncateStagePlan(p,index));expect(m.events.some(e=>e.kind==='projectile_launch')).toBe(false);expect(upstream).not.toHaveBeenCalled();
  });
  it('path判别类型坏返回现有502，修正后可识别；明确超范围200',async()=>{
+  vi.stubEnv('VISION_REPAIR_RETRY','0');
   const p=read('critical'),bad=structuredClone(p);bad.stages[0].path.end.kind=true;
   // 结构重试属于独立PR #23，本增量沿用当前main的单次识别行为。
   upstream.mockResolvedValueOnce(answer(bad));expect((await request()).status).toBe(502);expect(upstream).toHaveBeenCalledTimes(1);upstream.mockReset();

@@ -1,7 +1,16 @@
 # Skill：物理题图 → Reading v2（阶段组合）
 
 > 后端发给视觉模型的完整说明（system prompt）。改字段、改单位、加阶段时，先改 `STAGE_COMPOSITION.md`，再改本文件，最后同步 `src/api/contract.ts` 与 `fixtures/`。
-> 版本：v2 · 输出形态：`stage_plan` · 对应契约：`STAGE_COMPOSITION.md` 及 `VERTICAL_ARC.md`、`INCLINE_PROJECTILE.md`。
+> 版本：v2 · 输出形态：`stage_plan` · 对应契约：`STAGE_COMPOSITION.md`、`VERTICAL_ARC.md`、`INCLINE_PROJECTILE.md`、`CIRCULAR_TRACK.md`、`GAOKAO_MULTI_STAGE.md`。
+
+## 快速路由决策表（先选 Schema 族，再读对应章节）
+
+| 题型特征 | Schema 族 / 对应章节 | 顶层质量与 `initial` 形状 | 禁止串台 |
+|---|---|---|---|
+| **单物体多过程**（斜面、水平面、平抛/斜抛、竖直圆弧/整圆、弹簧、分段常力；含高考多段串联） | 单物体多阶段（第 3、4、8、11、12、13 节） | 顶层 `massKg`（含弹簧/圆弧/常力必填）；`initial` 用 `{ speedMps }`，首段为抛体时用 `{ vxMps, vyMps }` | 不写 `bodies`/`primaryBodyId`；`projectile` 的 `dropHeightM`、`landingPlaneYM`、`end` 三者互斥 |
+| **轻绳摆 / 最低点正碰 / 独立水平两物体正碰** | 多体摆与正碰（第 9、10 节） | 顶层 `bodies` + `primaryBodyId`；摆用 `{ speedMps: 0 }` 或 `{ tangentialSpeedMps }`，水平正碰用 `initial.bodies` | **不写顶层 `massKg`**；独立水平正碰不套摆的 `targetApproach` |
+| **滑块-木板 / 传送带 / 轻绳定滑轮连接体** | 专用力学模型（第 14、15、16 节） | 木板/滑轮用 `bodies` + `primaryBodyId`；传送带用 `initial: { vxMps }` | 静摩擦未给填 `null`，绝不默认 `μs = μk` |
+| **不支持题型**（电磁、天体、热光原、机械波、未登记模型等） | 超范围（第 6 节） | `stages: []` + 非空 `unsupportedReason` | 不硬套不匹配的阶段 |
 
 轻绳摆和最低点两物体正碰另按第9节输出，使用body表，不套旧顶层massKg。
 
@@ -91,8 +100,9 @@
 | `horizontal_slide` | `kineticFrictionCoefficient`、`end` | `end` 二选一：`{ "kind": "distance", "distanceM": 5 }` 或 `{ "kind": "stop" }`。`distanceM` **从本水平段起点量起**（通常就是坡底/转向点） |
 | `spring_contact` | `springConstantNpm`、`frictionless`、`unattached` | `frictionless` 指水平接触面光滑；`unattached` 指滑块与弹簧不连接。二者为 `false` → 超范围 |
 | `spring_release` | `springConstantNpm`、`initialCompressionM`、`kineticFrictionCoefficient`、`unattached`、`slidesAfterRelease`，必要时releaseCompleteByM | 静止预压释放首段；完整或缺参条件见第8节，由B计算能量与精确范围 |
-| `vertical_arc` | `radiusM`、旧 `endAngleDeg` 或互斥的显式 `path`、`side`、`frictionless` | 旧模式为最低点向右的半圆范围；完整内轨或不同角度入口按第11节提取固定圆心、入口角、方向与实体/观察终点；仍只支持inside和光滑，未知事实填null |
-| `projectile` | `dropHeightM` 或 `landingPlaneYM`，只能保留一个键 | 旧 `dropHeightM` 是相对发射点的非负落差。`landingPlaneYM` 是固定世界坐标的落地高度，可带符号；圆弧后必须用固定高度，最低点地面且首段从最低点开始时为0。依据不足填 `null`，不要按最终脱轨位置猜地面 |
+| `vertical_arc` | `radiusM`（可为 `null`）、可选 `verticalDropM`、旧 `endAngleDeg` 或互斥的显式 `path`、`side`、`frictionless` | 旧模式为最低点向右的半圆范围；完整内轨或不同角度入口按第11节提取显式 `path`（后继段应省略 `path.center` 由物理库自动衔接）；题面只给高度差与圆心角未给半径时填 `radiusM: null` + `verticalDropM`；临界过顶未给半径时填 `radiusM: null` + 顶层 `constraints: [{ kind: "critical_arc_top", stageIndex }]`；仍只支持 `inside` 和光滑，未知事实填 `null` |
+| `projectile` | `dropHeightM`、`landingPlaneYM` 或 `end: { kind: "tangent_to_next_arc" }`，三者互斥只能保留一个键 | 旧 `dropHeightM` 是相对发射点的非负落差；`landingPlaneYM` 是固定世界坐标落地高度（圆弧后必须用它）；题面写「恰好沿切线滑入下一段圆弧」且未给落差时使用 `end: { kind: "tangent_to_next_arc" }`。依据不足填 `null`，不要按图像或脱轨位置猜地面 |
+| *通用地标标注* | 可选 `startLabel`、`endLabel` | 任意阶段均可附带题图字母地标（如 `"startLabel": "A", "endLabel": "B"`），便于前端与阶段说明对应题面节点 |
 | `pendulum_swing` | bodyIds、lengthM、initialAngleDeg、initialStringState、理想绳/支点事实、end；碰后用inheritFromStageIndex | 第9节；不能将60°按小角近似、不能把绳当可推的杆 |
 | `collision_1d` | bodyIds、mode、normalXM、contact、targetApproach、externalImpulseNegligible | 第9节；两质量和带方向速度，碰撞算式由B执行 |
 | `parallel_motion` | tracks、end | 第9节；碰后摆与目标同时运动，不顺序串成两个时间段 |
@@ -118,11 +128,12 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 1. `incline_slide` → `lossless_turn`，或题面明确到檐口沿坡切线飞出时直接接 `projectile`（见下方及样例D）；题设明确末端切向进入有半径圆弧时可直接接带显式path的vertical_arc（第11节）
 2. `lossless_turn` → `horizontal_slide`、`spring_contact` 或 `vertical_arc`
 3. `horizontal_slide`（定距） → `spring_contact`、`projectile` 或 `vertical_arc`
-4. `vertical_arc` → `projectile`，后者使用固定 `landingPlaneYM`；实际到端点、先脱轨或回滑由物理库判定，不由模型预先删段
-5. 单段独立：`incline_slide`、`horizontal_slide`、`spring_contact`、`projectile`、`vertical_arc` 都可以单独出现
-6. `spring_release`作为首段可独立，或接水平、弹簧接触、圆弧、抛体；接续和距离/能量前提见第8节。
-7. `pendulum_swing → collision_1d → parallel_motion`（弹性）或碰后同绳`pendulum_swing`（粘连）；独立摆也合法，详细字段见第9节。
-8. `horizontal_approach → collision_1d → parallel_motion`，或只给有依据的前缀；字段见第10节，碰后可以滑动、飞行或继承已有绳。由B判定是否实际发生碰撞，不预删未发生的计划后段。
+4. `vertical_arc` → `projectile`（使用固定 `landingPlaneYM`）、`horizontal_slide`、`incline_slide`、`spring_contact`、`constant_force_1d` 或另一段 `vertical_arc`；同一题可出现多个 `vertical_arc` 或 `horizontal_slide`。实际到端点、先脱轨或回滑由物理库判定，不由模型预先删段
+5. `projectile` → `vertical_arc`（切向入弧）或 `incline_slide`（切向落入斜面）；若为「恰好沿切线进入下一段圆弧」则用 `end: { kind: "tangent_to_next_arc" }`
+6. 单段独立：`incline_slide`、`horizontal_slide`、`spring_contact`、`projectile`、`vertical_arc` 都可以单独出现
+7. `spring_release`作为首段可独立，或接水平、弹簧接触、圆弧、抛体；接续和距离/能量前提见第8节。
+8. `pendulum_swing → collision_1d → parallel_motion`（弹性）或碰后同绳`pendulum_swing`（粘连）；独立摆也合法，详细字段见第9节。
+9. `horizontal_approach → collision_1d → parallel_motion`，或只给有依据的前缀；字段见第10节，碰后可以滑动、飞行或继承已有绳。由B判定是否实际发生碰撞，不预删未发生的计划后段。
 
 > 「只看斜面」这类截断请求会生成只有 `incline_slide` 的前缀计划，必须能通过校验，终止原因为 `prefix_end`。
 
@@ -130,7 +141,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 - 斜面直接接弹簧（中间缺转向）
 - 弹簧之后再接任何段
-- 抛体之后再接任何段
+- 抛体之后接非 `vertical_arc` / 非 `incline_slide` 的其他段
 - 连续两个 `incline_slide`、连续两个 `lossless_turn`
 - 转向之后直接抛体（缺水平段）
 
@@ -386,7 +397,42 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 例如题给无摩擦30°、长1.6m斜面静止释放，末端切向进入R=.4内弧、入口-30°正向至60°实体端点，圆心相对斜面末端为(.2,.2√3)，则输出incline_slide→显式vertical_arc→固定平面projectile，角程90°。不要把0.8s、4m/s或离弧速度写作题给初态。
 
-原预压弹簧的critical_arc_top继续只指旧最低点到180°内轨，不能把该临界条件套给新path；已经归一化的energy及basis不改写。轻绳张力/松绳、同钟bodyId和再次张紧前边界沿第9节，不能用圆轨替换绳。
+### 11.1 高考多过程串联与声明式隐含几何（`GAOKAO_MULTI_STAGE.md`）
+
+同一题允许串联多个 `vertical_arc` 或 `horizontal_slide`（如 `projectile → vertical_arc → horizontal_slide → vertical_arc`），并遵守以下声明式提取规则（**不要由视觉模型代算落差、半径或世界圆心**）：
+
+- **后继段省略 `path.center`**：显式 `vertical_arc.path` 作为后继段时**应省略 `center`**，由物理库按前段出口世界坐标、入口角与半径自动反算衔接圆心，避免手算世界圆心出错；首段也可省略 `center`（默认入口在 `(0, 0)`）。
+- **平抛/斜抛切向入弧**：题面写「恰好沿切线滑入圆弧」且未直接给落差时，`projectile` 使用 `end: { "kind": "tangent_to_next_arc" }`（与 `dropHeightM`、`landingPlaneYM` 互斥，三选一）。
+- **圆弧高差反求半径**：题面给出圆弧两端的竖直高度差与圆心角、但未直接给半径时，`vertical_arc` 填 `"radiusM": null` + `"verticalDropM": <高度差数值>`（与显式正数 `radiusM` 互斥）。
+- **圆轨临界过顶反求半径**：题干或小问要求「恰好到达圆轨最高点」且该圆弧半径未给时，`vertical_arc` 填 `"radiusM": null`，并在顶层添加 `"constraints": [{ "kind": "critical_arc_top", "stageIndex": <该圆弧下标> }]`（同时适用于旧预压弹簧 180° 内轨与显式 `path` 圆轨）。
+- **题图字母地标**：各 stage 可选填 `"startLabel"` / `"endLabel"`（如 `"A"`、`"B"`、`"C"`、`"D"`、`"E"`）。
+
+高考四段串联示例（m=2 kg, g=10 m/s², A 点以 6 m/s 平抛，恰好沿切线从 B 点进入 -53°→0° 光滑圆弧 BC，BC 竖直高度差 2 m，经粗糙水平 CD（μ=0.25, 长 8 m）进入光滑整圆轨道 DE 并恰好通过最高点 E）：
+
+```json
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "massKg": 2,
+  "initial": { "vxMps": 6, "vyMps": 0 },
+  "constraints": [{ "kind": "critical_arc_top", "stageIndex": 3 }],
+  "stages": [
+    { "kind": "projectile", "end": { "kind": "tangent_to_next_arc" }, "startLabel": "A", "endLabel": "B" },
+    { "kind": "vertical_arc", "radiusM": null, "verticalDropM": 2, "side": "inside", "frictionless": true,
+      "path": { "startAngleDeg": -53, "direction": "positive", "end": { "kind": "physical_endpoint", "sweepAngleDeg": 53 } },
+      "startLabel": "B", "endLabel": "C" },
+    { "kind": "horizontal_slide", "kineticFrictionCoefficient": 0.25, "end": { "kind": "distance", "distanceM": 8 },
+      "startLabel": "C", "endLabel": "D" },
+    { "kind": "vertical_arc", "radiusM": null, "side": "inside", "frictionless": true,
+      "path": { "startAngleDeg": 0, "direction": "positive", "end": { "kind": "observation", "sweepAngleDeg": 360 } },
+      "startLabel": "D", "endLabel": "E" }
+  ],
+  "assumptions": []
+}
+```
+
+轻绳张力/松绳、同钟bodyId和再次张紧前边界沿第9节，不能用圆轨替换绳。
 
 ## 12. 粗糙弹簧接触与能量显示
 
