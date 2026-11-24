@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs';
 import { dispatchStageCommand } from './stageCommand';
 import { join } from 'node:path';
 
-import { callVisionModel, VisionError, type VisionRepairContext } from './dashscope';
+import { callTutorChat, callVisionModel, VisionError, type TutorChatMessage, type VisionRepairContext } from './dashscope';
 import { applyLegacyContract, outputContractFromEnv, type ClientResult } from './legacyBridge';
 import { STAGE_HTTP_STATUS } from './stageTypes';
 import type { StagePlanResult } from './stageTypes';
@@ -184,6 +184,47 @@ export async function handlePlan(request: Request): Promise<Response> {
 
   const commandResult=dispatchStageCommand(form);
   if(commandResult)return json(commandResult.body,commandResult.status,base);
+
+  const rawChat = form.get('chatMessage');
+  if (typeof rawChat === 'string') {
+    const chatMessage = rawChat.trim().slice(0, 2000);
+    if (!chatMessage) return json({ message: '提问内容不能为空' }, 400, base);
+    if (form.get('image') instanceof Blob || form.get('command') !== null) {
+      return json({ message: '问答模式不能同时提交图片或阶段指令' }, 400, base);
+    }
+    let context: Record<string, unknown> | null = null;
+    let history: TutorChatMessage[] = [];
+    const rawContext = form.get('chatContext');
+    if (typeof rawContext === 'string' && rawContext.trim()) {
+      try {
+        const parsed = JSON.parse(rawContext) as { history?: TutorChatMessage[]; [key: string]: unknown };
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          if (Array.isArray(parsed.history)) history = parsed.history;
+          const { history: _h, ...rest } = parsed;
+          context = rest;
+        }
+      } catch {
+        return json({ message: 'chatContext 须为合法 JSON 字符串' }, 400, base);
+      }
+    }
+    try {
+      const chat = await callTutorChat({ message: chatMessage, context, history });
+      const elapsed = Date.now() - startedAt;
+      console.log(`[chat] ${requestId} ok ${elapsed}ms model=${chat.model} len=${chatMessage.length}`);
+      return json(
+        { status: 'ok', reply: chat.reply },
+        200,
+        { ...base, 'x-request-id': requestId, 'x-elapsed-ms': String(elapsed), 'x-vision-model': chat.model },
+      );
+    } catch (error) {
+      const elapsed = Date.now() - startedAt;
+      const failure = error instanceof VisionError ? error.kind : 'upstream';
+      const message = error instanceof VisionError ? error.message : 'AI 助教服务异常，请稍后重试';
+      const status = failure === 'timeout' ? 504 : 502;
+      console.error(`[chat] ${requestId} ${failure} ${elapsed}ms ${message}`);
+      return json({ status: 'error', message }, status, { ...base, 'x-request-id': requestId, 'x-elapsed-ms': String(elapsed) });
+    }
+  }
 
   // 文字模式：只输文字、不传图时 image 可以缺席（见 HANDOFF-C.md）
   const rawText = form.get('text');

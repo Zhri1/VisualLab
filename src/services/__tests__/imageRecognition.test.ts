@@ -9,6 +9,7 @@ import fixture from "../../../fixtures/incline-spring.reading.json";
 import stageFixture from "../../../fixtures/stage-composition.reading.json";
 import type { StagePlanDraft } from "../../physics/stagePlan";
 import { SAMPLE_READING, mockPlan, setMockScenario } from "../imageRecognition";
+import { SAMPLES } from "../../data/samples";
 import { isStageReading } from "../../types";
 
 // 强制场景是模块级状态，每条用例后复位，避免污染其他用例
@@ -28,7 +29,10 @@ it.each(["offline", "409"])("生产模式接口%s时内置示例仍可独立打�
   const { requestPlan } = await import("../imageRecognition");
   const result = await requestPlan({ isSample: true });
   expect(result.status).toBe("ok");
-  if (result.status === "ok") expect(result.reading).toEqual(fixture);
+  if (result.status === "ok") {
+    expect(result.reading).toEqual(SAMPLES[0].reading);
+    expect(result.imageUrl).toBe(SAMPLES[0].imageUrl);
+  }
   expect(fetch).not.toHaveBeenCalled();
 });
 
@@ -48,11 +52,12 @@ it("生产模式真实上传仍发送图片到原识别接口", async () => {
 });
 
 describe("mockPlan", () => {
-  it("内置示例一定返回 ok，且弹簧间距为 1 m", () => {
+  it("内置示例一定返回 ok，携带原题图片与默认示例 reading", () => {
     const r = mockPlan(false, true);
     expect(r.status).toBe("ok");
-    if (r.status !== "ok" || isStageReading(r.reading)) return;
-    expect(r.reading.conditions.springGapM).toBe(1);
+    if (r.status !== "ok") return;
+    expect(r.reading).toEqual(SAMPLES[0].reading);
+    expect(r.imageUrl).toBe(SAMPLES[0].imageUrl);
   });
 
   it("内置示例不受强制场景影响", () => {
@@ -153,10 +158,10 @@ describe("mockPlan 的回包形状", () => {
     expect(r.message).toBe("已识别出主要条件，但坡底到弹簧的距离需要你确认");
   });
 
-  it("两条 needs_input 支路的 assumptions 与内置示例逐条一致", () => {
-    const sampleReply = mockPlan(true, true);
-    expect(sampleReply.status).toBe("ok");
-    if (sampleReply.status !== "ok") return;
+  it("两条 needs_input 支路的 assumptions 与有图 ok 回包逐条一致", () => {
+    const okReply = mockPlan(true, false);
+    expect(okReply.status).toBe("ok");
+    if (okReply.status !== "ok") return;
 
     const forced = (() => {
       setMockScenario("needs_input");
@@ -168,7 +173,7 @@ describe("mockPlan 的回包形状", () => {
     for (const r of [forced, noImage]) {
       expect(r.status).toBe("needs_input");
       if (r.status !== "needs_input") continue;
-      expect(r.assumptions).toEqual(sampleReply.assumptions);
+      expect(r.assumptions).toEqual(okReply.assumptions);
     }
   });
 

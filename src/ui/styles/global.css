@@ -1072,6 +1072,24 @@ textarea {
 .msg-body p:last-child {
   margin-bottom: 0;
 }
+.msg-body .msg-heading {
+  margin: 10px 0 4px;
+  font-size: 13.5px;
+  color: var(--text-primary);
+}
+.msg-body .msg-heading:first-child {
+  margin-top: 0;
+}
+.msg-body .msg-list {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+.msg-body .msg-list:last-child {
+  margin-bottom: 0;
+}
+.msg-body .msg-list li {
+  margin: 2px 0;
+}
 .msg-body strong {
   font-weight: 600;
   color: var(--text-primary);
@@ -1426,11 +1444,63 @@ textarea {
   place-items: center;
   min-height: 84px;
 }
+.problem-thumb-btn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+  position: relative;
+}
 .problem-thumb img {
   display: block;
   width: 100%;
-  max-height: 240px;
+  max-height: 300px;
   object-fit: contain;
+  background: #ffffff;
+}
+.problem-thumb-hint {
+  display: block;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  text-align: center;
+  border-top: 1px solid var(--hair);
+  background: var(--paper);
+}
+.problem-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(18, 18, 18, 0.78);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  cursor: zoom-out;
+}
+.problem-lightbox img {
+  max-width: min(94vw, 1120px);
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  box-shadow: var(--shadow-float);
+  cursor: default;
+}
+.problem-lightbox-close {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(24, 24, 24, 0.85);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
 }
 .problem-thumb .placeholder {
   padding: 28px 20px;

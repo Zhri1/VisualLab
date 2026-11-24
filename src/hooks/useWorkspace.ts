@@ -157,12 +157,16 @@ export function useWorkspace() {
       setNotice(null);
       setProblemText(null);
 
+      const revokeIfBlob = (url: string | null) => {
+        if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+      };
+
       if (input.file) {
         // 提到外层常量：类型收窄进不了 setState 的更新回调
         const file = input.file;
         setImageFile(file);
         setImageUrl((prev) => {
-          if (prev) URL.revokeObjectURL(prev);
+          revokeIfBlob(prev);
           return URL.createObjectURL(file);
         });
       }
@@ -180,6 +184,14 @@ export function useWorkspace() {
         setProblemText(res.problemText ?? null);
         setSampleId(res.sampleId ?? null);
         setCompareOn(false);
+        if (!input.file) {
+          const nextImageUrl = res.imageUrl ?? (res.sampleId ? getSample(res.sampleId).imageUrl : null);
+          setImageFile(null);
+          setImageUrl((prev) => {
+            revokeIfBlob(prev);
+            return nextImageUrl ?? null;
+          });
+        }
         applyReading(res.reading);
         // 假设不写在正文里重复：有假设时正文只报条数，条目交给对话胶囊；
         // 没有假设就退回回包 message（或通用开场白），离线 mock 与真实服务保持一致。
@@ -288,7 +300,7 @@ export function useWorkspace() {
     setCompareOn(false);
     setImageFile(null);
     setImageUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
+      if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
       return null;
     });
   }, []);
@@ -411,8 +423,18 @@ export function useWorkspace() {
         return;
       }
 
+      const history = messages
+        .filter((m): m is ChatMessage & { role: "user" | "assistant" } =>
+          (m.role === "user" || m.role === "assistant") && !m.pending && !m.error && m.text.trim().length > 0
+        )
+        .slice(-8)
+        .map((m) => ({ role: m.role, text: m.text }));
       const intent = await mockChatService.send(trimmed, {
         motion,
+        reading: latestAppliedRef.current ?? reading,
+        problemText,
+        currentTime,
+        history,
         conditions: (isStageReading(reading) ? {} : (reading?.conditions ?? {})) as Record<string, number | null>,
       });
 
@@ -525,7 +547,7 @@ export function useWorkspace() {
         text: intent.text + "动画与时间轴已同步更新。",
       });
     },
-    [applyReading, isChatLoading, motion, pushMessage, reading, replay, seekEvent, isPlaying, togglePlay]
+    [applyReading, currentTime, isChatLoading, messages, motion, problemText, pushMessage, reading, replay, seekEvent, isPlaying, togglePlay]
   );
 
   /** 撤销某次参数修改：回到该次修改前的 conditions */

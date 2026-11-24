@@ -39,22 +39,27 @@ export function OriginalProblemViewer({
 }: Props) {
   const [draft, setDraft] = useState<WorkspaceReading | null>(reading);
   const [localErrors, setLocalErrors] = useState<FieldError[]>([]);
+  const [zoomOpen, setZoomOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
       setDraft(reading);
       setLocalErrors([]);
+      setZoomOpen(false);
     }
   }, [open, reading]);
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (zoomOpen) setZoomOpen(false);
+        else onClose();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, zoomOpen, onClose]);
 
   const errorsByField = useMemo(() => {
     const map = new Map<string, string>();
@@ -131,13 +136,40 @@ export function OriginalProblemViewer({
         <div className="drawer-body scroll">
           <div className="problem-thumb">
             {imageUrl ? (
-              <img src={imageUrl} alt="原始题目图片" />
+              <button
+                type="button"
+                className="problem-thumb-btn"
+                onClick={() => setZoomOpen(true)}
+                aria-label="放大查看原始题目图片"
+              >
+                <img src={imageUrl} alt="原始题目图片" />
+                <span className="problem-thumb-hint">点击图片放大查看原题</span>
+              </button>
             ) : problemText ? (
               <div className="problem-text">{problemText}</div>
             ) : (
               <div className="placeholder">本题来自内置示例，没有原始图片</div>
             )}
           </div>
+          {zoomOpen && imageUrl && (
+            <div
+              className="problem-lightbox"
+              role="dialog"
+              aria-modal="true"
+              aria-label="原题大图预览"
+              onClick={() => setZoomOpen(false)}
+            >
+              <img src={imageUrl} alt="原始题目大图" onClick={(e) => e.stopPropagation()} />
+              <button
+                type="button"
+                className="problem-lightbox-close"
+                aria-label="关闭大图预览"
+                onClick={() => setZoomOpen(false)}
+              >
+                <X size={20} />
+              </button>
+            </div>
+          )}
 
           {(fieldErrors.length > 0 || localErrors.length > 0) && (
             <div className="field-error">

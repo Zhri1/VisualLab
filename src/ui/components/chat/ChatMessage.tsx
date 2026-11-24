@@ -2,6 +2,7 @@
  * 单条消息。支持极简 Markdown 子集（段落、**粗体**、`代码`、$公式$）
  * 与内嵌操作入口，不引入第三方解析库。
  */
+import type { ReactNode } from "react";
 import { ArrowRight, ChevronRight, CornerDownRight, Sparkles } from "lucide-react";
 import type { ChatMessage as ChatMessageType } from "../../../types";
 import { ParameterChangeCard } from "./ParameterChangeCard";
@@ -36,16 +37,78 @@ function renderInline(text: string, keyBase: string) {
 }
 
 function renderText(text: string) {
-  return text.split(/\n{2,}/).map((para, i) => (
-    <p key={i}>
-      {para.split("\n").map((line, j, arr) => (
-        <span key={j}>
-          {renderInline(line, `${i}-${j}`)}
-          {j < arr.length - 1 && <br />}
-        </span>
-      ))}
-    </p>
-  ));
+  const blocks: ReactNode[] = [];
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  let para: string[] = [];
+  let list: string[] = [];
+
+  const flushPara = () => {
+    if (!para.length) return;
+    const idx = blocks.length;
+    const snap = para;
+    para = [];
+    blocks.push(
+      <p key={`p-${idx}`}>
+        {snap.map((line, j) => (
+          <span key={j}>
+            {renderInline(line, `p-${idx}-${j}`)}
+            {j < snap.length - 1 && <br />}
+          </span>
+        ))}
+      </p>
+    );
+  };
+
+  const flushList = () => {
+    if (!list.length) return;
+    const idx = blocks.length;
+    const snap = list;
+    list = [];
+    blocks.push(
+      <ul className="msg-list" key={`ul-${idx}`}>
+        {snap.map((item, j) => (
+          <li key={j}>{renderInline(item, `li-${idx}-${j}`)}</li>
+        ))}
+      </ul>
+    );
+  };
+
+  for (const raw of lines) {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      flushPara();
+      flushList();
+      continue;
+    }
+    if (/^[-_*]{3,}$/.test(trimmed)) {
+      flushPara();
+      flushList();
+      continue;
+    }
+    const heading = /^#{1,4}\s+(.+)$/.exec(trimmed);
+    if (heading) {
+      flushPara();
+      flushList();
+      const idx = blocks.length;
+      blocks.push(
+        <p className="msg-heading" key={`h-${idx}`}>
+          <strong>{renderInline(heading[1], `h-${idx}`)}</strong>
+        </p>
+      );
+      continue;
+    }
+    const bullet = /^(?:[-*•])\s+(.+)$/.exec(trimmed);
+    if (bullet) {
+      flushPara();
+      list.push(bullet[1]);
+      continue;
+    }
+    flushList();
+    para.push(raw);
+  }
+  flushPara();
+  flushList();
+  return blocks;
 }
 
 /** 假设胶囊：用原生 details 收起条目，键盘可达、无需额外状态 */
