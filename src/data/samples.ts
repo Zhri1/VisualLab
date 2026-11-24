@@ -1,19 +1,16 @@
 /**
- * 内置示例：高考风格的力学母题。
+ * 内置示例：精选高考压轴级力学综合题（4 类不同物理模型）。
  *
  * 约定：
- * - 每道题都复用一个已验收的 reading 路径（fixtures 或同构数据），不引入新物理；
- * - problemText 是完整题面，进入工作台后显示在对话首条与原题抽屉里；
- * - message 是给用户看的计算摘要，不写答案，只描述关键约束。
+ * - 每道题都复用已验收的 fixtures 路径，不引入新物理；
+ * - 每道题均附带原题图片（imageUrl）与完整题面（problemText），点右上角「查看原题」可直接看图并放大；
+ * - message 为计算摘要，不写死答案，只说明关键约束。
  */
 import type { WorkspaceReading } from "../types";
-import inclineSpring from "../../fixtures/incline-spring.reading.json";
-
-
-import collisionPendulum from "../../fixtures/horizontal-collision-pendulum.reading.json";
-import collisionCatch from "../../fixtures/horizontal-collision-catch-after-stop.reading.json";
-import roofProjectile from "../../fixtures/incline-projectile.reading.json";
+import gaokaoProjArcHorizLoop from "../../fixtures/gaokao-proj-arc-horiz-loop.reading.json";
 import collisionFlight from "../../fixtures/horizontal-collision-flight.reading.json";
+import conveyorReslide from "../../fixtures/conveyor-reslide.reading.json";
+import pulleyGroundSlack from "../../fixtures/pulley-ground-slack.reading.json";
 
 export type SampleDifficulty = "基础" | "中档" | "压轴";
 
@@ -23,6 +20,8 @@ export interface Sample {
   description: string;
   difficulty: SampleDifficulty;
   tags: string[];
+  /** 原题图片地址（内置示例位于 public/samples/，在「查看原题」中直接展示） */
+  imageUrl: string;
   /** 同一道题的第二组条件：点「对照」切换。 */
   compare?: { label: string; backLabel: string; reading: WorkspaceReading };
   problemText: string;
@@ -31,248 +30,58 @@ export interface Sample {
   reading: WorkspaceReading;
 }
 
-/** 两物块粘连：碰后共速，一起在粗糙面上滑到停。 */
-const stickyPair: WorkspaceReading = {
-  kind: "stage_plan",
-  schemaVersion: 1,
-  gravityMps2: 10,
-  bodies: [
-    { bodyId: "one", massKg: 1 },
-    { bodyId: "two", massKg: 1 },
-  ],
-  primaryBodyId: "one",
-  initial: {
-    bodies: [
-      { bodyId: "one", xM: 0, vxMps: 5 },
-      { bodyId: "two", xM: 6, vxMps: -1 },
-    ],
-  },
-  stages: [
-    {
-      kind: "horizontal_approach",
-      tracks: [
-        { bodyId: "one", kineticFrictionCoefficient: 0 },
-        { bodyId: "two", kineticFrictionCoefficient: 0 },
-      ],
-      end: { kind: "contact_or_rest" },
-    },
-    {
-      kind: "collision_1d",
-      bodyIds: ["one", "two"],
-      mode: "perfectly_inelastic",
-      contact: { kind: "horizontal_meeting", approachStageIndex: 0 },
-      externalImpulseNegligible: true,
-    },
-    {
-      kind: "parallel_motion",
-      tracks: [
-        {
-          bodyIds: ["one", "two"],
-          stages: [
-            { kind: "horizontal_slide", kineticFrictionCoefficient: 0.2, end: { kind: "stop" } },
-          ],
-        },
-      ],
-      end: { kind: "all_finite_tracks" },
-    },
-  ],
-} as WorkspaceReading;
-
-/** 圆轨临界对照：默认恰好过顶，可一键切到差一点。 */
-const circularCritical: WorkspaceReading = {
-  kind: "stage_plan",
-  schemaVersion: 1,
-  gravityMps2: 10,
-  massKg: 0.1,
-  initial: { speedMps: 4.47213595499958 },
-  stages: [
-    { kind: "vertical_arc", radiusM: 0.4, endAngleDeg: 180, side: "inside", frictionless: true },
-    { kind: "projectile", landingPlaneYM: 0 },
-  ],
-} as WorkspaceReading;
-
-/** 弹簧枪：给定 k 与压缩量，完整播放“释放→滑行→圆轨→平抛”。 */
-const springCriticalFull: WorkspaceReading = {
-  kind: "stage_plan",
-  schemaVersion: 1,
-  massKg: 0.1,
-  gravityMps2: 10,
-  initial: { speedMps: 0 },
-  constraints: [{ kind: "critical_arc_top", stageIndex: 2 }],
-  stages: [
-    {
-      kind: "spring_release",
-      springConstantNpm: 400,
-      initialCompressionM: 0.09486832980505137,
-      kineticFrictionCoefficient: 0.2,
-      unattached: true,
-      slidesAfterRelease: true,
-      releaseCompleteByM: 4,
-    },
-    {
-      kind: "horizontal_slide",
-      kineticFrictionCoefficient: 0.2,
-      end: { kind: "distance_from_stage_start", stageIndex: 0, distanceM: 4 },
-    },
-    { kind: "vertical_arc", radiusM: 0.4, endAngleDeg: 180, side: "inside", frictionless: true },
-    { kind: "projectile", landingPlaneYM: 0 },
-  ],
-} as WorkspaceReading;
-
-/** 圆轨入口速度略低于临界：用来演示“差一点就脱轨”。 */
-const circularNearMiss: WorkspaceReading = {
-  kind: "stage_plan",
-  schemaVersion: 1,
-  gravityMps2: 10,
-  massKg: 0.1,
-  initial: { speedMps: 4.2 },
-  stages: [
-    { kind: "vertical_arc", radiusM: 0.4, endAngleDeg: 180, side: "inside", frictionless: true },
-    { kind: "projectile", landingPlaneYM: 0 },
-  ],
-} as WorkspaceReading;
-
-/** 重球撞轻球：碰后轻球摆起，重球继续前进。 */
-const heavyHitsLight = {
-  ...collisionPendulum,
-  bodies: [
-    { bodyId: "one", massKg: 3 },
-    { bodyId: "two", massKg: 1 },
-  ],
-  initial: {
-    bodies: [
-      { bodyId: "one", xM: 0, vxMps: 2 },
-      {
-        bodyId: "two",
-        xM: 1,
-        vxMps: 0,
-        constraint: {
-          kind: "pendulum_string",
-          pivotXM: 1,
-          lengthM: 1,
-          pivotFixed: true,
-          lightInextensibleString: true,
-          airResistanceNegligible: true,
-          initialStringState: "taut",
-        },
-      },
-    ],
-  },
-} as WorkspaceReading;
-
 export const SAMPLES: Sample[] = [
   {
-    id: "incline-spring-2m",
-    title: "斜面滑块压缩弹簧",
-    description: "倾角 37°，水平段 1 m 后接触弹簧",
-    difficulty: "基础",
-    tags: ["斜面", "弹簧"],
-    problemText:
-      "质量 1 kg 的滑块从长 4 m、倾角 37° 的粗糙斜面顶端由静止下滑，斜面动摩擦因数 0.5；到坡底经光滑转向进入水平面，水平面光滑，滑块与弹簧不连接，弹簧劲度系数 400 N/m，g 取 10 m/s²。求滑块接触弹簧前的速度、弹簧的最大压缩量。",
-    message: "已按 g=10 m/s²、μ=0.5、倾角 37° 生成动画",
-    assumptions: ["g=10 m/s²", "μ=0.5", "倾角 37°"],
-    reading: inclineSpring as WorkspaceReading,
-  },
-  {
-    id: "spring-critical-arc",
-    title: "弹簧枪·圆轨临界",
-    description: "0.1 kg 物块 · μ=0.2 · R=0.4 m，恰好过最高点",
+    id: "gaokao-proj-arc-horiz-loop",
+    title: "平抛入弧 · 粗糙水平 · 临界整圆",
+    description: "A 点平抛切向入弧 BC，经粗糙 CD 恰好过圆轨最高点 E",
     difficulty: "压轴",
-    tags: ["弹簧", "圆轨", "临界"],
+    tags: ["平抛", "双圆弧", "临界"],
+    imageUrl: "/samples/gaokao-proj-arc-horiz-loop.jpg",
     problemText:
-      "质量 0.1 kg 的物块静止在水平面上，左端弹簧（劲度系数 400 N/m）被压缩 9.49 cm 后释放，物块脱离弹簧后继续滑行。从释放点到半径 R=0.4 m 的竖直圆轨道最低点共 4 m，水平面动摩擦因数 0.2。物块恰好通过圆轨道最高点后飞出，g 取 10 m/s²。求最高点速度、弹簧储存的弹性势能；若压缩量略小，物块会在何处脱离轨道？",
-    message: "已按「恰好过最高点」反求能量：最高点速度 2.00 m/s，弹性势能 1.80 J",
-    assumptions: ["g=10 m/s²", "弹簧原长时物块脱离弹簧"],
-    reading: springCriticalFull,
-  },
-  {
-    id: "circular-near-miss",
-    title: "圆轨·差一点脱轨",
-    description: "以 4.2 m/s 入轨，离过顶只差一点",
-    difficulty: "压轴",
-    tags: ["圆轨", "脱轨", "临界"],
-    problemText:
-      "小物块以 4.2 m/s 的速度从最低点进入半径 0.4 m 的光滑竖直圆轨道内侧，g 取 10 m/s²。判断它能否到达最高点；若不能，求脱离轨道时速度与水平方向的夹角。",
-    message: "入口速度低于临界值：物块在最高点前脱离轨道，弹出位置由弹力为零决定",
-    assumptions: ["g=10 m/s²", "圆轨内侧光滑"],
-    reading: circularNearMiss,
-  },
-  {
-    id: "heavy-hits-light",
-    title: "重球撞轻球·摆起",
-    description: "3 kg 撞静止 1 kg，碰后轻球摆起",
-    difficulty: "压轴",
-    tags: ["碰撞", "动量", "单摆"],
-    problemText:
-      "质量 3 kg 的物块以 2 m/s 在光滑水平面向右运动，与静止在最低点、用长 1 m 轻绳悬挂的 1 kg 小球发生弹性正碰。碰后物块继续沿水平面滑行 2 m，小球摆动，g 取 10 m/s²。求碰后物块与小球的速度、小球摆起的最大高度。",
-    message: "弹性正碰 + 单摆：碰后轻球摆起，重球继续滑行，两条轨道同时播放",
-    assumptions: ["g=10 m/s²", "轻绳不可伸长", "碰撞外冲量可忽略"],
-    reading: heavyHitsLight,
-  },
-  {
-    id: "catch-after-stop",
-    title: "追及碰撞·先停后撞",
-    description: "B 先停下，A 再追上发生弹性碰撞",
-    difficulty: "压轴",
-    tags: ["碰撞", "追及", "动量"],
-    problemText:
-      "质量 1 kg 的物块 A 以 4 m/s 在光滑水平面向右运动，前方 3 m 处有质量 2 kg 的物块 B 以 1 m/s 同向运动，B 与水平面动摩擦因数 0.2，A 所在面光滑，g 取 10 m/s²。A 追上 B 时发生弹性正碰。求碰前 B 是否已经停下、碰后 A 与 B 的速度。",
-    message: "已按实际轨迹判定：B 先减速到零，A 追上静止的 B 后发生弹性碰撞",
-    assumptions: ["g=10 m/s²", "碰撞外冲量可忽略"],
-    reading: collisionCatch as WorkspaceReading,
-  },
-  {
-    id: "roof-projectile",
-    title: "屋顶积雪·檐口斜抛",
-    description: "L=2.5 m，μ=0.125，檐口离地 1.95 m",
-    difficulty: "中档",
-    tags: ["斜面", "斜抛"],
-    problemText:
-      "积雪从长 2.5 m、倾角 θ（tanθ=3/4）的屋顶由静止下滑，屋顶动摩擦因数 0.125；到檐口后沿屋面方向飞出，檐口离地 1.95 m，g 取 10 m/s²。求积雪到达檐口的速度、落地时间与水平射程。",
-    message: "沿坡下滑后从檐口斜抛：切向初速由斜面摩擦决定，落点由抛出高度决定",
-    assumptions: ["g=10 m/s²", "沿屋面切向飞出"],
-    reading: roofProjectile as WorkspaceReading,
-  },
-  {
-    id: "sticky-collision",
-    title: "两物块粘连·共速滑行",
-    description: "等质量相向碰撞，粘连后一起减速到停",
-    difficulty: "中档",
-    tags: ["碰撞", "动量", "摩擦"],
-    problemText:
-      "质量 1 kg 的物块 A 以 5 m/s 在光滑水平面向右运动，前方 6 m 处质量 1 kg 的物块 B 以 1 m/s 向左运动，两物块碰撞后粘在一起。碰后整体进入动摩擦因数 0.2 的粗糙面，g 取 10 m/s²。求碰后共同速度、碰后滑行的距离。",
-    message: "完全非弹性碰撞：动量守恒得到共同速度，随后整体在粗糙面上减速到停",
-    assumptions: ["g=10 m/s²", "碰撞时间极短"],
-    reading: stickyPair,
+      "质量为 m=2 kg 的小滑块，从水平轨道上的 A 点以 v₀=6 m/s 的速度水平滑出，恰好在 B 点沿切线方向滑入光滑的圆弧轨道 BC。滑块离开轨道 BC 后，经粗糙水平轨道 CD 进入光滑圆轨道 DE 中运动。已知轨道 BC 对应的圆心角为 θ=53°，半径 OC 与水平轨道 CD 垂直，B 点与水平轨道 CD 的竖直高度 h=2 m；滑块与轨道 CD 间的动摩擦因数 μ=0.25，轨道 CD 长 L=8 m，g 取 10 m/s²，忽略空气阻力。求：(1) A、B 两点的高度差；(2) 滑块滑到 C 点时对轨道的压力；(3) 要使滑块恰好能到达圆轨道最高点 E，圆轨道的半径为多大？",
+    message: "已按切向入弧、高度差与临界过顶反求全段几何，四段连续播放",
+    assumptions: ["g=10 m/s²", "忽略空气阻力", "圆弧 BC 与圆轨道 DE 光滑"],
+    reading: gaokaoProjArcHorizLoop as WorkspaceReading,
   },
   {
     id: "collision-flight",
-    title: "碰后飞出桌面·平抛",
-    description: "弹性碰撞后一物飞出桌沿，落点由桌高决定",
+    title: "碰后飞出桌面 · 平抛",
+    description: "1 kg 与 3 kg 弹性正碰后，一物飞出桌沿平抛、另一物反弹",
     difficulty: "压轴",
     tags: ["碰撞", "平抛", "动量"],
+    imageUrl: "/samples/collision-flight.svg",
     problemText:
       "质量 1 kg 的物块 A 以 5 m/s 在光滑桌面向右运动，前方 4 m 处质量 3 kg 的物块 B 以 1 m/s 同向运动，桌面右沿在 x=5 m，桌面离地 1.25 m。两物块发生弹性正碰，g 取 10 m/s²。求碰后 A、B 的速度；B 飞出桌沿后的落地时间与水平位移；A 碰后向哪个方向运动？",
     message: "碰后 B 从桌沿飞出做平抛，A 反弹向左滑行，两条轨道同时播放",
-    assumptions: ["g=10 m/s²", "碰撞外冲量可忽略"],
+    assumptions: ["g=10 m/s²", "桌面光滑", "碰撞外冲量可忽略"],
     reading: collisionFlight as WorkspaceReading,
   },
   {
-    id: "circular-compare",
-    title: "圆轨临界·对照",
-    description: "同一圆轨：恰好过顶 vs 差一点脱轨",
+    id: "gaokao-conveyor-reslide",
+    title: "变速传送带 · 共速后再滑动",
+    description: "滑块被传送带加速追上共速，带加速度突增后突破静摩擦再次相对滑动",
     difficulty: "压轴",
-    tags: ["圆轨", "临界", "对照"],
-    compare: {
-      label: "切到差一点",
-      backLabel: "切回恰好过顶",
-      reading: circularNearMiss,
-    },
+    tags: ["传送带", "摩擦切换", "双参考系"],
+    imageUrl: "/samples/gaokao-conveyor-reslide.svg",
     problemText:
-      "小物块从最低点进入半径 0.4 m 的光滑竖直圆轨道内侧，g 取 10 m/s²。(1) 若入口速度为 √20 m/s，求最高点速度并判断能否通过；(2) 若入口速度换成 4.2 m/s，物块还能到最高点吗？点右上角「切到差一点」对照两种情况。",
-    message: "恰好过顶时最高点速度 2.00 m/s、弹力为零；切到 4.2 m/s 会在最高点前脱轨",
-    assumptions: ["g=10 m/s²", "圆轨内侧光滑"],
-    reading: circularCritical,
+      "足够长的水平传送带在 t=0 时刻以初速度 v₀=2 m/s 向右运行，同时将一小滑块由静止轻放在传送带左端。0~3 s 内传送带以 a₁=1 m/s² 匀加速运动；3~4 s 内传送带加速度突增为 a₂=3 m/s²。已知滑块与带面间的动摩擦因数 μk=0.20，最大静摩擦因数 μs=0.25，g 取 10 m/s²。求：(1) 首次共速时刻与速度；(2) t=3 s 后滑块能否保持相对静止；(3) 0~4 s 内滑块对地位移与相对带面位移 Δx。",
+    message: "已按双参考系计算：2 s 共速后随带加速，3 s 超过静摩擦上限重新相对滑动",
+    assumptions: ["g=10 m/s²", "传送带足够长", "动/静摩擦因数分开判定"],
+    reading: conveyorReslide as WorkspaceReading,
+  },
+  {
+    id: "gaokao-pulley-ground-slack",
+    title: "定滑轮连接体 · 着地松绳滑行",
+    description: "粗糙桌面滑块与悬挂重物共加速，重物着地后绳松弛滑块减速至停",
+    difficulty: "压轴",
+    tags: ["定滑轮", "连接体", "松绳"],
+    imageUrl: "/samples/gaokao-pulley-ground-slack.svg",
+    problemText:
+      "质量 m₁=2 kg 的物块置于粗糙水平桌面上（μ=0.25），距桌沿理想定滑轮水平距离 L=5 m；轻绳绕过定滑轮悬挂质量 m₂=3 kg 的重物，重物初始离地高度 h=1.6 m。系统由静止释放，重物着地后不反弹，g 取 10 m/s²。求：(1) 着地前系统的加速度与轻绳张力；(2) 重物着地绳松弛后，物块 m₁ 继续滑行的距离与总位移。",
+    message: "已按连接体两阶段求解：0.80 s 重物着地瞬间绳松弛（T=0），物块继续减速停在 4.80 m 处",
+    assumptions: ["g=10 m/s²", "轻绳不可伸长且滑轮理想", "重物着地后不反弹"],
+    reading: pulleyGroundSlack as WorkspaceReading,
   },
 ];
 

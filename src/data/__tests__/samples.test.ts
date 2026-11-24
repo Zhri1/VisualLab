@@ -1,7 +1,11 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { motionLibrary } from "../../adapters";
 import type { StagePlanDraft } from "../../physics";
 import { SAMPLES, getSample } from "../samples";
+
+const PUBLIC_DIR = resolve(__dirname, "../../../public");
 
 function build(input: unknown) {
   const assembled = motionLibrary.assembleScene(input as StagePlanDraft);
@@ -11,11 +15,17 @@ function build(input: unknown) {
   return built.motion;
 }
 
-describe("内置示例题库", () => {
-  it("id 唯一且默认示例存在", () => {
+describe("内置示例题库（4 道高考压轴综合题）", () => {
+  it("恰好 4 道题、id 唯一、默认示例存在且全部附带真实存在的原题图片", () => {
+    expect(SAMPLES.length).toBe(4);
     const ids = SAMPLES.map((sample) => sample.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(getSample("missing-id").id).toBe(SAMPLES[0].id);
+    for (const sample of SAMPLES) {
+      expect(sample.imageUrl).toMatch(/^\/samples\/.+\.(jpg|png|svg)$/);
+      const diskPath = resolve(PUBLIC_DIR, sample.imageUrl.replace(/^\//, ""));
+      expect(existsSync(diskPath)).toBe(true);
+    }
   });
 
   it.each(SAMPLES)("$title 能装配并生成可播放动画", (sample) => {
@@ -25,44 +35,39 @@ describe("内置示例题库", () => {
     expect(motion.segments.length).toBeGreaterThanOrEqual(1);
     expect(sample.problemText.length).toBeGreaterThan(40);
     expect(sample.message.length).toBeGreaterThan(0);
+    expect(sample.assumptions.length).toBe(3);
   });
 
-  it("临界示例保留反求出的弹性势能", () => {
-    const motion = build(getSample("spring-critical-arc").reading);
-    const energy = motion.calculations?.find((item) => item.quantity === "initial_elastic_energy");
-    expect(energy?.value).toBeCloseTo(1.8, 2);
+  it("平抛入弧·粗糙水平·临界整圆：四段连贯且保留 3 条声明式反求与 A~E 地标", () => {
+    const motion = build(getSample("gaokao-proj-arc-horiz-loop").reading);
+    expect(motion.segments.map((s) => s.kind)).toEqual(["projectile", "vertical_arc", "horizontal", "vertical_arc"]);
+    expect(motion.stageGeometry?.verticalArcs?.length).toBe(2);
+    expect(motion.stageGeometry?.landmarks?.map((l) => l.label)).toEqual(["A", "B", "C", "D", "E"]);
+    expect(motion.events.some((e) => e.eventKind === "arc_top")).toBe(true);
   });
 
-  it("重球撞轻球是双体并行运动", () => {
-    const motion = build(getSample("heavy-hits-light").reading);
-    expect(motion.primaryBodyId).toBeTruthy();
-    expect(motion.stageGeometry?.bodies?.length).toBe(2);
-    expect(motion.segments.map((segment) => segment.kind)).toContain("pendulum");
-    expect(motion.events.some((event) => event.eventKind === "collision")).toBe(true);
-  });
-
-  it("粘连后共速滑行到停", () => {
-    const motion = build(getSample("sticky-collision").reading);
-    const kinds = motion.events.map((event) => event.eventKind);
-    expect(kinds).toContain("collision");
-    expect(kinds).toContain("stop");
-    expect(motion.durationSeconds).toBeGreaterThan(1.5);
-  });
-
-  it("碰后飞出桌沿并落地", () => {
+  it("碰后飞出桌沿并落地（双体并行）", () => {
     const motion = build(getSample("collision-flight").reading);
     const kinds = motion.events.map((event) => event.eventKind);
+    expect(kinds).toContain("collision");
     expect(kinds).toContain("projectile_launch");
     expect(kinds).toContain("land");
   });
 
-  it("临界对照的两组条件走出不同结局", () => {
-    const sample = getSample("circular-compare");
-    expect(sample.compare).toBeTruthy();
-    const passes = build(sample.reading).events.map((event) => event.eventKind);
-    const misses = build(sample.compare!.reading).events.map((event) => event.eventKind);
-    expect(passes).toContain("arc_endpoint");
-    expect(passes).not.toContain("arc_contact_lost");
-    expect(misses).toContain("arc_contact_lost");
+  it("变速传送带：先共速，3 s 后突破静摩擦上限重新相对滑动", () => {
+    const motion = build(getSample("gaokao-conveyor-reslide").reading);
+    const kinds = motion.events.map((event) => event.eventKind);
+    expect(kinds).toContain("conveyor_common_velocity");
+    expect(kinds).toContain("conveyor_reslide");
+    expect(motion.conveyorAt?.(4)?.relativeDisplacementM).toBeCloseTo(-2.5, 4);
+  });
+
+  it("定滑轮连接体：重物 0.8 s 着地松绳，桌面滑块继续减速至停", () => {
+    const motion = build(getSample("gaokao-pulley-ground-slack").reading);
+    const kinds = motion.events.map((event) => event.eventKind);
+    expect(kinds).toContain("body2_ground_hit");
+    expect(kinds).toContain("string_slack");
+    expect(kinds).toContain("stop");
+    expect(motion.durationSeconds).toBeCloseTo(2.4, 4);
   });
 });
