@@ -35,9 +35,10 @@ export type ParallelStage = {
   kind: 'parallel_motion'; tracks: { bodyIds: string[]; stages: BodyTrackStage[] }[];
   end: { kind: 'all_finite_tracks' } | { kind: 'pendulum_turn'; bodyId: string };
 };
-export type BodyStage = PendulumStage | CollisionStage | ParallelStage | import('./horizontalTypes.ts').HorizontalApproach | import('./horizontalTypes.ts').HorizontalCollision;
+export type BodyStage = PendulumStage | CollisionStage | ParallelStage | import('./horizontalTypes.ts').HorizontalApproach | import('./horizontalTypes.ts').HorizontalCollision | import('./blockPlankTypes.ts').BlockPlankStage;
 export type BodyGeometry = {
   bodies?: BodyDefinition[];
   pendulums?: { constraintId: string; bodyIds: string[]; definitionStageIndex: number; pivot: Point; lowestPoint: Point; lengthM: number; initialPosition: Point }[];
   bodyTracks?: { bodyIds: string[]; stagePath: string; horizontal?: { start: Point; plannedEnd: Point | null }; projectile?: { launch: Point; landingPlane?: { yM: number } } }[];
+  plank?: import('./blockPlankTypes.ts').PlankGeometry;
 };

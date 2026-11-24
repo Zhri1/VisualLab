@@ -10,7 +10,8 @@ export const bodyStatusText={moving:'运动中',resting:'静止',turning:'转折
 function drawingData(motion:Motion){
   const times=[...new Set([0,motion.durationSeconds,...motion.events.map(e=>e.timeSeconds),...Array.from({length:97},(_,i)=>motion.durationSeconds*i/96)])].sort((a,b)=>a-b);
   const curves:Record<string,Vec2[]>=Object.create(null),points:Vec2[]=[];
-  for(const t of times)for(const[id,b]of Object.entries(motion.sampleAt(t).bodies??{})){(curves[id]??=[]).push(b.position);points.push(b.position);}
+  for(const t of times)for(const[id,b]of Object.entries(motion.sampleAt(t).bodies??{})){(curves[id]??=[]).push(b.position);points.push(b.position);
+    if(motion.stageGeometry?.plank?.plankBodyId===id)points.push({x:b.position.x+motion.stageGeometry.plank.plankLengthM,y:b.position.y});}
   for(const p of motion.stageGeometry?.pendulums??[])points.push({x:p.pivot.xM,y:p.pivot.yM},{x:p.lowestPoint.xM,y:p.lowestPoint.yM});
   for(const tr of motion.stageGeometry?.bodyTracks??[]){if(tr.horizontal){points.push({x:tr.horizontal.start.xM,y:tr.horizontal.start.yM});if(tr.horizontal.plannedEnd)points.push({x:tr.horizontal.plannedEnd.xM,y:tr.horizontal.plannedEnd.yM});}if(tr.projectile?.landingPlane)points.push({x:tr.projectile.launch.xM,y:tr.projectile.landingPlane.yM});}
   const xs=points.map(p=>p.x),ys=points.map(p=>p.y);
@@ -36,6 +37,16 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
     if(tr.projectile?.landingPlane){const y=tr.projectile.landingPlane.yM;ctx.strokeStyle=INK;ctx.beginPath();ctx.moveTo(X(b.x1+.1),Y(y));ctx.lineTo(X(b.x2-.1),Y(y));ctx.stroke();const text=`地面 y = ${y} m`;reqs.push({text,color:SOFT,cx:X(b.x1+.1)+ctx.measureText(text).width/2,by:Y(y)+17,dir:1});}
   }
   for(const p of motion.stageGeometry?.pendulums??[]){const px=X(p.pivot.xM),py=Y(p.pivot.yM);ctx.strokeStyle=INK;ctx.lineWidth=1.6;ctx.beginPath();ctx.moveTo(px-19,py-6);ctx.lineTo(px+19,py-6);ctx.moveTo(px,py-6);ctx.lineTo(px,py+3);ctx.stroke();occupied.push({x:px-19,y:py-8,w:38,h:12});reqs.push({text:'P',color:INK,cx:px+26,by:py-2,dir:-1});reqs.push({text:'O',color:SOFT,cx:X(p.lowestPoint.xM)+13,by:Y(p.lowestPoint.yM)+18,dir:1});}
+  if(motion.stageGeometry?.plank){
+    const pg=motion.stageGeometry.plank,pb=snapshot.bodies?.[pg.plankBodyId];
+    if(pb){
+      const y0=Y(pb.position.y),xL=X(pb.position.x),xR=X(pb.position.x+pg.plankLengthM);
+      ctx.save();ctx.strokeStyle=HAIR;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(X(b.x1+.05),y0+10);ctx.lineTo(X(b.x2-.05),y0+10);ctx.stroke();
+      ctx.fillStyle='#eaeae6';ctx.strokeStyle=TARGET;ctx.lineWidth=1.6;ctx.fillRect(xL,y0+2,Math.max(8,xR-xL),8);ctx.strokeRect(xL,y0+2,Math.max(8,xR-xL),8);ctx.restore();
+      occupied.push({x:xL,y:y0+2,w:Math.max(8,xR-xL),h:10});
+      reqs.push({text:`木板 L=${pg.plankLengthM} m`,color:SOFT,cx:(xL+xR)/2,by:y0+26,dir:1});
+    }
+  }
   for(const c of Object.values(snapshot.constraints??{})){
     const body=snapshot.bodies?.[c.bodyIds[0]];if(!body)continue;
     ctx.save();ctx.strokeStyle=c.state==='taut'?INK:SOFT;ctx.lineWidth=c.state==='taut'?1.8:1.2;if(c.state==='slack')ctx.setLineDash([4,5]);ctx.beginPath();ctx.moveTo(X(c.pivot.xM),Y(c.pivot.yM));ctx.lineTo(X(body.position.x),Y(body.position.y));ctx.stroke();ctx.restore();
@@ -69,7 +80,7 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
 /** 逐物体读数。默认渲染在画布内；工作台把它移进「路段与计时」折叠区，
  *  让画布卡片与单物体版保持同一布局（画布独占整块 frame）。 */
 export function MultiBodyReadouts({motion,time,isPlaying=false}:{motion:Motion;time:number;isPlaying?:boolean}){
-  const sample=motion.sampleAt(time),ids=Object.keys(sample.bodies??{}).sort(),horizontal=motion.stagePlan?.stages[0]?.kind==='horizontal_approach';
+  const sample=motion.sampleAt(time),ids=Object.keys(sample.bodies??{}).sort(),firstKind=motion.stagePlan?.stages[0]?.kind,horizontal=firstKind==='horizontal_approach'||firstKind==='block_plank';
   return <figcaption id="multi-body-readouts" className={'multi-body-readouts'+(ids.some(id=>id.length>16)?' has-long-ids':'')+(horizontal?' has-horizontal-states':'')} aria-live={isPlaying?'off':'polite'}>
     {ids.map((id,i)=>{const b=sample.bodies![id];return <span className="body-body-value" key={id} data-body-id={id}><i className="body-swatch" style={{background:i===0?INK:TARGET}}/>{id}：v = {formatSpeed(Math.hypot(b.velocity.x,b.velocity.y))} m/s；{bodyStatusText[b.status]}{b.groupId?' · 粘连':''}{horizontal&&<><br/>x = {signed(b.position.x)}，y = {signed(b.position.y)} m<br/>vₓ = {signed(b.velocity.x)}，vᵧ = {signed(b.velocity.y)} m/s</>}</span>;})}
     {Object.values(sample.constraints??{}).map(c=><span className="body-constraint" key={c.constraintId}>{c.bodyIds.join(' + ')}：{c.state==='taut'?'绳张紧':'绳松弛'}，总张力 T = {c.tensionN.toFixed(2)} N</span>)}
@@ -81,5 +92,5 @@ export function MultiBodyPhysicsCanvas({motion,time,isPlaying=false,trackedBodyI
   const paint=useCallback(()=>{const canvas=ref.current,ctx=canvas?.getContext('2d');if(ctx&&size.current.w){const p=current.current;drawMultiBodyScene(ctx,size.current.w,size.current.h,p.motion,p.time,p.trackedBodyId,p.data);}},[]);
   useEffect(()=>{const canvas=ref.current;if(!canvas)return;const resize=()=>{const box=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;size.current={w:box.width,h:box.height};canvas.width=Math.round(box.width*dpr);canvas.height=Math.round(box.height*dpr);canvas.getContext('2d')?.setTransform(dpr,0,0,dpr,0,0);paint();};resize();const observer=new ResizeObserver(resize);observer.observe(canvas);return()=>observer.disconnect();},[paint]);
   useEffect(()=>{frame.current=requestAnimationFrame(paint);return()=>{if(frame.current!==null)cancelAnimationFrame(frame.current);};},[time,motion,trackedBodyId,paint]);
-  return <figure className="multi-body-figure" data-renderer="multi-body"><canvas ref={ref} role="img" aria-label={motion.stageGeometry?.pendulums?.length?'轻绳摆与物体同步动画，P为支点，O为最低点':'两物体水平正碰与碰后同步运动'} aria-describedby="multi-body-readouts"/>{readouts&&<MultiBodyReadouts motion={motion} time={time} isPlaying={isPlaying}/>}</figure>;
+  return <figure className="multi-body-figure" data-renderer="multi-body"><canvas ref={ref} role="img" aria-label={motion.stageGeometry?.plank?'滑块与可移动木板同步动画':motion.stageGeometry?.pendulums?.length?'轻绳摆与物体同步动画，P为支点，O为最低点':'两物体水平正碰与碰后同步运动'} aria-describedby="multi-body-readouts"/>{readouts&&<MultiBodyReadouts motion={motion} time={time} isPlaying={isPlaying}/>}</figure>;
 }

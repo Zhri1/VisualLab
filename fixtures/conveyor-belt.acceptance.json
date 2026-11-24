@@ -1,0 +1,53 @@
+{
+  "description": "传送带与滑块独立计算基准，不是运行时回包。",
+  "toleranceSI": 1e-9,
+  "cases": [
+    {
+      "id": "uniform",
+      "readingFile": "conveyor-uniform.reading.json",
+      "durationSeconds": 2,
+      "endReason": "prefix_end",
+      "commonVelocityTimeSeconds": 1,
+      "checkpoints": [
+        { "timeSeconds": 1, "xM": 1, "vxMps": 2, "beltSpeedMps": 2, "relativeDisplacementM": -1 },
+        { "timeSeconds": 2, "xM": 3, "vxMps": 2, "beltSpeedMps": 2, "relativeDisplacementM": -1 }
+      ]
+    },
+    {
+      "id": "accel",
+      "readingFile": "conveyor-accel.reading.json",
+      "durationSeconds": 3,
+      "endReason": "prefix_end",
+      "commonVelocityTimeSeconds": 2,
+      "checkpoints": [
+        { "timeSeconds": 2, "xM": 4, "vxMps": 4, "beltSpeedMps": 4, "relativeDisplacementM": -2 },
+        { "timeSeconds": 3, "xM": 8.5, "vxMps": 5, "beltSpeedMps": 5, "relativeDisplacementM": -2 }
+      ]
+    },
+    {
+      "id": "reslide",
+      "readingFile": "conveyor-reslide.reading.json",
+      "durationSeconds": 4,
+      "endReason": "prefix_end",
+      "commonVelocityTimeSeconds": 2,
+      "reslideTimeSeconds": 3,
+      "checkpoints": [
+        { "timeSeconds": 2, "xM": 4, "vxMps": 4, "beltSpeedMps": 4, "relativeDisplacementM": -2 },
+        { "timeSeconds": 3, "xM": 8.5, "vxMps": 5, "beltSpeedMps": 5, "relativeDisplacementM": -2 },
+        { "timeSeconds": 4, "xM": 14.5, "vxMps": 7, "beltSpeedMps": 8, "relativeDisplacementM": -2.5 }
+      ]
+    },
+    {
+      "id": "reverse",
+      "readingFile": "conveyor-reverse.reading.json",
+      "durationSeconds": 2,
+      "endReason": "prefix_end",
+      "commonVelocityTimeSeconds": 2,
+      "turnAroundTimeSeconds": 1,
+      "checkpoints": [
+        { "timeSeconds": 1, "xM": -1, "vxMps": 0, "beltSpeedMps": 2, "relativeDisplacementM": -3 },
+        { "timeSeconds": 2, "xM": 0, "vxMps": 2, "beltSpeedMps": 2, "relativeDisplacementM": -4 }
+      ]
+    }
+  ]
+}

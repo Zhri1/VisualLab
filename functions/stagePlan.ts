@@ -8,13 +8,14 @@ import { validateMultiBodyPlan } from './multiBodyPlan.ts';
 import type { BodyDefinition, BodyStage } from './multiBodyTypes.ts';
 export type Energy = { stageIndex: number; elasticEnergyJ: number; origin: "given" | "user" | "spring_parameters" | "critical_arc_top"; basis?: Record<string, number> };
 export type PlaybackScope = { mode: "full" | "suffix" | "state_only"; startStageIndex: number; unresolvedKeys: string[]; reason: string; xM?: number; vxMps?: number; stopReason?: "stop_at_target" | "stop_before_target" | "prefix_end" };
-export type SingleStageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release" | "constant_force_1d";
+export type SingleStageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release" | "constant_force_1d" | "conveyor_belt";
 export type StageKind = SingleStageKind | BodyStage['kind'];
 export type SingleStage =
   | { kind: "incline_slide"; lengthM: number; angleDeg: number; kineticFrictionCoefficient: number; slidesAfterRelease?: boolean | null }
   | { kind: "lossless_turn"; lossless: true }
   | { kind: "horizontal_slide"; kineticFrictionCoefficient: number; end: { kind: "distance"; distanceM: number } | { kind: "stop" } | { kind: "distance_from_stage_start"; stageIndex: number; distanceM: number } }
   | { kind: "constant_force_1d"; netForceXN: number; end: { kind: "duration"; durationSeconds: number } | { kind: "stop" } }
+  | import("./conveyorBelt.ts").ConveyorBeltStage
   | { kind: "spring_release"; springConstantNpm: number | null; initialCompressionM: number | null; kineticFrictionCoefficient: number; unattached: true; slidesAfterRelease: boolean; releaseCompleteByM?: number | null }
   | { kind: "spring_contact"; springConstantNpm: number; frictionless: true; unattached: true; kineticFrictionCoefficient?: never; staticFrictionCoefficient?: never; reboundAtMaxCompression?: never }
   | { kind: "spring_contact"; springConstantNpm: number; kineticFrictionCoefficient: number; staticFrictionCoefficient?: number | null; reboundAtMaxCompression?: boolean | null; unattached: true; frictionless?: never }
@@ -27,7 +28,7 @@ export type ResolvedStagePlan = {
   schemaVersion: 1;
   gravityMps2?: number;
   massKg?: number;
-  initial: { speedMps: number } | { vxMps: number; vyMps: number } | { tangentialSpeedMps: number } | HorizontalInitial;
+  initial: { speedMps: number } | { vxMps: number; vyMps: number } | { vxMps: number } | { tangentialSpeedMps: number } | HorizontalInitial;
   bodies?: BodyDefinition[];
   primaryBodyId?: string;
   stages: Stage[];
@@ -38,7 +39,7 @@ export type StagePlanDraft = {
   schemaVersion: 1;
   gravityMps2?: number | null;
   massKg?: number | null;
-  initial: { speedMps: number | null } | { vxMps: number | null; vyMps: number | null } | { tangentialSpeedMps: number | null } | { bodies: Array<Record<string, unknown>> };
+  initial: { speedMps: number | null } | { vxMps: number | null; vyMps: number | null } | { vxMps: number | null } | { tangentialSpeedMps: number | null } | { bodies: Array<Record<string, unknown>> };
   bodies?: Array<{ bodyId: string | null; massKg: number | null }>;
   primaryBodyId?: string | null;
   stages: Array<Record<string, unknown>>;
@@ -56,16 +57,17 @@ export type StagePlanFailure = {
 };
 export type StagePlanValidation = { ok: true; reading: ResolvedStagePlan; playback?: PlaybackScope } | StagePlanFailure;
 
-const stageKinds: readonly string[] = ["incline_slide", "lossless_turn", "horizontal_slide", "spring_contact", "projectile", "vertical_arc", "spring_release", "constant_force_1d"];
+const stageKinds: readonly string[] = ["incline_slide", "lossless_turn", "horizontal_slide", "spring_contact", "projectile", "vertical_arc", "spring_release", "constant_force_1d", "conveyor_belt"];
 const positive = (value: number) => value > 0;
 const nonnegative = (value: number) => value >= 0;
 const finite = (_value: number) => true;
 const numericRules: Record<StageKind, Record<string, (value: number) => boolean>> = {
-  horizontal_approach: {}, pendulum_swing: {}, collision_1d: {}, parallel_motion: {},
+  horizontal_approach: {}, pendulum_swing: {}, collision_1d: {}, parallel_motion: {}, block_plank: {},
   incline_slide: { lengthM: positive, angleDeg: (value) => value > 0 && value < 90, kineticFrictionCoefficient: nonnegative },
   lossless_turn: {},
   horizontal_slide: { kineticFrictionCoefficient: nonnegative },
   constant_force_1d: { netForceXN: finite },
+  conveyor_belt: { initialBeltSpeedMps: finite, kineticFrictionCoefficient: nonnegative },
   spring_contact: { springConstantNpm: positive },
   spring_release: { kineticFrictionCoefficient: nonnegative },
   projectile: {},
@@ -77,7 +79,7 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 export function validateStagePlan(input: unknown): StagePlanValidation {
-  if (record(input) && ('bodies' in input || (Array.isArray(input.stages) && input.stages.some(s => record(s) && ['pendulum_swing','collision_1d','parallel_motion','horizontal_approach'].includes(String(s.kind)))))) return validateMultiBodyPlan(input, validateStagePlan);
+  if (record(input) && ('bodies' in input || (Array.isArray(input.stages) && input.stages.some(s => record(s) && ['pendulum_swing','collision_1d','parallel_motion','horizontal_approach','block_plank'].includes(String(s.kind)))))) return validateMultiBodyPlan(input, validateStagePlan);
   const missingKeys: string[] = [];
   const fieldErrors: StageFieldError[] = [];
   let damaged = false;
@@ -130,8 +132,13 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
   }
   const initial = input.initial ?? {};
   const hasSpeed = Object.prototype.hasOwnProperty.call(initial, "speedMps");
-  const hasComponents = "vxMps" in initial || "vyMps" in initial;
-  if ((hasSpeed && hasComponents) || (firstKind != null && (firstKind === "projectile" ? hasSpeed : hasComponents))) {
+  const hasVx = "vxMps" in initial;
+  const hasVy = "vyMps" in initial;
+  const hasComponents = hasVx || hasVy;
+  const conveyorInitial = firstKind === "conveyor_belt";
+  if ((hasSpeed && hasComponents)
+    || (conveyorInitial && (hasSpeed || hasVy))
+    || (!conveyorInitial && firstKind != null && (firstKind === "projectile" ? hasSpeed : hasComponents))) {
     issue("/initial", "PRECONDITION_CONFLICT", "初态标量与分量互斥，请按第一段选择速度形式。");
   }
   const normalizedInitial: Record<string, number | null> = {};
@@ -162,13 +169,13 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
     else if (stage[key] !== true) issue(path, "TYPE", "前提事实须为布尔值或 null。");
   }
   const componentInitial = firstKind === "projectile" || (firstKind == null && hasComponents && !hasSpeed);
-  const initialKeys = componentInitial ? ["vxMps", "vyMps"] : ["speedMps"];
+  const initialKeys = conveyorInitial ? ["vxMps"] : componentInitial ? ["vxMps", "vyMps"] : ["speedMps"];
   for (const key of initialKeys) numberField(initial, normalizedInitial, key, "/initial/" + key, key === "speedMps" ? nonnegative : finite);
   // 初态形状冲突时也保留另一种形状的已知值，便于用户选择正确形式。
   for (const key of ["speedMps", "vxMps", "vyMps"]) {
     if (!initialKeys.includes(key) && key in initial) numberField(initial, normalizedInitial, key, "/initial/" + key, key === "speedMps" ? nonnegative : finite, false);
   }
-  const needsGravity = stages.some((stage) => stage.kind === "incline_slide" || stage.kind === "projectile" || stage.kind === "vertical_arc" || (stage.kind === "spring_contact" && Object.prototype.hasOwnProperty.call(stage, "kineticFrictionCoefficient"))
+  const needsGravity = stages.some((stage) => stage.kind === "incline_slide" || stage.kind === "projectile" || stage.kind === "vertical_arc" || stage.kind === "conveyor_belt" || (stage.kind === "spring_contact" && Object.prototype.hasOwnProperty.call(stage, "kineticFrictionCoefficient"))
     || ((stage.kind === "horizontal_slide" || stage.kind === "spring_release") && typeof stage.kineticFrictionCoefficient === "number" && stage.kineticFrictionCoefficient > 0));
   const needsMass = stages.some((stage) => stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "constant_force_1d");
   numberField(input, draft, "gravityMps2", "/gravityMps2", positive, needsGravity);
@@ -270,6 +277,33 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       else if (source.end.kind !== "stop") issue(path + "/end/kind", "UNSUPPORTED", "未登记的水平结束条件。");
       if (record(source.end) && source.end.kind === "stop" && source.kineticFrictionCoefficient === 0 && (i > 0 || (normalizedInitial.speedMps ?? 0) > 0)) {
         issue(path + "/end", "PRECONDITION_CONFLICT", "光滑面上的正速运动无法因摩擦停止。");
+      }
+    }
+    if (source.kind === "conveyor_belt") {
+      numberField(source, stage, "staticFrictionCoefficient", path + "/staticFrictionCoefficient", nonnegative, false);
+      numberField(source, stage, "beltLengthM", path + "/beltLengthM", positive, false);
+      if (typeof stage.staticFrictionCoefficient === "number" && typeof stage.kineticFrictionCoefficient === "number" && stage.staticFrictionCoefficient < stage.kineticFrictionCoefficient) {
+        issue(path + "/staticFrictionCoefficient", "RANGE", "静摩擦因数不应小于动摩擦因数。");
+      }
+      let hasAccel = false;
+      if (source.segments == null) { stage.segments = null; missingKeys.push(path + "/segments"); }
+      else if (!Array.isArray(source.segments)) issue(path + "/segments", "TYPE", "传送带速度分段须为数组。");
+      else if (source.segments.length === 0) missingKeys.push(path + "/segments");
+      else {
+        const segs: Record<string, unknown>[] = [];
+        source.segments.forEach((rawSeg, j) => {
+          const sp = `${path}/segments/${j}`;
+          if (!record(rawSeg)) { issue(sp, "TYPE", "传送带分段须为对象。"); return; }
+          const copy: Record<string, unknown> = { ...rawSeg };
+          numberField(rawSeg, copy, "accelerationMps2", sp + "/accelerationMps2", finite);
+          numberField(rawSeg, copy, "durationSeconds", sp + "/durationSeconds", positive);
+          if (typeof copy.accelerationMps2 === "number" && copy.accelerationMps2 !== 0) hasAccel = true;
+          segs.push(copy);
+        });
+        stage.segments = segs;
+      }
+      if (hasAccel && source.staticFrictionCoefficient == null) {
+        missingKeys.push(path + "/staticFrictionCoefficient");
       }
     }
     if (source.kind === "constant_force_1d") {

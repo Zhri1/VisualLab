@@ -53,12 +53,13 @@ export function WorkspaceLayout({ ws }: Props) {
   const stagePlan = isStageReading(ws.appliedReading) ? ws.appliedReading : isStageReading(ws.reading)?ws.reading:null;
   const legacyReading = ws.appliedReading && !isStageReading(ws.appliedReading) ? ws.appliedReading : null;
   const stageLabels = {
-    horizontal_approach:'水平接近',pendulum_swing:'轻绳摆',collision_1d:'正碰',parallel_motion:'同步运动',
+    horizontal_approach:'水平接近',pendulum_swing:'轻绳摆',collision_1d:'正碰',parallel_motion:'同步运动',block_plank:'滑块与木板',
     spring_release: "预压释放",
     incline_slide: "斜面",
     lossless_turn: "转向",
     horizontal_slide: "水平",
     constant_force_1d: "常力",
+    conveyor_belt: "传送带",
     spring_contact: "弹簧",
     projectile: "抛体",
     vertical_arc: "圆弧",

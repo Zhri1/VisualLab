@@ -1,6 +1,7 @@
 // 由 scripts/sync-functions.mjs 从 src/physics/multiBodyPlan.ts 复制生成，请勿手改。
 // 改动请改源文件后重新运行：node scripts/sync-functions.mjs
 import {validateHorizontalFields} from './horizontalPlan.ts';
+import {validateBlockPlankFields} from './blockPlankPlan.ts';
 import type { StagePlanDraft, StagePlanValidation, ResolvedStagePlan, StageFieldError } from './stagePlan.ts';
 import { createPendulum } from './pendulum.ts';
 import { collide1D } from './collision.ts';
@@ -29,7 +30,8 @@ export function validateMultiBodyPlan(input: Obj, legacy: (v: unknown) => StageP
   const block=(o:Obj,k:string,p:string):Obj|null=>{if(o[k]==null){o[k]=null;missing.push(p);return null;}if(!obj(o[k])){issue(p,'TYPE','需要对象。');return null;}return o[k] as Obj;};
   choice(draft,'kind','/kind',['stage_plan']);
   if(draft.schemaVersion==null)missing.push('/schemaVersion');else if(typeof draft.schemaVersion!=='number')issue('/schemaVersion','TYPE','版本号须为数字。');else if(draft.schemaVersion!==1)issue('/schemaVersion','UNSUPPORTED','仅支持版本1。');
-  const horizontal=Array.isArray(draft.stages)&&draft.stages.some(s=>obj(s)&&s.kind==='horizontal_approach')||obj(draft.initial)&&'bodies'in draft.initial;
+  const blockPlank = Array.isArray(draft.stages) && draft.stages.some(s => obj(s) && s.kind === 'block_plank');
+  const horizontal = !blockPlank && (Array.isArray(draft.stages) && draft.stages.some(s => obj(s) && s.kind === 'horizontal_approach') || obj(draft.initial) && 'bodies' in draft.initial);
   const usesGravity=(v:unknown):boolean=>Array.isArray(v)?v.some(usesGravity):obj(v)?v.kind==='projectile'||v.kind==='pendulum_swing'||v.kind==='pendulum_string'||typeof v.kineticFrictionCoefficient==='number'&&v.kineticFrictionCoefficient>0||Object.values(v).some(usesGravity):false;
   num(draft,'gravityMps2','/gravityMps2',v=>v>0,!horizontal||usesGravity(draft));
   if('massKg'in draft)issue('/massKg','PRECONDITION_CONFLICT','新摆计划的质量只取body表，请移除旧顶层质量。');
@@ -56,6 +58,7 @@ export function validateMultiBodyPlan(input: Obj, legacy: (v: unknown) => StageP
     if(new Set(list).size!==list.length)issue(p,'PRECONDITION_CONFLICT','同一轨道/碰撞不能重复引用物体。');
     return list.filter((v):v is string=>typeof v==='string');
   };
+  if(blockPlank){validateBlockPlankFields(draft,{missing,errors,issue,num,choice,fact,block,ref});return result();}
   if(horizontal){validateHorizontalFields(draft,{missing,errors,issue,num,choice,fact,block,ref,bodyList},legacy);return result();}
   const initial=block(draft,'initial','/initial');
   if(initial){

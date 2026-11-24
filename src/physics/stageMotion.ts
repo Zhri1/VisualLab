@@ -9,12 +9,14 @@ import { computeMultiBodyMotion } from './multiBodyMotion.ts';
 import { validateStagePlan } from "./stagePlan.ts";
 import { landingTime, linearState, springMetrics, springState } from "./kinematics.ts";
 import { solveRoughSpring, type RoughSpring, type RoughSpringConflict } from "./roughSpring.ts";
+import { solveConveyorBelt, type ConveyorGeometry, type ConveyorReading } from "./conveyorBelt.ts";
 
 type Velocity = { vxMps: number; vyMps: number };
 export type StageGeometry = BodyGeometry & {
   incline?: { start: Point; end: Point };
   horizontal?: { start: Point; plannedEnd: Point | null };
   linearTrack?: { minXM: number; maxXM: number; yM: number };
+  conveyor?: ConveyorGeometry;
   spring?: { contact: Point; anchor: Point };
   projectile?: { launch: Point; landingPlane: { yM: number } };
   verticalArc?: VerticalArcGeometry;
@@ -24,7 +26,7 @@ export type StageGeometry = BodyGeometry & {
   blockSizeM: number;
   positionReference: "front_bottom" | "particle";
 };
-export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary';
+export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit';
 export type StageEvent = {
   collision?: import('./horizontalTypes.ts').CollisionValues;
   bodyIds?: string[]; stagePath?: string;
@@ -47,6 +49,8 @@ export type StageMotion = {
   sampleAt(timeSeconds: number): MotionSample & Partial<BodySnapshot>;
   /** 与 sampleAt 同一时钟的能量读数；缺质量或缺重力等条件时为 null，不伪造。多物体计划不提供。 */
   energyAt?(timeSeconds: number): EnergyReading | null;
+  /** 与 sampleAt 同一时钟的传送带读数（带速、相对带面位移等）。 */
+  conveyorAt?(timeSeconds: number): ConveyorReading | null;
 };
 /** 动能、相关势能与播放窗口内累计已知摩擦耗能（J）。 */
 export type EnergyReading = {
@@ -331,7 +335,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage, i) => stage.kind === "vertical_arc" || stage.kind === "spring_release"
     || stage.kind === "incline_slide" && plan.stages[i + 1]?.kind === "projectile") ? "particle" : "front_bottom" };
   const first = plan.stages[0];
-  let state = "speedMps" in plan.initial ? moving(0, 0, plan.initial.speedMps) : "vxMps" in plan.initial ? moving(0, 0, plan.initial.vxMps, plan.initial.vyMps) : moving(0,0,"tangentialSpeedMps" in plan.initial ? plan.initial.tangentialSpeedMps : 0);
+  let state = "speedMps" in plan.initial ? moving(0, 0, plan.initial.speedMps) : "vxMps" in plan.initial ? moving(0, 0, plan.initial.vxMps, "vyMps" in plan.initial ? plan.initial.vyMps : 0) : moving(0,0,"tangentialSpeedMps" in plan.initial ? plan.initial.tangentialSpeedMps : 0);
   if(first.kind==='vertical_arc'&&first.path)state=circularEntry({...first,path:first.path},Math.hypot(state.vxMps,state.vyMps),plan.gravityMps2!,plan.massKg!,0);
   if (first.kind === "spring_release" && scope?.mode === "full") state.springCompressionM = first.initialCompressionM!;
   if (scope && scope.mode !== "full") state = moving(scope.xM!, 0, scope.vxMps!);
@@ -359,6 +363,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   const events: StageEvent[] = [];
   const eventStates: MotionSample[] = [];
   const runs: { start: number; end: number; run: Run; stageIndex: number; heatBase: number }[] = [];
+  let conveyorEval: ((timeSeconds: number) => ConveyorReading) | null = null;
   let heatBase = 0;
   function append(item: EventState, stageIndex: number, startTime: number) {
     const order = events.length;
@@ -416,6 +421,30 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       case "lossless_turn": run = turn(state); break;
       case "horizontal_slide": run = horizontal(stage, state, plan.gravityMps2 ?? 0, geometry); break;
       case "constant_force_1d": run = constantForce(stage, state, plan.massKg!, geometry, index + 1 < plan.stages.length); break;
+      case "conveyor_belt": {
+        const solved = solveConveyorBelt(stage, state.xM, state.vxMps, plan.gravityMps2!);
+        geometry.conveyor = solved.geometry;
+        const startTime = time;
+        conveyorEval = (q) => {
+          const r = solved.evalAt(q - startTime);
+          return { beltSpeedMps: r.beltSpeedMps, beltDisplacementM: r.beltDisplacementM, relativeDisplacementM: r.relativeDisplacementM, relativeSpeedMps: r.relativeSpeedMps };
+        };
+        const endSample = moving(solved.endX, state.yM, solved.endVx);
+        run = {
+          duration: solved.duration,
+          end: endSample,
+          reason: solved.exited ? "conveyor_exit" : undefined,
+          events: solved.events.map((ev) => {
+            const st = moving(ev.xM, state.yM, ev.vxMps);
+            return event(ev.kind, ev.time, st, st, ev.label, ev.explanation);
+          }),
+          sampleAt: (dt) => {
+            const r = solved.evalAt(dt);
+            return moving(r.xM, state.yM, r.vxMps);
+          },
+        };
+        break;
+      }
       case "spring_contact": run = "kineticFrictionCoefficient" in stage ? roughSpring(stage, state, plan.massKg!, plan.gravityMps2!, geometry) : spring(stage, state, plan.massKg!, geometry); break;
       case "spring_release": run = release(stage, state, plan.massKg!, plan.gravityMps2 ?? 0, geometry, index + 1 < plan.stages.length); break;
       case "projectile": run = projectile(stage, state, plan.gravityMps2!, geometry, plan.stages[index - 1]?.kind); break;
@@ -476,6 +505,11 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     ...(scope ? { timing: { ...scope, anchor: { label: scope.mode === "full" ? "A" : scope.mode === "suffix" || scope.stopReason === "prefix_end" ? "B" : "静止点", position: scope.mode === "full" ? { xM: 0, yM: 0 } : { xM: scope.xM!, yM: 0 } }, absoluteStartSeconds: scope.mode === "full" ? 0 : null, excludedStageIndices: scope.mode === "full" ? [] : scope.mode === "suffix" ? Array.from({ length: from }, (_, i) => i) : plan.stages.map((_, i) => i) }, calculations } : {}),
     geometry, durationSeconds: time, segments, events, termination,
     get endReason() { return termination.reason; },
+    conveyorAt(timeSeconds) {
+      if (!conveyorEval) return null;
+      const t = Number.isNaN(timeSeconds) ? 0 : Math.min(time, Math.max(0, timeSeconds));
+      return conveyorEval(t);
+    },
     energyAt(timeSeconds) {
       const mass = plan.massKg, g = plan.gravityMps2;
       if (mass === undefined) return null;
