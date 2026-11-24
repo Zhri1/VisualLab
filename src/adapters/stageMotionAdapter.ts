@@ -81,15 +81,18 @@ function legacyGeometry(source: StageMotion): SceneGeometry {
   const g = source.geometry;
   const first = source.sampleAt(0);
   const last = source.sampleAt(source.durationSeconds);
-  const inclineStart = g.incline?.start ?? { xM: first.xM, yM: first.yM };
-  const inclineEnd = g.incline?.end ?? { xM: first.xM, yM: first.yM };
-  const horizontalEnd = g.horizontal?.plannedEnd ?? g.spring?.contact ?? { xM: last.xM, yM: last.yM };
+  const firstIncline = g.incline ?? g.inclines?.[0];
+  const lastHorizontal = g.horizontal ?? g.horizontals?.[g.horizontals.length - 1];
+  const lastSpring = g.spring ?? g.springs?.[g.springs.length - 1];
+  const inclineStart = firstIncline?.start ?? { xM: first.xM, yM: first.yM };
+  const inclineEnd = firstIncline?.end ?? { xM: first.xM, yM: first.yM };
+  const horizontalEnd = lastHorizontal?.plannedEnd ?? lastSpring?.contact ?? { xM: last.xM, yM: last.yM };
   return {
     inclineTop: vec(inclineStart.xM, inclineStart.yM),
     inclineBottom: vec(inclineEnd.xM, inclineEnd.yM),
     horizontalEnd: vec(horizontalEnd.xM, horizontalEnd.yM),
-    springContactX: g.spring?.contact.xM ?? horizontalEnd.xM,
-    springAnchorX: g.spring?.anchor.xM ?? horizontalEnd.xM + 1,
+    springContactX: lastSpring?.contact.xM ?? horizontalEnd.xM,
+    springAnchorX: lastSpring?.anchor.xM ?? horizontalEnd.xM + 1,
     blockSizeM: g.blockSizeM,
   };
 }

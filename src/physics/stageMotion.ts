@@ -14,12 +14,17 @@ import { solveConveyorBelt, type ConveyorGeometry, type ConveyorReading } from "
 type Velocity = { vxMps: number; vyMps: number };
 export type StageGeometry = BodyGeometry & {
   incline?: { start: Point; end: Point };
+  inclines?: Array<{ stageIndex: number; start: Point; end: Point }>;
   horizontal?: { start: Point; plannedEnd: Point | null };
+  horizontals?: Array<{ stageIndex: number; start: Point; plannedEnd: Point | null }>;
   linearTrack?: { minXM: number; maxXM: number; yM: number };
   conveyor?: ConveyorGeometry;
   spring?: { contact: Point; anchor: Point };
+  springs?: Array<{ stageIndex: number; contact: Point; anchor: Point }>;
   projectile?: { launch: Point; landingPlane: { yM: number } };
+  projectiles?: Array<{ stageIndex: number; launch: Point; landingPlane: { yM: number } }>;
   verticalArc?: VerticalArcGeometry;
+  verticalArcs?: VerticalArcGeometry[];
   springRelease?: { stageIndex: number; start: Point; naturalContact: Point; initialCompressionM: number; anchor: Point | null };
   landmarks?: { label: string; position: Point }[];
   schematic?: { stageIndices: number[]; horizontal?: { start: Point; plannedEnd: Point }; springIconAt?: Point; verticalArc?: Omit<VerticalArcGeometry, "stageIndex" | "actualExit" | "startAngleDeg"> & {startAngleDeg?:number}; reason: string };
@@ -99,14 +104,16 @@ function travel(speed: number, acceleration: number, distance: number) {
   return { duration: 2 * distance / (speed + endSpeed), distance, speed: endSpeed, reason: undefined };
 }
 
-function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: MotionSample, gravity: number, geometry: StageGeometry, fliesFromEnd: boolean): Run {
+function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: MotionSample, gravity: number, geometry: StageGeometry, fliesFromEnd: boolean, stageIndex: number): Run {
   const angle = stage.angleDeg * Math.PI / 180;
   const dx = Math.cos(angle);
   const dy = -Math.sin(angle);
   const acceleration = gravity * (Math.sin(angle) - stage.kineticFrictionCoefficient * dx);
   const speed = Math.hypot(start.vxMps, start.vyMps);
   const boundary = travel(speed, acceleration, stage.lengthM);
-  geometry.incline = { start: point(start), end: { xM: 0, yM: 0 } };
+  const inclineGeo = { start: point(start), end: { xM: 0, yM: 0 } };
+  geometry.incline = inclineGeo;
+  (geometry.inclines ??= []).push({ stageIndex, ...inclineGeo });
   const end = moving(
     boundary.reason ? start.xM + boundary.distance * dx : 0,
     boundary.reason ? start.yM + boundary.distance * dy : 0,
@@ -169,13 +176,15 @@ function constantForce(stage: Extract<Stage, { kind: "constant_force_1d" }>, sta
   };
 }
 
-function horizontal(stage: Extract<Stage, { kind: "horizontal_slide" }>, start: MotionSample, gravity: number, geometry: StageGeometry): Run {
+function horizontal(stage: Extract<Stage, { kind: "horizontal_slide" }>, start: MotionSample, gravity: number, geometry: StageGeometry, stageIndex: number): Run {
   const speed = start.vxMps;
   const braking = stage.kineticFrictionCoefficient * gravity;
-  geometry.horizontal = {
+  const horizontalGeo = {
     start: point(start),
     plannedEnd: stage.end.kind !== "stop" ? { xM: stage.end.kind === "distance_from_stage_start" ? stage.end.distanceM : start.xM + stage.end.distanceM, yM: start.yM } : null,
   };
+  geometry.horizontal = horizontalGeo;
+  (geometry.horizontals ??= []).push({ stageIndex, ...horizontalGeo });
   const distance = stage.end.kind === "stop" ? 0 : stage.end.kind === "distance_from_stage_start" ? Math.max(0, stage.end.distanceM - start.xM) : stage.end.distanceM;
   const boundary = stage.end.kind !== "stop" ? travel(speed, -braking, distance) : {
     duration: speed === 0 ? 0 : speed / braking,
@@ -212,7 +221,7 @@ function release(stage: Extract<Stage, { kind: "spring_release" }>, start: Motio
   };
 }
 
-function roughSpring(stage: Extract<Stage, { kind: "spring_contact" }>, start: MotionSample, mass: number, gravity: number, geometry: StageGeometry): Run {
+function roughSpring(stage: Extract<Stage, { kind: "spring_contact" }>, start: MotionSample, mass: number, gravity: number, geometry: StageGeometry, stageIndex: number): Run {
   const solved = solveRoughSpring({ speedMps: start.vxMps, massKg: mass, gravityMps2: gravity, springConstantNpm: stage.springConstantNpm,
     kineticFrictionCoefficient: stage.kineticFrictionCoefficient!, staticFrictionCoefficient: stage.staticFrictionCoefficient,
     reboundAtMaxCompression: stage.reboundAtMaxCompression }) as RoughSpring;
@@ -223,7 +232,9 @@ function roughSpring(stage: Extract<Stage, { kind: "spring_contact" }>, start: M
   };
   const maximum = { ...moving(x0 + solved.maxCompressionM, start.yM, 0), springCompressionM: solved.maxCompressionM };
   const end = { ...at(solved.durationSeconds), springCompressionM: solved.finalCompressionM };
-  geometry.spring = { contact: point(start), anchor: { xM: maximum.xM + Math.max(1, solved.maxCompressionM / 4), yM: start.yM } };
+  const springGeo = { contact: point(start), anchor: { xM: maximum.xM + Math.max(1, solved.maxCompressionM / 4), yM: start.yM } };
+  geometry.spring = springGeo;
+  (geometry.springs ??= []).push({ stageIndex, ...springGeo });
   const basis = solved.holdBasis === "static_coefficient" ? "静摩擦上限" : "题给已知事实";
   const holds = solved.outcome === "hold_max";
   const events: EventState[] = [
@@ -243,16 +254,18 @@ function roughSpring(stage: Extract<Stage, { kind: "spring_contact" }>, start: M
   };
 }
 
-function spring(stage: Extract<Stage, { kind: "spring_contact" }>, start: MotionSample, mass: number, geometry: StageGeometry): Run {
+function spring(stage: Extract<Stage, { kind: "spring_contact" }>, start: MotionSample, mass: number, geometry: StageGeometry, stageIndex: number): Run {
   const speed = start.vxMps;
   const metrics = springMetrics(speed, mass, stage.springConstantNpm);
   const duration = 2 * metrics.quarterPeriod;
   const maximum = { ...moving(start.xM + metrics.maxCompressionM, start.yM, 0), springCompressionM: metrics.maxCompressionM };
   const end = moving(start.xM, start.yM, -speed);
-  geometry.spring = {
+  const springGeo = {
     contact: point(start),
     anchor: { xM: maximum.xM + Math.max(1, metrics.maxCompressionM / 4), yM: start.yM },
   };
+  geometry.spring = springGeo;
+  (geometry.springs ??= []).push({ stageIndex, ...springGeo });
   return {
     duration, end, reason: "spring_detached",
     events: [
@@ -271,6 +284,7 @@ function arc(stage: Extract<Stage, { kind: "vertical_arc" }>, start: MotionSampl
   if (stage.path) {
     const solved=solveCircularArc({...stage,path:stage.path},start,gravity,mass,index);
     geometry.verticalArc=solved.geometry;
+    (geometry.verticalArcs ??= []).push(solved.geometry);
     const make=(kind:string,t:number,before:MotionSample,after:MotionSample,label:string,explanation:string):EventState=>({
       ...event(kind,t,before,after,label,explanation),position:point(after),normalForceBeforeN:before.constraint?.normalForceN??0,normalForceAfterN:after.constraint?.normalForceN??0,
     });
@@ -289,6 +303,7 @@ function arc(stage: Extract<Stage, { kind: "vertical_arc" }>, start: MotionSampl
   }
   const solved = solveVerticalArc(stage, start, gravity, mass, index);
   geometry.verticalArc = solved.geometry;
+  (geometry.verticalArcs ??= []).push(solved.geometry);
   const arcEvent = (kind: string, time: number, before: MotionSample, after: MotionSample, label: string, explanation: string): EventState => ({
     ...event(kind, time, before, after, label, explanation), position: point(after),
     normalForceBeforeN: before.constraint?.normalForceN ?? 0,
@@ -311,10 +326,12 @@ function arc(stage: Extract<Stage, { kind: "vertical_arc" }>, start: MotionSampl
   return { ...solved, events, reason: continues ? undefined : "arc_detached" };
 }
 
-function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: MotionSample, gravity: number, geometry: StageGeometry, from: StageKind | undefined): Run {
+function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: MotionSample, gravity: number, geometry: StageGeometry, from: StageKind | undefined, stageIndex: number): Run {
   const planeYM = stage.landingPlaneYM ?? start.yM - stage.dropHeightM!;
   const duration = landingTime(start.yM - planeYM, start.vyMps, gravity);
-  geometry.projectile = { launch: point(start), landingPlane: { yM: planeYM } };
+  const projectileGeo = { launch: point(start), landingPlane: { yM: planeYM } };
+  geometry.projectile = projectileGeo;
+  (geometry.projectiles ??= []).push({ stageIndex, ...projectileGeo });
   const sampleAt = (time: number) => linearState(start.xM, start.yM, start.vxMps, start.vyMps, 0, -gravity, time);
   const end = { ...sampleAt(duration), yM: planeYM };
   const events: EventState[] = [];
@@ -417,9 +434,9 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       if (state.vxMps !== 0 && (stage.netForceXN === 0 || Math.sign(stage.netForceXN) === Math.sign(state.vxMps))) return failure("合力方向与当前速度相同或为零，无法减速至零。", "/stages/" + index + "/end", "PRECONDITION_CONFLICT");
     }
     try { switch (stage.kind) {
-      case "incline_slide": run = incline(stage, state, plan.gravityMps2!, geometry, plan.stages[index + 1]?.kind === "projectile"); break;
+      case "incline_slide": run = incline(stage, state, plan.gravityMps2!, geometry, plan.stages[index + 1]?.kind === "projectile", index); break;
       case "lossless_turn": run = turn(state); break;
-      case "horizontal_slide": run = horizontal(stage, state, plan.gravityMps2 ?? 0, geometry); break;
+      case "horizontal_slide": run = horizontal(stage, state, plan.gravityMps2 ?? 0, geometry, index); break;
       case "constant_force_1d": run = constantForce(stage, state, plan.massKg!, geometry, index + 1 < plan.stages.length); break;
       case "conveyor_belt": {
         const solved = solveConveyorBelt(stage, state.xM, state.vxMps, plan.gravityMps2!);
@@ -445,9 +462,9 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
         };
         break;
       }
-      case "spring_contact": run = "kineticFrictionCoefficient" in stage ? roughSpring(stage, state, plan.massKg!, plan.gravityMps2!, geometry) : spring(stage, state, plan.massKg!, geometry); break;
+      case "spring_contact": run = "kineticFrictionCoefficient" in stage ? roughSpring(stage, state, plan.massKg!, plan.gravityMps2!, geometry, index) : spring(stage, state, plan.massKg!, geometry, index); break;
       case "spring_release": run = release(stage, state, plan.massKg!, plan.gravityMps2 ?? 0, geometry, index + 1 < plan.stages.length); break;
-      case "projectile": run = projectile(stage, state, plan.gravityMps2!, geometry, plan.stages[index - 1]?.kind); break;
+      case "projectile": run = projectile(stage, state, plan.gravityMps2!, geometry, plan.stages[index - 1]?.kind, index); break;
       case "vertical_arc": run = arc(stage, state, plan.gravityMps2!, plan.massKg!, geometry, index, plan.stages[index + 1]?.kind === "projectile"); break;
     } } catch (error) { if (error instanceof RangeError) return failure(error.message,'/stages/'+index+((error as {field?:string}).field??'')); throw error; }
     if (!run.heatAt && plan.massKg !== undefined) {
@@ -474,6 +491,17 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       segments.push({ stageIndex: index, kind: stage.kind, startSeconds: time, endSeconds: nextTime });
       runs.push({ start: time, end: nextTime, run, stageIndex: index, heatBase });
     }
+    const labeled = stage as SingleStage & { startLabel?: string; endLabel?: string };
+    const addLandmark = (rawLabel: unknown, pos: Point) => {
+      if (typeof rawLabel !== "string") return;
+      const label = rawLabel.trim();
+      if (!label) return;
+      const list = (geometry.landmarks ??= []);
+      if (list.some((item) => item.label === label)) return;
+      list.push({ label, position: point(pos) });
+    };
+    addLandmark(labeled.startLabel, state);
+    addLandmark(labeled.endLabel, run.end);
     heatBase += run.heatAt?.(run.duration) ?? 0;
     for (const item of run.events) append(item, index, time);
     state = run.end;
