@@ -1,5 +1,6 @@
 import {computeHorizontalMotion} from './horizontalMotion.ts';
 import {computeBlockPlankMotion} from './blockPlankMotion.ts';
+import {computePulleyMotion} from './pulleyMotion.ts';
 import {linearBodyTrack} from './bodyTrack.ts';
 import {BodyPlanError as PlanError} from './bodyPlanError.ts';
 import type { ResolvedStagePlan, StagePlanDraft, StagePlanFailure, StageKind } from './stagePlan.ts';
@@ -27,6 +28,7 @@ const text: Record<string,[string,string]> = {
 
 export function computeMultiBodyMotion(plan: ResolvedStagePlan): StageMotion | StagePlanFailure {
   if (plan.stages[0]?.kind === 'block_plank') return computeBlockPlankMotion(plan);
+  if (plan.stages[0]?.kind === 'pulley_system') return computePulleyMotion(plan);
   try { return 'bodies'in plan.initial ? computeHorizontalMotion(plan) : solve(plan); } catch(error) {
     if(!(error instanceof PlanError)&&!(error instanceof RangeError))throw error;
     const path=error instanceof PlanError?error.path:'/initial', missing=error instanceof PlanError&&error.missing;

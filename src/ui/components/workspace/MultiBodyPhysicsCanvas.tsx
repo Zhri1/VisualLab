@@ -13,6 +13,7 @@ function drawingData(motion:Motion){
   for(const t of times)for(const[id,b]of Object.entries(motion.sampleAt(t).bodies??{})){(curves[id]??=[]).push(b.position);points.push(b.position);
     if(motion.stageGeometry?.plank?.plankBodyId===id)points.push({x:b.position.x+motion.stageGeometry.plank.plankLengthM,y:b.position.y});}
   for(const p of motion.stageGeometry?.pendulums??[])points.push({x:p.pivot.xM,y:p.pivot.yM},{x:p.lowestPoint.xM,y:p.lowestPoint.yM});
+  if(motion.stageGeometry?.pulley){const pl=motion.stageGeometry.pulley;points.push({x:pl.pulley.xM,y:pl.pulley.yM},{x:pl.body1Start.xM,y:pl.body1Start.yM},{x:pl.body2Start.xM,y:pl.body2Start.yM});if(pl.groundYM!=null)points.push({x:pl.body2Start.xM,y:pl.groundYM});}
   for(const tr of motion.stageGeometry?.bodyTracks??[]){if(tr.horizontal){points.push({x:tr.horizontal.start.xM,y:tr.horizontal.start.yM});if(tr.horizontal.plannedEnd)points.push({x:tr.horizontal.plannedEnd.xM,y:tr.horizontal.plannedEnd.yM});}if(tr.projectile?.landingPlane)points.push({x:tr.projectile.launch.xM,y:tr.projectile.landingPlane.yM});}
   const xs=points.map(p=>p.x),ys=points.map(p=>p.y);
   return{curves,ids:Object.keys(curves).sort(),bounds:{x1:Math.min(...xs)-.2,x2:Math.max(...xs)+.2,y1:Math.min(...ys)-.2,y2:Math.max(...ys)+.2}};
@@ -47,7 +48,28 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
       reqs.push({text:`木板 L=${pg.plankLengthM} m`,color:SOFT,cx:(xL+xR)/2,by:y0+26,dir:1});
     }
   }
+  if(motion.stageGeometry?.pulley){
+    const pl=motion.stageGeometry.pulley,px=X(pl.pulley.xM),py=Y(pl.pulley.yM);
+    ctx.save();ctx.strokeStyle=INK;ctx.lineWidth=1.6;
+    if(pl.surfaceKind==='horizontal'||pl.surfaceKind==='incline'){
+      ctx.beginPath();ctx.moveTo(X(pl.body1Start.xM),Y(pl.body1Start.yM));ctx.lineTo(px,py);ctx.stroke();
+    }
+    if(pl.groundYM!=null){
+      const gy=Y(pl.groundYM);ctx.beginPath();ctx.moveTo(X(b.x1+.1),gy);ctx.lineTo(X(b.x2-.1),gy);ctx.stroke();
+      reqs.push({text:'地面支撑',color:SOFT,cx:X(pl.body2Start.xM)+36,by:gy+16,dir:1});
+    }
+    ctx.fillStyle=PAPER;ctx.beginPath();ctx.arc(px,py,9,0,2*Math.PI);ctx.fill();ctx.stroke();
+    ctx.beginPath();ctx.arc(px,py,2.2,0,2*Math.PI);ctx.fillStyle=INK;ctx.fill();ctx.restore();
+    occupied.push({x:px-11,y:py-11,w:22,h:22});
+  }
   for(const c of Object.values(snapshot.constraints??{})){
+    if(c.kind==='pulley_string'){
+      const b1=snapshot.bodies?.[c.bodyIds[0]],b2=snapshot.bodies?.[c.bodyIds[1]];if(!b1||!b2)continue;
+      ctx.save();ctx.strokeStyle=c.state==='taut'?INK:SOFT;ctx.lineWidth=c.state==='taut'?1.8:1.2;if(c.state==='slack')ctx.setLineDash([4,5]);
+      ctx.beginPath();ctx.moveTo(X(b1.position.x),Y(b1.position.y));ctx.lineTo(X(c.pivot.xM),Y(c.pivot.yM));ctx.lineTo(X(b2.position.x),Y(b2.position.y));ctx.stroke();ctx.restore();
+      reqs.push({text:c.state==='taut'?`T = ${c.tensionN.toFixed(2)} N`:'松绳 · T = 0 N',color:SOFT,cx:Math.max(70,Math.min(W-70,X(c.pivot.xM)+58)),by:Math.max(18,Y(c.pivot.yM)-14),dir:-1});
+      continue;
+    }
     const body=snapshot.bodies?.[c.bodyIds[0]];if(!body)continue;
     ctx.save();ctx.strokeStyle=c.state==='taut'?INK:SOFT;ctx.lineWidth=c.state==='taut'?1.8:1.2;if(c.state==='slack')ctx.setLineDash([4,5]);ctx.beginPath();ctx.moveTo(X(c.pivot.xM),Y(c.pivot.yM));ctx.lineTo(X(body.position.x),Y(body.position.y));ctx.stroke();ctx.restore();
     reqs.push({text:c.state==='taut'?`T = ${c.tensionN.toFixed(2)} N`:'松绳 · T = 0 N',color:SOFT,cx:Math.max(70,Math.min(W-70,X(c.pivot.xM)+79)),by:Math.max(18,Y(c.pivot.yM)+21),dir:1});
@@ -92,5 +114,5 @@ export function MultiBodyPhysicsCanvas({motion,time,isPlaying=false,trackedBodyI
   const paint=useCallback(()=>{const canvas=ref.current,ctx=canvas?.getContext('2d');if(ctx&&size.current.w){const p=current.current;drawMultiBodyScene(ctx,size.current.w,size.current.h,p.motion,p.time,p.trackedBodyId,p.data);}},[]);
   useEffect(()=>{const canvas=ref.current;if(!canvas)return;const resize=()=>{const box=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;size.current={w:box.width,h:box.height};canvas.width=Math.round(box.width*dpr);canvas.height=Math.round(box.height*dpr);canvas.getContext('2d')?.setTransform(dpr,0,0,dpr,0,0);paint();};resize();const observer=new ResizeObserver(resize);observer.observe(canvas);return()=>observer.disconnect();},[paint]);
   useEffect(()=>{frame.current=requestAnimationFrame(paint);return()=>{if(frame.current!==null)cancelAnimationFrame(frame.current);};},[time,motion,trackedBodyId,paint]);
-  return <figure className="multi-body-figure" data-renderer="multi-body"><canvas ref={ref} role="img" aria-label={motion.stageGeometry?.plank?'滑块与可移动木板同步动画':motion.stageGeometry?.pendulums?.length?'轻绳摆与物体同步动画，P为支点，O为最低点':'两物体水平正碰与碰后同步运动'} aria-describedby="multi-body-readouts"/>{readouts&&<MultiBodyReadouts motion={motion} time={time} isPlaying={isPlaying}/>}</figure>;
+  return <figure className="multi-body-figure" data-renderer="multi-body"><canvas ref={ref} role="img" aria-label={motion.stageGeometry?.pulley?'轻绳与理想定滑轮连接体同步动画':motion.stageGeometry?.plank?'滑块与可移动木板同步动画':motion.stageGeometry?.pendulums?.length?'轻绳摆与物体同步动画，P为支点，O为最低点':'两物体水平正碰与碰后同步运动'} aria-describedby="multi-body-readouts"/>{readouts&&<MultiBodyReadouts motion={motion} time={time} isPlaying={isPlaying}/>}</figure>;
 }

@@ -3,7 +3,7 @@ import type { FieldError } from "../../../types";
 import { MultiBodyPlanEditor } from './MultiBodyPlanEditor';
 
 const STAGE_LABELS: Record<StageKind, string> = {
-  horizontal_approach: '水平接近', pendulum_swing:'轻绳摆', collision_1d:'水平正碰', parallel_motion:'同步运动', block_plank:'滑块与木板',
+  horizontal_approach: '水平接近', pendulum_swing:'轻绳摆', collision_1d:'水平正碰', parallel_motion:'同步运动', block_plank:'滑块与木板', pulley_system:'轻绳与定滑轮',
   spring_release: "预压弹簧释放",
   vertical_arc: "竖直圆弧",
   incline_slide: "斜面下滑",

@@ -1,0 +1,63 @@
+{
+  "description": "轻绳与理想定滑轮连接体独立基准，不是运行时回包。",
+  "toleranceSI": 1e-9,
+  "cases": [
+    {
+      "id": "atwood",
+      "readingFile": "pulley-atwood.reading.json",
+      "tautAccelMps2": 5,
+      "tautTensionN": 15,
+      "durationSeconds": 1,
+      "endReason": "prefix_end",
+      "finalBody1SpeedMps": 5,
+      "finalBody2SpeedMps": 5,
+      "finalDisplacementM": 2.5
+    },
+    {
+      "id": "horizontal",
+      "readingFile": "pulley-horizontal.reading.json",
+      "tautAccelMps2": 5,
+      "tautTensionN": 15,
+      "durationSeconds": 1,
+      "endReason": "prefix_end",
+      "finalBody1SpeedMps": 5,
+      "finalBody2SpeedMps": 5,
+      "finalDisplacementM": 2.5
+    },
+    {
+      "id": "incline",
+      "readingFile": "pulley-incline.reading.json",
+      "tautAccelMps2": 2.8,
+      "tautTensionN": 21.6,
+      "durationSeconds": 1,
+      "endReason": "prefix_end",
+      "finalBody1SpeedMps": 2.8,
+      "finalBody2SpeedMps": 2.8,
+      "finalDisplacementM": 1.4
+    },
+    {
+      "id": "ground_slack",
+      "readingFile": "pulley-ground-slack.reading.json",
+      "tautAccelMps2": 5,
+      "tautTensionN": 15,
+      "groundHitTimeSeconds": 0.8,
+      "durationSeconds": 2.4,
+      "endReason": "stopped",
+      "finalBody1SpeedMps": 0,
+      "finalBody2SpeedMps": 0,
+      "finalBody1TotalSlideM": 4.8,
+      "finalTensionN": 0
+    },
+    {
+      "id": "incline_hold",
+      "readingFile": "pulley-incline-hold.reading.json",
+      "tautAccelMps2": 0,
+      "tautTensionN": 15,
+      "durationSeconds": 0,
+      "endReason": "stopped",
+      "finalBody1SpeedMps": 0,
+      "finalBody2SpeedMps": 0,
+      "finalDisplacementM": 0
+    }
+  ]
+}

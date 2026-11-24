@@ -7,7 +7,7 @@ export type BodyState = BodyDefinition & {
   constraintId?: string; groupId?: string;
 };
 export type StringState = {
-  kind: 'pendulum_string'; constraintId: string; bodyIds: string[]; pivot: Point; lengthM: number;
+  kind: 'pendulum_string' | 'pulley_string'; constraintId: string; bodyIds: string[]; pivot: Point; lengthM: number;
   state: 'taut' | 'slack'; tensionN: number; angleDeg?: number; angularVelocityRadps?: number;
 };
 export type BodySnapshot = { bodies: Record<string, BodyState>; constraints: Record<string, StringState> };
@@ -33,10 +33,11 @@ export type ParallelStage = {
   kind: 'parallel_motion'; tracks: { bodyIds: string[]; stages: BodyTrackStage[] }[];
   end: { kind: 'all_finite_tracks' } | { kind: 'pendulum_turn'; bodyId: string };
 };
-export type BodyStage = PendulumStage | CollisionStage | ParallelStage | import('./horizontalTypes.ts').HorizontalApproach | import('./horizontalTypes.ts').HorizontalCollision | import('./blockPlankTypes.ts').BlockPlankStage;
+export type BodyStage = PendulumStage | CollisionStage | ParallelStage | import('./horizontalTypes.ts').HorizontalApproach | import('./horizontalTypes.ts').HorizontalCollision | import('./blockPlankTypes.ts').BlockPlankStage | import('./pulleyTypes.ts').PulleyStage;
 export type BodyGeometry = {
   bodies?: BodyDefinition[];
   pendulums?: { constraintId: string; bodyIds: string[]; definitionStageIndex: number; pivot: Point; lowestPoint: Point; lengthM: number; initialPosition: Point }[];
   bodyTracks?: { bodyIds: string[]; stagePath: string; horizontal?: { start: Point; plannedEnd: Point | null }; projectile?: { launch: Point; landingPlane?: { yM: number } } }[];
   plank?: import('./blockPlankTypes.ts').PlankGeometry;
+  pulley?: import('./pulleyTypes.ts').PulleyGeometry;
 };
