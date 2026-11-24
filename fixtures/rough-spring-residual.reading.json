@@ -1,0 +1,18 @@
+{
+    "kind":  "stage_plan",
+    "schemaVersion":  1,
+    "gravityMps2":  10,
+    "massKg":  1,
+    "initial":  {
+                    "speedMps":  1.5
+                },
+    "stages":  [
+                   {
+                       "kind":  "spring_contact",
+                       "springConstantNpm":  10,
+                       "kineticFrictionCoefficient":  0.2,
+                       "staticFrictionCoefficient":  0.25,
+                       "unattached":  true
+                   }
+               ]
+}

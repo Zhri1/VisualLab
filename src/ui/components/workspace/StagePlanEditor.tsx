@@ -46,6 +46,19 @@ const NUMBER_FIELDS: Partial<Record<StageKind, NumberMeta[]>> = {
   ],
 };
 
+const ROUGH_SPRING_FIELDS: NumberMeta[] = [
+  { key: "kineticFrictionCoefficient", label: "接触面动摩擦因数 μₖ", unit: "", step: 0.05 },
+  { key: "staticFrictionCoefficient", label: "静摩擦因数 μₛ（上限）", unit: "", step: 0.05, hint: "与下方回弹事实至少补一项；不默认等于 μₖ" },
+];
+const isRoughSpring = (stage: Record<string, unknown>) => Object.prototype.hasOwnProperty.call(stage, "kineticFrictionCoefficient");
+/** 光滑 ↔ 粗糙弹簧接触切换：互斥字段整体替换，已填的弹簧劲度系数保留。 */
+export function updateSpringContactMode(draft: StagePlanDraft, index: number, rough: boolean): StagePlanDraft {
+  const next = structuredClone(draft), stage = next.stages[index];
+  if (rough) { delete stage.frictionless; stage.kineticFrictionCoefficient = null; stage.staticFrictionCoefficient = null; stage.reboundAtMaxCompression = null; }
+  else { delete stage.kineticFrictionCoefficient; delete stage.staticFrictionCoefficient; delete stage.reboundAtMaxCompression; stage.frictionless = null; }
+  return next;
+}
+
 interface Props {
   draft: StagePlanDraft;
   onChange: (next: StagePlanDraft) => void;
@@ -255,7 +268,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
             {known && (
               <table className="cond-table">
                 <tbody>
-                  {(NUMBER_FIELDS[kind] ?? []).filter(meta=>!(kind==='vertical_arc'&&meta.key==='endAngleDeg'&&Object.prototype.hasOwnProperty.call(stage,'path'))).map((meta) => numberRow({
+                  {[...(NUMBER_FIELDS[kind] ?? []), ...(kind === "spring_contact" && isRoughSpring(stage) ? ROUGH_SPRING_FIELDS : [])].filter(meta=>!(kind==='vertical_arc'&&meta.key==='endAngleDeg'&&Object.prototype.hasOwnProperty.call(stage,'path'))).map((meta) => numberRow({
                     ...meta,
                     path: `/stages/${index}/${meta.key}`,
                     value: stage[meta.key],
@@ -341,7 +354,19 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                       })}
                     </>
                   )}
-                  {kind === "spring_contact" && factRow(index, "frictionless", "接触面光滑")}
+                  {kind === "spring_contact" && (
+                    <tr data-field-path={`/stages/${index}`}>
+                      <td className="name">接触面</td>
+                      <td className="val">
+                        <select className="stage-select" aria-label={`阶段 ${index + 1} 弹簧接触面`} value={isRoughSpring(stage) ? "rough" : "smooth"}
+                          onChange={(event) => onChange(updateSpringContactMode(draft, index, event.target.value === "rough"))}>
+                          <option value="smooth">光滑</option><option value="rough">粗糙（计动摩擦）</option>
+                        </select>
+                      </td><td />
+                    </tr>
+                  )}
+                  {kind === "spring_contact" && !isRoughSpring(stage) && factRow(index, "frictionless", "接触面光滑")}
+                  {kind === "spring_contact" && isRoughSpring(stage) && factRow(index, "reboundAtMaxCompression", "最大压缩处能回弹（题给事实）")}
                   {kind === "spring_contact" && factRow(index, "unattached", "滑块与弹簧不连接")}
                 </tbody>
               </table>

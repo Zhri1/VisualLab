@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { Motion, Vec2 } from "../../../types";
 import { formatSpeed } from "./playback";
+import { EnergyReadout, energyText, showsEnergy } from "./EnergyReadout";
 
 const INK = "#1c1c1c";
 const SOFT = "#8e8e88";
@@ -432,11 +433,13 @@ export function StagePhysicsCanvas({ motion, time, isPlaying = false }: Props) {
   return (
     <figure className="physics-figure" data-renderer="stage">
       <canvas ref={canvasRef} aria-label="有序物理阶段动画" aria-describedby="player-speed" role="img" />
+      <EnergyReadout motion={motion} time={time} />
       <figcaption id="player-speed" className="player-sr-only" aria-live={isPlaying ? "off" : "polite"}>
         当前速度大小 {speedText.startsWith("<") ? "小于 0.01" : speedText} 米每秒；
         {hasInclineLaunch(motion) && `檐口为坐标原点；水平速度 ${componentText(velocity.x)}，竖直速度 ${componentText(velocity.y)} 米每秒；`}
         {explicit&&`水平速度 ${componentText(velocity.x)}，竖直速度 ${componentText(velocity.y)} 米每秒；${constraint?'保持圆轨接触，支持力指向圆心；':'当前无圆轨约束；'}`}
         {constraint && `圆弧角度 ${constraint.angleDeg.toFixed(2)} 度，法向力 ${normalText(constraint.normalForceN,!!explicit)} 牛顿；`}
+        {showsEnergy(motion) && energyText(motion, time) ? `${energyText(motion, time)}；` : ""}
         结束原因 {motion.endReason ?? "进行中"}
       </figcaption>
     </figure>

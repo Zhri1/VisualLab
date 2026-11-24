@@ -388,7 +388,26 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 原预压弹簧的critical_arc_top继续只指旧最低点到180°内轨，不能把该临界条件套给新path；已经归一化的energy及basis不改写。轻绳张力/松绳、同钟bodyId和再次张紧前边界沿第9节，不能用圆轨替换绳。
 
-## 12. 提交前自检
+## 12. 粗糙弹簧接触与能量显示
+
+共享契约 `ROUGH_SPRING_CONTACT.md`。滑块以水平正速入射压缩粗糙面上的弹簧时，沿用 `spring_contact`，使用互斥字段 `kineticFrictionCoefficient`（不得同时输出 `frictionless`），顶层必填 `massKg` 与 `gravityMps2`：
+
+```json
+{
+  "kind": "stage_plan", "schemaVersion": 1, "gravityMps2": 10, "massKg": 1,
+  "initial": { "speedMps": 2 },
+  "stages": [
+    { "kind": "spring_contact", "springConstantNpm": 10, "kineticFrictionCoefficient": 0.2, "staticFrictionCoefficient": 0.25, "unattached": true }
+  ],
+  "assumptions": []
+}
+```
+
+- **绝不默认 `staticFrictionCoefficient = kineticFrictionCoefficient`**。题面给出静摩擦因数（或最大静摩擦力可换算）时填 `staticFrictionCoefficient`；题面未给 μₛ 但明确告知“到达最大压缩后能否回弹”时，填 `reboundAtMaxCompression: true/false` 且 `staticFrictionCoefficient: null`。两者都未给时均留 `null`，不要猜。
+- 最大压缩量、是否停在最大压缩、残余压缩量、脱离速度、用时以及动能/势能/累计摩擦耗能全部由 B 计算，模型不要输出这些答案，也不要把粗糙面改写成 `frictionless: true`。
+- 光滑面入射弹簧继续使用 `{ "kind": "spring_contact", "springConstantNpm": ..., "frictionless": true, "unattached": true }`。
+
+## 13. 提交前自检
 
 圆弧提取示例：质量0.1 kg，最低点水平入射速度4 m/s，半径0.4 m的光滑竖直半圆内侧，到最高点后可飞出，地面与最低点同高，g=10。输出保留全部计划，不预判提前脱轨：
 
