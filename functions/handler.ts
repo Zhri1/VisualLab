@@ -650,6 +650,92 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+function buildTutorSystemPrompt(context?: Record<string, unknown> | null): string {
+  const base = [
+    "你是 VisualLab 的高中物理 AI 助教，正在结合交互动画一步步辅导学生理解当前这道物理题。",
+    "要求：",
+    "1. 紧扣下面提供的「当前题目与物理引擎实算数据」作答：涉及时刻、速度、位置、支持力/张力、能量或反求半径等数值时，严格以实算数据为准，绝不编造与实算矛盾的数值。",
+    "2. 像有经验的高中物理老师一样讲清受力分析、运动过程拆分、守恒定律与临界条件；先给清晰结论，再分步列式推导。",
+    "3. 表达简洁易读，公式用直观文本写法（如 N + mg = mv²/R、v = √(gR)、ΔEk = W合），不要输出大段套话，不要输出复杂 Markdown 表格。",
+    "4. 必要时可提醒学生在时间轴点击对应关键事件观察，或在「查看原题」中修改参数做对比实验。",
+  ].join("\n");
+  if (!context || Object.keys(context).length === 0) return base;
+  let serialized = "";
+  try {
+    serialized = JSON.stringify(context, null, 2).slice(0, 6000);
+  } catch {
+    serialized = "";
+  }
+  return serialized ? `${base}\n\n【当前题目与物理引擎实算数据】\n${serialized}` : base;
+}
+
+async function callTutorChat(request: {
+  message: string;
+  context?: Record<string, unknown> | null;
+  history?: Array<{ role: "user" | "assistant"; text: string }>;
+}): Promise<{ reply: string; model: string }> {
+  const apiKey = env("DASHSCOPE_API_KEY");
+  if (!apiKey) throw new VisionError("upstream", "服务端未配置 DASHSCOPE_API_KEY");
+  const primary = env("DASHSCOPE_CHAT_MODEL") || env("DASHSCOPE_VISION_MODEL") || DEFAULT_MODEL;
+  const fallback = env("DASHSCOPE_FALLBACK_MODEL");
+
+  const runOnce = async (model: string): Promise<{ reply: string; model: string }> => {
+    const baseUrl = env("DASHSCOPE_BASE_URL") || DEFAULT_BASE_URL;
+    const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
+    const limit = timeoutMs();
+    const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+      { role: "system", content: buildTutorSystemPrompt(request.context) },
+    ];
+    for (const item of (request.history ?? []).slice(-8)) {
+      const content = typeof item.text === "string" ? item.text.trim().slice(0, 1200) : "";
+      if (!content) continue;
+      messages.push({ role: item.role === "assistant" ? "assistant" : "user", content });
+    }
+    messages.push({ role: "user", content: request.message.trim().slice(0, 2000) });
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), limit);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, temperature: 0.3, max_tokens: Math.min(maxTokens(), 1400), messages }),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw new VisionError("timeout", `助教回答超时（${limit} ms）`);
+      throw new VisionError("upstream", "无法连接 AI 助教服务，请检查网络或服务地址");
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!response.ok) {
+      const detail = (await response.text().catch(() => "")).slice(0, 300);
+      if (response.status === 401 || response.status === 403) throw new VisionError("upstream", "AI 服务鉴权失败，请检查 DASHSCOPE_API_KEY 是否有效");
+      if (response.status === 429) throw new VisionError("upstream", "AI 服务调用频率或额度受限，请稍后重试");
+      throw new VisionError("upstream", `AI 助教服务返回 ${response.status}：${detail || "无详细信息"}`);
+    }
+    const payload = (await response.json().catch(() => null)) as { choices?: Array<{ message?: { content?: unknown } }> } | null;
+    const content = payload?.choices?.[0]?.message?.content;
+    const reply =
+      typeof content === "string"
+        ? content.trim()
+        : Array.isArray(content)
+          ? content.map((part) => (typeof part === "string" ? part : typeof (part as { text?: unknown })?.text === "string" ? (part as { text: string }).text : "")).join("").trim()
+          : "";
+    if (!reply) throw new VisionError("parse", "AI 助教返回了空内容");
+    return { reply, model };
+  };
+
+  try {
+    return await runOnce(primary);
+  } catch (error) {
+    const retryable = error instanceof VisionError && (error.kind === "timeout" || error.kind === "upstream");
+    if (!retryable || !fallback || fallback === primary) throw error;
+    return runOnce(fallback);
+  }
+}
+
 export async function handler(request: Request): Promise<Response> {
   const startedAt = Date.now();
   const requestId = Math.random().toString(36).slice(2, 10);
@@ -671,6 +757,45 @@ export async function handler(request: Request): Promise<Response> {
 
   const commandResult=dispatchStageCommand(form);
   if(commandResult)return json(commandResult.body,commandResult.status);
+
+  const rawChat = form.get("chatMessage");
+  if (typeof rawChat === "string") {
+    const chatMessage = rawChat.trim().slice(0, MAX_TEXT_CHARS);
+    if (!chatMessage) return json({ message: "提问内容不能为空" }, 400);
+    if (form.get("image") instanceof Blob || form.get("command") !== null) {
+      return json({ message: "问答模式不能同时提交图片或阶段指令" }, 400);
+    }
+    let context: Record<string, unknown> | null = null;
+    let history: Array<{ role: "user" | "assistant"; text: string }> = [];
+    const rawContext = form.get("chatContext");
+    if (typeof rawContext === "string" && rawContext.trim()) {
+      try {
+        const parsed = JSON.parse(rawContext) as { history?: Array<{ role: "user" | "assistant"; text: string }>; [key: string]: unknown };
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          if (Array.isArray(parsed.history)) history = parsed.history;
+          const { history: _h, ...rest } = parsed;
+          context = rest;
+        }
+      } catch {
+        return json({ message: "chatContext 须为合法 JSON 字符串" }, 400);
+      }
+    }
+    try {
+      const chat = await callTutorChat({ message: chatMessage, context, history });
+      const elapsed = Date.now() - startedAt;
+      return json(
+        { status: "ok", reply: chat.reply },
+        200,
+        { "x-request-id": requestId, "x-elapsed-ms": String(elapsed), "x-vision-model": chat.model },
+      );
+    } catch (error) {
+      const elapsed = Date.now() - startedAt;
+      const failure = error instanceof VisionError ? error.kind : "upstream";
+      const message = error instanceof VisionError ? error.message : "AI 助教服务异常，请稍后重试";
+      const status = failure === "timeout" ? 504 : 502;
+      return json({ status: "error", message }, status, { "x-request-id": requestId, "x-elapsed-ms": String(elapsed) });
+    }
+  }
   const rawText = form.get("text");
   const text = typeof rawText === "string" ? rawText.trim().slice(0, MAX_TEXT_CHARS) : "";
 

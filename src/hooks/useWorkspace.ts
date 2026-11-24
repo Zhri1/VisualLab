@@ -423,8 +423,18 @@ export function useWorkspace() {
         return;
       }
 
+      const history = messages
+        .filter((m): m is ChatMessage & { role: "user" | "assistant" } =>
+          (m.role === "user" || m.role === "assistant") && !m.pending && !m.error && m.text.trim().length > 0
+        )
+        .slice(-8)
+        .map((m) => ({ role: m.role, text: m.text }));
       const intent = await mockChatService.send(trimmed, {
         motion,
+        reading: latestAppliedRef.current ?? reading,
+        problemText,
+        currentTime,
+        history,
         conditions: (isStageReading(reading) ? {} : (reading?.conditions ?? {})) as Record<string, number | null>,
       });
 
@@ -537,7 +547,7 @@ export function useWorkspace() {
         text: intent.text + "动画与时间轴已同步更新。",
       });
     },
-    [applyReading, isChatLoading, motion, pushMessage, reading, replay, seekEvent, isPlaying, togglePlay]
+    [applyReading, currentTime, isChatLoading, messages, motion, problemText, pushMessage, reading, replay, seekEvent, isPlaying, togglePlay]
   );
 
   /** 撤销某次参数修改：回到该次修改前的 conditions */
