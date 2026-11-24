@@ -14,6 +14,7 @@ import type {
 
 const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "formula">> = {
   horizontal_approach: {name:'水平接近',summary:'各物体按题给初位、带符号速度和各自摩擦同钟运动。',formula:'xᵢ = xᵢ₀ + vᵢ₀t + aᵢt²/2'},
+  block_plank: {name:'滑块与可移动木板',summary:'光滑地面双体按相对速度选摩擦方向，比较先共速与先到板边，共速后依静摩擦上限决定共动或重滑。',formula:'m·v块 + M·v板 = 常量；fₖ = μₖmg；|fₛ| ≤ μₛmg'},
   pendulum_swing: { name:'轻绳摆',summary:'按真实非线性方程计算摆动与张力；转折后继续反向。',formula:'q² = q₀² + 2gL(cosθ − cosθ₀)，T = M(q²/L + gcosθ)' },
   collision_1d: { name:'水平正碰',summary:'带符号速度与总动量确定碰后状态。',formula:'m₁u₁ + m₂u₂ = m₁v₁ + m₂v₂' },
   parallel_motion: { name:'同步运动',summary:'两物体使用同一条物理时间轴。',formula:'t₁ = t₂' },

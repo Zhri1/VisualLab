@@ -26,6 +26,8 @@ const FILES = [
   { from: "src/physics/bodyTrack.ts", to: "functions/bodyTrack.ts" },
   { from: "src/physics/horizontalDynamics.ts", to: "functions/horizontalDynamics.ts" },
   { from: "src/physics/horizontalPlan.ts", to: "functions/horizontalPlan.ts" },
+  { from: "src/physics/blockPlankTypes.ts", to: "functions/blockPlankTypes.ts" },
+  { from: "src/physics/blockPlankPlan.ts", to: "functions/blockPlankPlan.ts" },
   { from: "src/api/command.ts", to: "functions/command.ts" },
   { from: "src/api/stageCommand.ts", to: "functions/stageCommand.ts" },
   { from: "src/physics/geometryTypes.ts", to: "functions/geometryTypes.ts" },
