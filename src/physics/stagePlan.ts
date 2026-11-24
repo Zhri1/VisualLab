@@ -59,7 +59,7 @@ const positive = (value: number) => value > 0;
 const nonnegative = (value: number) => value >= 0;
 const finite = (_value: number) => true;
 const numericRules: Record<StageKind, Record<string, (value: number) => boolean>> = {
-  horizontal_approach: {}, pendulum_swing: {}, collision_1d: {}, parallel_motion: {},
+  horizontal_approach: {}, pendulum_swing: {}, collision_1d: {}, parallel_motion: {}, block_plank: {},
   incline_slide: { lengthM: positive, angleDeg: (value) => value > 0 && value < 90, kineticFrictionCoefficient: nonnegative },
   lossless_turn: {},
   horizontal_slide: { kineticFrictionCoefficient: nonnegative },
@@ -75,7 +75,7 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 export function validateStagePlan(input: unknown): StagePlanValidation {
-  if (record(input) && ('bodies' in input || (Array.isArray(input.stages) && input.stages.some(s => record(s) && ['pendulum_swing','collision_1d','parallel_motion','horizontal_approach'].includes(String(s.kind)))))) return validateMultiBodyPlan(input, validateStagePlan);
+  if (record(input) && ('bodies' in input || (Array.isArray(input.stages) && input.stages.some(s => record(s) && ['pendulum_swing','collision_1d','parallel_motion','horizontal_approach','block_plank'].includes(String(s.kind)))))) return validateMultiBodyPlan(input, validateStagePlan);
   const missingKeys: string[] = [];
   const fieldErrors: StageFieldError[] = [];
   let damaged = false;

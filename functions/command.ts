@@ -27,6 +27,7 @@ export type CommandResult =
 /** 关键词 → 阶段 kind。顺序即优先级，越具体的越靠前。 */
 const KEYWORDS: Array<{ kind: string; words: string[] }> = [
   { kind:'horizontal_approach',words:['接近','碰前','碰撞前','正碰前','接触前'] },
+  { kind:'block_plank',words:['木板','长木板','共速','板边'] },
   { kind:'vertical_arc',words:['圆轨','竖直圆弧','圆弧'] },
   { kind:'constant_force_1d',words:['常力','合力','匀加速','匀减速','匀变速'] },
   { kind:'collision_1d',words:['碰撞','正碰','粘连'] },
@@ -108,7 +109,7 @@ export function parseCommand(command: string, plan: { stages: PlanStageLike[] })
   }
 
   for (const { kind, words } of KEYWORDS) {
-    if ((kind === 'horizontal_approach'||kind==='vertical_arc'||kind==='constant_force_1d') && findStageIndex(plan.stages, kind) < 0) continue;
+    if ((kind === 'horizontal_approach'||kind==='vertical_arc'||kind==='constant_force_1d'||kind==='block_plank') && findStageIndex(plan.stages, kind) < 0) continue;
     if (!words.some((word) => text.includes(word))) continue;
     const index = findStageIndex(plan.stages, kind);
     if (index < 0) {
