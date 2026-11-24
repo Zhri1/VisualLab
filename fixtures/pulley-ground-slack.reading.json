@@ -1,0 +1,23 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "bodies": [
+    { "bodyId": "block", "massKg": 2 },
+    { "bodyId": "hanging", "massKg": 3 }
+  ],
+  "primaryBodyId": "block",
+  "initial": { "speedMps": 0 },
+  "stages": [
+    {
+      "kind": "pulley_system",
+      "body1Id": "block",
+      "body2Id": "hanging",
+      "surface": { "kind": "horizontal", "kineticFrictionCoefficient": 0.25, "slidesAfterRelease": true },
+      "lightInextensibleString": true,
+      "idealFixedPulley": true,
+      "body2DropToGroundM": 1.6,
+      "body1TravelLimitM": 5
+    }
+  ]
+}
