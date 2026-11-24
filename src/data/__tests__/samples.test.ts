@@ -15,7 +15,7 @@ function build(input: unknown) {
   return built.motion;
 }
 
-describe("内置示例题库（4 道高考压轴综合题）", () => {
+describe("内置示例题库（4 道多过程多模型高考压轴题）", () => {
   it("恰好 4 道题、id 唯一、默认示例存在且全部附带真实存在的原题图片", () => {
     expect(SAMPLES.length).toBe(4);
     const ids = SAMPLES.map((sample) => sample.id);
@@ -31,8 +31,8 @@ describe("内置示例题库（4 道高考压轴综合题）", () => {
   it.each(SAMPLES)("$title 能装配并生成可播放动画", (sample) => {
     const motion = build(sample.reading);
     expect(motion.durationSeconds).toBeGreaterThan(0.5);
-    expect(motion.events.length).toBeGreaterThanOrEqual(2);
-    expect(motion.segments.length).toBeGreaterThanOrEqual(1);
+    expect(motion.events.length).toBeGreaterThanOrEqual(4);
+    expect(motion.segments.length).toBeGreaterThanOrEqual(2);
     expect(sample.problemText.length).toBeGreaterThan(40);
     expect(sample.message.length).toBeGreaterThan(0);
     expect(sample.assumptions.length).toBe(3);
@@ -54,20 +54,25 @@ describe("内置示例题库（4 道高考压轴综合题）", () => {
     expect(kinds).toContain("land");
   });
 
-  it("变速传送带：先共速，3 s 后突破静摩擦上限重新相对滑动", () => {
-    const motion = build(getSample("gaokao-conveyor-reslide").reading);
+  it("斜面·圆弧过渡·粗糙水平·弹簧回弹：四段四模型连贯并带同钟能量读数", () => {
+    const motion = build(getSample("gaokao-incline-arc-horiz-spring").reading);
+    expect(motion.segments.map((s) => s.kind)).toEqual(["incline", "vertical_arc", "horizontal", "spring"]);
     const kinds = motion.events.map((event) => event.eventKind);
-    expect(kinds).toContain("conveyor_common_velocity");
-    expect(kinds).toContain("conveyor_reslide");
-    expect(motion.conveyorAt?.(4)?.relativeDisplacementM).toBeCloseTo(-2.5, 4);
+    expect(kinds).toContain("arc_enter");
+    expect(kinds).toContain("spring_contact");
+    expect(kinds).toContain("max_compression");
+    expect(kinds).toContain("spring_detach");
+    expect(motion.energyAt?.(motion.durationSeconds)?.frictionHeatJ).toBeGreaterThan(0);
   });
 
-  it("定滑轮连接体：重物 0.8 s 着地松绳，桌面滑块继续减速至停", () => {
-    const motion = build(getSample("gaokao-pulley-ground-slack").reading);
+  it("弹簧弹射·圆弧跳台·斜抛·切向入斜坡：五段五模型连贯且含斜抛最高点与 A~E 地标", () => {
+    const motion = build(getSample("gaokao-spring-arc-proj-incline").reading);
+    expect(motion.segments.map((s) => s.kind)).toEqual(["spring", "horizontal", "vertical_arc", "projectile", "incline"]);
     const kinds = motion.events.map((event) => event.eventKind);
-    expect(kinds).toContain("body2_ground_hit");
-    expect(kinds).toContain("string_slack");
-    expect(kinds).toContain("stop");
-    expect(motion.durationSeconds).toBeCloseTo(2.4, 4);
+    expect(kinds).toContain("spring_release_start");
+    expect(kinds).toContain("arc_enter");
+    expect(kinds).toContain("apex");
+    expect(kinds).toContain("reach_bottom");
+    expect(motion.stageGeometry?.landmarks?.map((l) => l.label)).toEqual(["A", "B", "C", "D", "E"]);
   });
 });

@@ -1,16 +1,16 @@
 /**
- * 内置示例：精选高考压轴级力学综合题（4 类不同物理模型）。
+ * 内置示例：精选 4 道多过程、多模型串联的高考压轴综合题。
  *
  * 约定：
- * - 每道题都复用已验收的 fixtures 路径，不引入新物理；
+ * - 每道题均复用已验收的 fixtures 路径，包含多阶段不同物理模型串联；
  * - 每道题均附带原题图片（imageUrl）与完整题面（problemText），点右上角「查看原题」可直接看图并放大；
  * - message 为计算摘要，不写死答案，只说明关键约束。
  */
 import type { WorkspaceReading } from "../types";
 import gaokaoProjArcHorizLoop from "../../fixtures/gaokao-proj-arc-horiz-loop.reading.json";
 import collisionFlight from "../../fixtures/horizontal-collision-flight.reading.json";
-import conveyorReslide from "../../fixtures/conveyor-reslide.reading.json";
-import pulleyGroundSlack from "../../fixtures/pulley-ground-slack.reading.json";
+import inclineArcHorizSpring from "../../fixtures/gaokao-incline-arc-horiz-spring.reading.json";
+import springArcProjIncline from "../../fixtures/gaokao-spring-arc-proj-incline.reading.json";
 
 export type SampleDifficulty = "基础" | "中档" | "压轴";
 
@@ -34,7 +34,7 @@ export const SAMPLES: Sample[] = [
   {
     id: "gaokao-proj-arc-horiz-loop",
     title: "平抛入弧 · 粗糙水平 · 临界整圆",
-    description: "A 点平抛切向入弧 BC，经粗糙 CD 恰好过圆轨最高点 E",
+    description: "4 阶段：平抛切向入弧 BC → 粗糙水平 CD → 临界整圆 DE",
     difficulty: "压轴",
     tags: ["平抛", "双圆弧", "临界"],
     imageUrl: "/samples/gaokao-proj-arc-horiz-loop.jpg",
@@ -47,7 +47,7 @@ export const SAMPLES: Sample[] = [
   {
     id: "collision-flight",
     title: "碰后飞出桌面 · 平抛",
-    description: "1 kg 与 3 kg 弹性正碰后，一物飞出桌沿平抛、另一物反弹",
+    description: "双体弹性正碰 → 一物飞出桌沿平抛、另一物反弹同步滑行",
     difficulty: "压轴",
     tags: ["碰撞", "平抛", "动量"],
     imageUrl: "/samples/collision-flight.svg",
@@ -58,30 +58,30 @@ export const SAMPLES: Sample[] = [
     reading: collisionFlight as WorkspaceReading,
   },
   {
-    id: "gaokao-conveyor-reslide",
-    title: "变速传送带 · 共速后再滑动",
-    description: "滑块被传送带加速追上共速，带加速度突增后突破静摩擦再次相对滑动",
+    id: "gaokao-incline-arc-horiz-spring",
+    title: "斜面 · 圆弧过渡 · 粗糙水平 · 弹簧回弹",
+    description: "4 阶段 4 模型：粗糙斜面 → 光滑圆弧 → 粗糙水平 → 粗糙弹簧压缩回弹 + 实时能量",
     difficulty: "压轴",
-    tags: ["传送带", "摩擦切换", "双参考系"],
-    imageUrl: "/samples/gaokao-conveyor-reslide.svg",
+    tags: ["斜面", "圆弧", "粗糙弹簧"],
+    imageUrl: "/samples/gaokao-incline-arc-horiz-spring.svg",
     problemText:
-      "足够长的水平传送带在 t=0 时刻以初速度 v₀=2 m/s 向右运行，同时将一小滑块由静止轻放在传送带左端。0~3 s 内传送带以 a₁=1 m/s² 匀加速运动；3~4 s 内传送带加速度突增为 a₂=3 m/s²。已知滑块与带面间的动摩擦因数 μk=0.20，最大静摩擦因数 μs=0.25，g 取 10 m/s²。求：(1) 首次共速时刻与速度；(2) t=3 s 后滑块能否保持相对静止；(3) 0~4 s 内滑块对地位移与相对带面位移 Δx。",
-    message: "已按双参考系计算：2 s 共速后随带加速，3 s 超过静摩擦上限重新相对滑动",
-    assumptions: ["g=10 m/s²", "传送带足够长", "动/静摩擦因数分开判定"],
-    reading: conveyorReslide as WorkspaceReading,
+      "倾角 θ=37°、长 L₁=5 m 的粗糙斜面 AB（μ₁=0.25）下端 B 与半径 R=2.5 m、圆心角 37° 的光滑圆弧轨道 BC 相切，C 点切线水平并接长 L₂=3 m 的粗糙水平轨道 CD（μ₂=0.20）。D 点右侧水平面动摩擦因数 μk=0.15、静摩擦因数 μs=0.20，固定一原长左端恰在 D 点的轻弹簧（k=60 N/m）。质量 m=1 kg 的滑块从 A 点由静止释放，滑块与弹簧不连接，g 取 10 m/s²。求：(1) 滑块经过 C 点的速率及对轨道压力；(2) 弹簧最大压缩量、是否回弹脱离及全过程摩擦产热。",
+    message: "斜面 + 圆弧 + 粗糙水平 + 粗糙弹簧四段串联，画布底部同钟显示机械能与摩擦耗能",
+    assumptions: ["g=10 m/s²", "圆弧 BC 光滑", "滑块与弹簧不连接"],
+    reading: inclineArcHorizSpring as WorkspaceReading,
   },
   {
-    id: "gaokao-pulley-ground-slack",
-    title: "定滑轮连接体 · 着地松绳滑行",
-    description: "粗糙桌面滑块与悬挂重物共加速，重物着地后绳松弛滑块减速至停",
+    id: "gaokao-spring-arc-proj-incline",
+    title: "弹簧弹射 · 圆弧跳台 · 斜抛 · 切向入斜坡",
+    description: "5 阶段 5 模型：预压弹簧 → 水平 → 45° 圆弧飞出 → 斜抛过最高点 → 53° 粗糙斜坡",
     difficulty: "压轴",
-    tags: ["定滑轮", "连接体", "松绳"],
-    imageUrl: "/samples/gaokao-pulley-ground-slack.svg",
+    tags: ["预压弹簧", "圆弧跳台", "斜抛入坡"],
+    imageUrl: "/samples/gaokao-spring-arc-proj-incline.svg",
     problemText:
-      "质量 m₁=2 kg 的物块置于粗糙水平桌面上（μ=0.25），距桌沿理想定滑轮水平距离 L=5 m；轻绳绕过定滑轮悬挂质量 m₂=3 kg 的重物，重物初始离地高度 h=1.6 m。系统由静止释放，重物着地后不反弹，g 取 10 m/s²。求：(1) 着地前系统的加速度与轻绳张力；(2) 重物着地绳松弛后，物块 m₁ 继续滑行的距离与总位移。",
-    message: "已按连接体两阶段求解：0.80 s 重物着地瞬间绳松弛（T=0），物块继续减速停在 4.80 m 处",
-    assumptions: ["g=10 m/s²", "轻绳不可伸长且滑轮理想", "重物着地后不反弹"],
-    reading: pulleyGroundSlack as WorkspaceReading,
+      "水平粗糙轨道 AB 长 L₁=3 m（μ₁=0.1），左端固定劲度系数 k=500 N/m 的轻弹簧，右端 B 与半径 R=2 m、圆心角 45° 的光滑上仰圆弧跳台 BC 相切。质量 m=0.5 kg 的小滑块将弹簧压缩 x₀=0.22 m 后在 A 点由静止释放，从 C 点飞出做斜抛运动，恰在与 AB 等高的 D 点沿切线滑入倾角 53°、长 L₂=4 m 的粗糙斜坡 DE（μ₂=0.2），g 取 10 m/s²。求：(1) 到达跳台顶端 C 点的速度与支持力；(2) 斜抛最高点高度及滑至斜坡底端 E 时的速度。",
+    message: "五段五模型一镜到底：预压释放 → 水平滑行 → 圆弧腾空 → 斜抛最高点 → 切向入斜坡",
+    assumptions: ["g=10 m/s²", "圆弧跳台 BC 光滑", "忽略空气阻力"],
+    reading: springArcProjIncline as WorkspaceReading,
   },
 ];
 
