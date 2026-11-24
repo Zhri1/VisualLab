@@ -37,6 +37,11 @@ const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "f
     summary: "滑块沿水平支撑面运动；若存在动摩擦，速度随时间线性减小。",
     formula: "v = v₀ − μgt",
   },
+  constant_force_1d: {
+    name: "常力匀变速",
+    summary: "由恒定合力与质量求加速度，继承上一段位置与带方向速度。",
+    formula: "a = F/m，v = v₀ + at，x = x₀ + v₀t + ½at²",
+  },
   spring_contact: {
     name: "压缩与反弹",
     summary: "弹簧压缩到最大后恢复原长，滑块在不连接前提下反向脱离。",

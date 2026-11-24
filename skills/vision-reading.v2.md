@@ -407,7 +407,26 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - 最大压缩量、是否停在最大压缩、残余压缩量、脱离速度、用时以及动能/势能/累计摩擦耗能全部由 B 计算，模型不要输出这些答案，也不要把粗糙面改写成 `frictionless: true`。
 - 光滑面入射弹簧继续使用 `{ "kind": "spring_contact", "springConstantNpm": ..., "frictionless": true, "unattached": true }`。
 
-## 13. 提交前自检
+## 13. 常力作用与分段匀变速
+
+共享契约 `CONSTANT_FORCE_MOTION.md`。物体受分段的水平恒定合力作用时，使用一个或多个 `constant_force_1d` 阶段，顶层必填 `massKg`，每段给出带符号的水平合力 `netForceXN`（向右为正、向左为负、0 为匀速）与结束条件 `end`（`{ "kind": "duration", "durationSeconds": 正数 }` 或 `{ "kind": "stop" }`）：
+
+```json
+{
+  "kind": "stage_plan", "schemaVersion": 1, "massKg": 2,
+  "initial": { "speedMps": 0 },
+  "stages": [
+    { "kind": "constant_force_1d", "netForceXN": 4, "end": { "kind": "duration", "durationSeconds": 2 } },
+    { "kind": "constant_force_1d", "netForceXN": -2, "end": { "kind": "stop" } }
+  ],
+  "assumptions": []
+}
+```
+
+- 只提取题给质量、每段恒定合力（保留左右方向符号）与持续时间或“直至静止”；不要由模型代算加速度、中间速度、总用时或总位移，全部由 B 继承上一段位置与带符号速度计算。
+- 可与 `projectile`、`horizontal_slide`、`spring_contact`、`vertical_arc` 按顺序组合。
+
+## 14. 提交前自检
 
 圆弧提取示例：质量0.1 kg，最低点水平入射速度4 m/s，半径0.4 m的光滑竖直半圆内侧，到最高点后可飞出，地面与最低点同高，g=10。输出保留全部计划，不预判提前脱轨：
 

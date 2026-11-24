@@ -1,0 +1,13 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "massKg": 1.5,
+  "initial": { "speedMps": 0 },
+  "stages": [
+    { "kind": "constant_force_1d", "netForceXN": 3, "end": { "kind": "duration", "durationSeconds": 2 } },
+    { "kind": "constant_force_1d", "netForceXN": 0, "end": { "kind": "duration", "durationSeconds": 1.5 } },
+    { "kind": "constant_force_1d", "netForceXN": -1.5, "end": { "kind": "duration", "durationSeconds": 2 } },
+    { "kind": "projectile", "dropHeightM": 0.8 }
+  ]
+}

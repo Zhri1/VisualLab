@@ -9,6 +9,7 @@ const STAGE_LABELS: Record<StageKind, string> = {
   incline_slide: "斜面下滑",
   lossless_turn: "无损转向",
   horizontal_slide: "水平滑动",
+  constant_force_1d: "常力匀变速",
   spring_contact: "弹簧接触",
   projectile: "抛体运动",
 };
@@ -38,6 +39,9 @@ const NUMBER_FIELDS: Partial<Record<StageKind, NumberMeta[]>> = {
   ],
   horizontal_slide: [
     { key: "kineticFrictionCoefficient", label: "水平动摩擦因数 μ", unit: "", step: 0.05 },
+  ],
+  constant_force_1d: [
+    { key: "netForceXN", label: "水平恒定合力 F", unit: "N", step: 0.5, hint: "向右为正，向左为负，0 为匀速" },
   ],
   spring_contact: [{ key: "springConstantNpm", label: "弹簧劲度系数 k", unit: "N/m", step: 10 }],
   vertical_arc: [
@@ -84,6 +88,9 @@ function blankStage(kind: StageKind): Record<string, unknown> {
   if (kind === "lossless_turn") return { kind, lossless: null };
   if (kind === "horizontal_slide") {
     return { kind, kineticFrictionCoefficient: null, end: { kind: "distance", distanceM: null } };
+  }
+  if (kind === "constant_force_1d") {
+    return { kind, netForceXN: null, end: { kind: "duration", durationSeconds: null } };
   }
   if (kind === "spring_contact") return { kind, springConstantNpm: null, frictionless: null, unattached: null };
   if (kind === "vertical_arc") return { kind, radiusM: null, endAngleDeg: null, side: null, frictionless: null };
@@ -219,7 +226,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
   const initial = draft.initial ?? { speedMps: null };
   const firstKind = draft.stages[0]?.kind;
   const components = firstKind === "projectile" || "vxMps" in initial || "vyMps" in initial;
-  const showMass = "massKg" in draft || flagged("/massKg") || draft.stages.some((stage) => stage.kind === "spring_release" || stage.kind === "spring_contact" || stage.kind === "vertical_arc");
+  const showMass = "massKg" in draft || flagged("/massKg") || draft.stages.some((stage) => stage.kind === "spring_release" || stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "constant_force_1d");
 
   return (
     <div className="stage-plan-editor" data-testid="stage-plan-editor">
@@ -351,6 +358,39 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                         path: `/stages/${index}/end/distanceM`,
                         value: stage.end && typeof stage.end === "object" && "distanceM" in stage.end ? stage.end.distanceM : null,
                         onChange: (raw) => setDistance(index, raw),
+                      })}
+                    </>
+                  )}
+                  {kind === "constant_force_1d" && (
+                    <>
+                      <tr data-field-path={`/stages/${index}/end`}>
+                        <td className="name">常力段结束条件</td>
+                        <td className="val">
+                          <select
+                            className={"stage-select" + (flagged(`/stages/${index}/end`) ? " invalid" : "")}
+                            value={stage.end && typeof stage.end === "object" && "kind" in stage.end ? String(stage.end.kind ?? "") : ""}
+                            aria-label={`阶段 ${index + 1} 常力段结束条件`}
+                            data-field-path={`/stages/${index}/end/kind`}
+                            onChange={(event) => {
+                              const raw = event.target.value;
+                              if (!raw) setStage(index, { ...stage, end: null });
+                              else if (raw === "stop") setStage(index, { ...stage, end: { kind: "stop" } });
+                              else setStage(index, { ...stage, end: { kind: "duration", durationSeconds: stage.end && typeof stage.end === "object" && "durationSeconds" in stage.end ? stage.end.durationSeconds : null } });
+                            }}
+                          >
+                            <option value="">待确认</option>
+                            <option value="duration">指定作用时间</option>
+                            <option value="stop">减速至静止</option>
+                          </select>
+                        </td>
+                        <td />
+                      </tr>
+                      {((stage.end && typeof stage.end === "object" && "kind" in stage.end && stage.end.kind === "duration")
+                        || missingKeys.includes(`/stages/${index}/end/durationSeconds`)) && numberRow({
+                        key: "durationSeconds", label: "作用时长 t", unit: "s", step: 0.1,
+                        path: `/stages/${index}/end/durationSeconds`,
+                        value: stage.end && typeof stage.end === "object" && "durationSeconds" in stage.end ? stage.end.durationSeconds : null,
+                        onChange: (raw) => setStage(index, { ...stage, end: { kind: "duration", durationSeconds: asNumber(raw) } }),
                       })}
                     </>
                   )}

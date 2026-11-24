@@ -41,6 +41,9 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     points.push({ x: g.horizontal.start.xM, y: g.horizontal.start.yM });
     if (g.horizontal.plannedEnd) points.push({ x: g.horizontal.plannedEnd.xM, y: g.horizontal.plannedEnd.yM });
   }
+  if (g.linearTrack) {
+    points.push({ x: g.linearTrack.minXM, y: g.linearTrack.yM }, { x: g.linearTrack.maxXM, y: g.linearTrack.yM });
+  }
   if (g.spring) points.push({ x: g.spring.contact.xM, y: g.spring.contact.yM }, { x: g.spring.anchor.xM, y: g.spring.anchor.yM });
   if (g.projectile) {
     points.push({ x: g.projectile.launch.xM, y: g.projectile.launch.yM }, { x: last.position.x, y: g.projectile.landingPlane.yM });
@@ -146,6 +149,16 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
       ctx.lineTo(X(x - 0.12), Y(start.yM) + 6);
       ctx.stroke();
     }
+  }
+  if (g.linearTrack) {
+    const { minXM, maxXM, yM } = g.linearTrack;
+    if (!g.horizontal) { horizontalY = yM; horizontalEndX = maxXM; }
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = active?.kind === "horizontal" ? 2.2 : 1.6;
+    ctx.beginPath();
+    ctx.moveTo(X(minXM - size), Y(yM));
+    ctx.lineTo(X(maxXM + size), Y(yM));
+    ctx.stroke();
   }
 
   const horizontalIndex = motion.stagePlan?.stages.findIndex((stage) => stage.kind === "horizontal_slide") ?? -1;
@@ -380,6 +393,9 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   if (inclineLaunch||explicitArc) {
     ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = SOFT;
     ctx.fillText(`vₓ = ${componentText(sample.velocity.x)}，vᵧ = ${componentText(sample.velocity.y)} m/s`, 12, 12);
+  } else if (g.linearTrack) {
+    ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = SOFT;
+    ctx.fillText(`x = ${componentText(sample.position.x)} m，vₓ = ${componentText(sample.velocity.x)} m/s`, 12, 12);
   }
 }
 

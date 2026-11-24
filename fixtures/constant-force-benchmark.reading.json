@@ -1,0 +1,10 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "massKg": 2,
+  "initial": { "speedMps": 0 },
+  "stages": [
+    { "kind": "constant_force_1d", "netForceXN": 4, "end": { "kind": "duration", "durationSeconds": 2 } },
+    { "kind": "constant_force_1d", "netForceXN": -2, "end": { "kind": "stop" } }
+  ]
+}
