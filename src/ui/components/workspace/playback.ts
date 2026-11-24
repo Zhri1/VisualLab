@@ -29,10 +29,16 @@ export function formatSpeed(speed: number): string {
   return speed === 0 ? "0" : speed < 0.005 ? "<0.01" : speed.toFixed(2);
 }
 
+export function formatPace(pace: number): string {
+  return Number(pace.toFixed(3)).toString();
+}
+
+export const DEFAULT_PACE_MULTIPLIER = 1.5;
+
 /**
  * 为一整条 motion 计算固定的默认观看播放系数（仅缩放显示时钟，绝不改物理量）。
- * - 依据总时长与「相对画幅跨度的屏幕移动速度」（frame/s）综合判定，不硬套物理 m/s 阈值；
- * - 仅在原本过短或画面移动过快时放慢，正常长动画保持 1.0，绝不硬加速；
+ * - 先依据总时长与「相对画幅跨度的屏幕移动速度」（frame/s）计算原自适应基数并夹限到 [0.15, 1.0]；
+ * - 再统一乘以 1.5（含原 1.0 → 1.5），使所有动画的预计观看用时缩短为原来的 2/3；
  * - 整条动画的所有物体与阶段共用同一个固定系数。
  */
 export function computeDefaultPace(
@@ -110,8 +116,9 @@ export function computeDefaultPace(
   const targetMinWatch = 4.4;
   const paceByDuration = duration < targetMinWatch ? duration / targetMinWatch : 1;
 
-  // 3) 取两者中较慢者，钳制到 [0.15, 1.0]，并按 0.05 步进取整保持读数整洁
+  // 3) 取两者中较慢者，钳制到 [0.15, 1.0] 并按 0.05 步进取整，最后统一乘以 1.5（不再重新夹回 1.0）
   const raw = Math.min(1, Math.max(0.15, Math.min(paceBySpeed, paceByDuration)));
   const rounded = Math.round(raw * 20) / 20;
-  return rounded >= 0.95 ? 1 : Math.max(0.15, rounded);
+  const basePace = rounded >= 0.95 ? 1 : Math.max(0.15, rounded);
+  return Number((basePace * DEFAULT_PACE_MULTIPLIER).toFixed(4));
 }
