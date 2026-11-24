@@ -4,6 +4,7 @@
  */
 
 import type { EndReason, StageGeometry, ArcConstraint } from "../physics/stageMotion";
+export type { StageGeometry };
 import type { ResolvedStagePlan, StageKind, StagePlanDraft } from "../physics/stagePlan";
 import type { BodyState, StringState, MotionStatus } from '../physics/multiBodyTypes';
 
