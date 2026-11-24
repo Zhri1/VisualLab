@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { advancePlayback, computeDefaultPace, formatSpeed, segmentAt } from "./playback";
+import { advancePlayback, computeDefaultPace, formatPace, formatSpeed, segmentAt } from "./playback";
 import { computeWorldBounds, fitViewport } from "./canvasViewport";
 import type { MotionSegment } from "../../../types";
 import fixture from "../../../../fixtures/incline-spring.reading.json";
@@ -77,29 +77,31 @@ describe("默认观看节奏与统一取景", () => {
     return b.motion;
   };
 
-  it("2.39 s 斜面弹簧参考题默认放慢到 4~5 s 观看时长，物理事件与时长不变", () => {
+  it("2.39 s 斜面弹簧参考题默认节奏为原 0.55× 乘 1.5（0.825×），物理事件与时长不变", () => {
     const motion = load("incline-spring.reading.json");
     const pace = computeDefaultPace(motion);
     const watch = motion.durationSeconds / pace;
-    expect(pace).toBeGreaterThan(0);
-    expect(pace).toBeLessThan(1);
-    expect(watch).toBeGreaterThanOrEqual(4);
-    expect(watch).toBeLessThanOrEqual(5.2);
+    expect(pace).toBe(0.825);
+    expect(watch).toBeCloseTo(motion.durationSeconds / 0.825, 6);
     expect(motion.durationSeconds).toBeCloseTo(2.3932, 3);
+    expect(formatPace(pace)).toBe("0.825");
   });
 
-  it("快例（0.5 s 木板到边 / 0.81 s 圆轨）显著放慢；正常长动画（6 s 常力）不硬加速保持 1×", () => {
+  it("快例（0.5 s 木板到边 / 0.81 s 圆轨）为 0.225×；6 s 常力原 1× 乘 1.5 得 1.5× 不再裁回 1", () => {
     const fastPlank = load("block-plank-edge.reading.json");
     const fastArc = load("circular-track-critical.reading.json");
     const longCf = load("constant-force-benchmark.reading.json");
-    expect(computeDefaultPace(fastPlank)).toBeLessThanOrEqual(0.25);
-    expect(computeDefaultPace(fastArc)).toBeLessThanOrEqual(0.25);
-    expect(computeDefaultPace(longCf)).toBe(1);
+    expect(computeDefaultPace(fastPlank)).toBe(0.225);
+    expect(computeDefaultPace(fastArc)).toBe(0.225);
+    expect(computeDefaultPace(longCf)).toBe(1.5);
+    expect(formatPace(1.5)).toBe("1.5");
   });
 
-  it("多物体碰撞接摆动共用同一时间映射，采样与事件不受节奏系数影响", () => {
+  it("多物体碰撞接摆动原 0.25× 乘 1.5 得 0.375×，共用同一时间映射，采样与事件不受节奏系数影响", () => {
     const motion = load("horizontal-collision-pendulum.reading.json");
     const pace = computeDefaultPace(motion);
+    expect(pace).toBe(0.375);
+    expect(formatPace(pace)).toBe("0.375");
     const col = motion.events.find((e) => e.eventKind === "collision")!;
     const step = advancePlayback(col.timeSeconds - 0.001, 0.05, 1 * pace, motion.durationSeconds, motion.events);
     expect(step.time).toBe(col.timeSeconds);

@@ -1,6 +1,7 @@
 import { Pause, Play, RotateCcw, SkipForward } from "lucide-react";
 import type { Motion } from "../../../types";
 import { EventTimeline } from "./EventTimeline";
+import { formatPace } from "./playback";
 
 interface Props {
   motion: Motion;
@@ -42,6 +43,8 @@ export function PlaybackControls({
   onExitSegment,
 }: Props) {
   const unavailable=motion.timing?.mode==='state_only'||!!motion.primaryBodyId&&motion.durationSeconds===0;
+  const effectivePace = playbackRate * defaultPace;
+  const paceAdjusted = Math.abs(defaultPace - 1) > 1e-6;
   return (
     <div className="transport">
       <div className="transport-row">
@@ -108,9 +111,9 @@ export function PlaybackControls({
         </div>
         <p className="playback-mode" role="status">
           {segmentName
-            ? `本段慢放 · ${segmentName} · 段末停止${defaultPace < 0.99 ? `（物理流速 ${(playbackRate * defaultPace).toFixed(2)}×）` : ""}`
-            : defaultPace < 0.99
-              ? `默认已按观看节奏放慢至 ${defaultPace.toFixed(2)}× 物理时间${playbackRate !== 1 ? `（当前 ${(playbackRate * defaultPace).toFixed(2)}×）` : ""}`
+            ? `本段慢放 · ${segmentName} · 段末停止${paceAdjusted ? `（物理流速 ${formatPace(effectivePace)}×）` : ""}`
+            : paceAdjusted
+              ? `默认已按观看节奏${defaultPace < 1 ? "放慢" : "调快"}至 ${formatPace(defaultPace)}× 物理时间${playbackRate !== 1 ? `（当前 ${formatPace(effectivePace)}×）` : ""}`
               : "全程播放"}
         </p>
       </div>}
