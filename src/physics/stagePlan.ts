@@ -216,9 +216,12 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
           const p = { ...raw }; stage.path = p;
           numberField(raw, p, 'startAngleDeg', path + '/path/startAngleDeg', v => v >= -180 && v <= 180);
           choice(p, 'direction', ['positive','negative'], path + '/path/direction');
-          const center = readObject(raw.center, path + '/path/center');
-          if (center) { p.center = { ...center }; for (const key of ['xM','yM']) numberField(center, p.center as Record<string, unknown>, key, path + '/path/center/' + key, finite); }
-          else p.center = null;
+          if (raw.center !== undefined && raw.center !== null) {
+            if (!record(raw.center)) { issue(path + '/path/center', 'TYPE', '需要对象。'); p.center = null; }
+            else { p.center = { ...raw.center }; for (const key of ['xM','yM']) numberField(raw.center, p.center as Record<string, unknown>, key, path + '/path/center/' + key, finite); }
+          } else {
+            delete p.center;
+          }
           const end = readObject(raw.end, path + '/path/end');
           if (end) {
             p.end = { ...end }; choice(p.end as Record<string, unknown>, 'kind', ['physical_endpoint','observation'], path + '/path/end/kind');
@@ -322,7 +325,8 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       : previous === "lossless_turn" ? source.kind === "horizontal_slide" || source.kind === "spring_contact" || source.kind === "vertical_arc" || source.kind === "constant_force_1d"
       : previous === "horizontal_slide" ? source.kind === "spring_contact" || source.kind === "projectile" || source.kind === "vertical_arc" || source.kind === "constant_force_1d"
       : previous === "constant_force_1d" ? ["constant_force_1d", "horizontal_slide", "spring_contact", "projectile", "vertical_arc"].includes(source.kind)
-      : previous === "vertical_arc" ? source.kind === "projectile"
+      : previous === "vertical_arc" ? ["projectile", "horizontal_slide", "incline_slide", "spring_contact", "constant_force_1d", "vertical_arc"].includes(source.kind)
+      : previous === "projectile" ? source.kind === "vertical_arc" || source.kind === "incline_slide"
       : previous === "spring_release" ? ["horizontal_slide", "spring_contact", "vertical_arc", "projectile", "constant_force_1d"].includes(source.kind)
       : false;
     if (!permitted) issue(path + "/kind", "UNSUPPORTED", "当前版本不支持该阶段接续。");
