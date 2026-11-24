@@ -74,6 +74,7 @@ describe("粗糙弹簧接触：Node 与 Qoder 真实图文入口（模拟上游�
   });
 
   it("静摩擦与回弹事实矛盾时，两端返回 needs_input 并标记 PRECONDITION_CONFLICT", async () => {
+    vi.stubEnv("VISION_REPAIR_RETRY", "0");
     const conflict = read("rough-spring-detach.reading.json");
     conflict.stages[0].reboundAtMaxCompression = false;
     upstream.mockResolvedValueOnce(answer(conflict)).mockResolvedValueOnce(answer(conflict));

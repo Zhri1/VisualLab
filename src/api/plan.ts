@@ -13,13 +13,57 @@ import { readFileSync } from 'node:fs';
 import { dispatchStageCommand } from './stageCommand';
 import { join } from 'node:path';
 
-import { callVisionModel, VisionError } from './dashscope';
+import { callVisionModel, VisionError, type VisionRepairContext } from './dashscope';
 import { applyLegacyContract, outputContractFromEnv, type ClientResult } from './legacyBridge';
 import { STAGE_HTTP_STATUS } from './stageTypes';
 import type { StagePlanResult } from './stageTypes';
 import { buildPlanResponse, type PlanResponse } from './validate';
 import { UNSUPPORTED_PREFIX } from './contract';
 import { validateReading } from '../physics/reading';
+
+function repairRetryEnabled(): boolean {
+  return (process.env.VISION_REPAIR_RETRY ?? '').trim() !== '0';
+}
+
+function buildRepairContext(raw: unknown, result: PlanResponse): VisionRepairContext | null {
+  if (!isStagePlanResult(result)) return null;
+  if (result.status === 'invalid_reading') {
+    return {
+      previousRaw: raw,
+      errors: [{ path: '/', code: 'INVALID_READING', message: result.message }],
+    };
+  }
+  if (result.status === 'needs_input' && result.fieldErrors.length > 0) {
+    return {
+      previousRaw: raw,
+      errors: result.fieldErrors,
+      missingKeys: result.missingKeys.length > 0 ? result.missingKeys : undefined,
+    };
+  }
+  return null;
+}
+
+function isRepairImproved(before: PlanResponse, after: PlanResponse): boolean {
+  if (after.status === 'ok') return true;
+  if (before.status === 'invalid_reading') {
+    return after.status === 'needs_input' || after.status === 'unsupported';
+  }
+  if (
+    before.status === 'needs_input' &&
+    isStagePlanResult(before) &&
+    after.status === 'needs_input' &&
+    isStagePlanResult(after)
+  ) {
+    if (after.fieldErrors.length < before.fieldErrors.length) return true;
+    if (
+      after.fieldErrors.length === before.fieldErrors.length &&
+      after.missingKeys.length < before.missingKeys.length
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * 判断回包是否来自阶段计划路径。
@@ -196,7 +240,29 @@ export async function handlePlan(request: Request): Promise<Response> {
 
   // 内部统一按 stage_plan 校验，对外形状由 API_CONTRACT_MODE 决定：
   // 默认 legacy（A 的前端尚未接入），设成 stage_plan 才吐新契约。
-  const internal = buildPlanResponse(vision.raw);
+  let internal = buildPlanResponse(vision.raw);
+  const repairContext = repairRetryEnabled() ? buildRepairContext(vision.raw, internal) : null;
+  if (repairContext) {
+    try {
+      const repairedVision = await callVisionModel({
+        imageBase64,
+        mime,
+        text,
+        skillText: loadSkillText(),
+        repairContext,
+      });
+      const repairedInternal = buildPlanResponse(repairedVision.raw);
+      if (isRepairImproved(internal, repairedInternal)) {
+        vision = repairedVision;
+        internal = repairedInternal;
+      }
+    } catch (error) {
+      // 定向纠错失败或超时时降级保留首次校验结果，避免把可补正的 200 变成 502
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(`[plan] ${requestId} repair_fallback ${reason}`);
+    }
+  }
+
   const result: ClientResult =
     isStagePlanResult(internal) && outputContractFromEnv(process.env.API_CONTRACT_MODE) === 'legacy'
       ? applyLegacyContract(internal, validateReading, UNSUPPORTED_PREFIX)

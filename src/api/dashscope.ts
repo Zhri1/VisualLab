@@ -17,6 +17,18 @@ export class VisionError extends Error {
   }
 }
 
+export interface VisionRepairError {
+  path: string;
+  code: string;
+  message: string;
+}
+
+export interface VisionRepairContext {
+  previousRaw: unknown;
+  errors: VisionRepairError[];
+  missingKeys?: string[];
+}
+
 export interface VisionRequest {
   /** 不带 data: 前缀的 base64；文字模式下可以没有 */
   imageBase64?: string;
@@ -25,6 +37,8 @@ export interface VisionRequest {
   /** 文字模式下学生补充的题目描述，可为空 */
   text?: string;
   skillText: string;
+  /** 校验失败后发起定向自修正时的上下文 */
+  repairContext?: VisionRepairContext;
 }
 
 export interface VisionResponse {
@@ -35,6 +49,7 @@ export interface VisionResponse {
 
 const DEFAULT_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 const DEFAULT_MODEL = 'qwen4-max';
+const DEFAULT_MAX_TOKENS = 2048;
 
 function env(name: string): string {
   return (process.env[name] ?? '').trim();
@@ -43,6 +58,32 @@ function env(name: string): string {
 function timeoutMs(): number {
   const value = Number(env('VISION_TIMEOUT_MS'));
   return Number.isFinite(value) && value > 0 ? value : 25_000;
+}
+
+function maxTokens(): number {
+  const value = Number(env('VISION_MAX_TOKENS'));
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : DEFAULT_MAX_TOKENS;
+}
+
+function formatRepairPrompt(repairContext: VisionRepairContext): string {
+  const previousJson = JSON.stringify(repairContext.previousRaw);
+  const errorLines =
+    repairContext.errors.length > 0
+      ? repairContext.errors
+          .map((err, index) => `${index + 1}. [${err.code}] ${err.path || '/'}: ${err.message}`)
+          .join('\n')
+      : '1. [INVALID_READING] /: 整体结构或字段类型不符合 schema 契约';
+  const missingLine =
+    Array.isArray(repairContext.missingKeys) && repairContext.missingKeys.length > 0
+      ? `\n当前标记的缺项路径（若题面确实未给仍保持 null，绝不猜测）：${repairContext.missingKeys.join('、')}`
+      : '';
+
+  return [
+    '你上一次输出的 JSON 未通过后端校验，请根据报错只修正出错字段并重新输出单个合法 JSON 对象：',
+    `上一次输出的 JSON：\n${previousJson}`,
+    `后端校验报错列表：\n${errorLines}${missingLine}`,
+    '要求：只修正上述报错字段，保持其他正确识别的题面条件不变；题面未给的数值一律保持 null，绝不猜数；只输出一个纯 JSON 对象，不要任何额外文字。',
+  ].join('\n\n');
 }
 
 /** 从模型输出里抠出 JSON：容忍 ```json 围栏和前后多余文字 */
@@ -85,7 +126,14 @@ async function callOnce(model: string, request: VisionRequest, apiKey: string): 
       text: `学生补充的文字描述（与图片冲突时以文字为准）：\n${request.text}`,
     });
   }
-  userContent.push({ type: 'text', text: '按 Skill 输出这一个 JSON 对象，不要任何额外文字。' });
+  if (request.repairContext) {
+    userContent.push({
+      type: 'text',
+      text: formatRepairPrompt(request.repairContext),
+    });
+  } else {
+    userContent.push({ type: 'text', text: '按 Skill 输出这一个 JSON 对象，不要任何额外文字。' });
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), limit);
@@ -101,7 +149,7 @@ async function callOnce(model: string, request: VisionRequest, apiKey: string): 
       body: JSON.stringify({
         model,
         temperature: 0,
-        max_tokens: 1200,
+        max_tokens: maxTokens(),
         messages: [
           { role: 'system', content: [{ type: 'text', text: request.skillText }] },
           { role: 'user', content: userContent },
