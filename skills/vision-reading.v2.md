@@ -468,7 +468,30 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - 匀速带只需 `accelerationMps2: 0`，此时不要求 `staticFrictionCoefficient`；存在非零带加速度时，必须提取题给 `staticFrictionCoefficient`（未给填 `null`，**绝不默认等于 μₖ**）。
 - 题面给定带长时填 `beltLengthM`；未给则省略。对地位移、相对带面位移、共速时刻及是否重新滑动均由 B 计算。
 
-## 16. 提交前自检
+## 16. 轻绳与理想定滑轮连接体
+
+共享契约 `PULLEY_SYSTEM.md`。轻质不可伸长绳绕过理想定滑轮连接两物体时，使用 `bodies`（两个物体）、`initial: { speedMps: 沿绳初速 }` 与单段 `pulley_system`：
+
+```json
+{
+  "kind": "stage_plan", "schemaVersion": 1, "gravityMps2": 10,
+  "bodies": [{ "bodyId": "block", "massKg": 2 }, { "bodyId": "hanging", "massKg": 3 }],
+  "primaryBodyId": "block",
+  "initial": { "speedMps": 0 },
+  "stages": [{
+    "kind": "pulley_system", "body1Id": "block", "body2Id": "hanging",
+    "surface": { "kind": "horizontal", "kineticFrictionCoefficient": 0.25, "slidesAfterRelease": true },
+    "lightInextensibleString": true, "idealFixedPulley": true, "durationSeconds": 1
+  }],
+  "assumptions": []
+}
+```
+
+- `surface.kind` 可为 `hanging`（两侧悬挂）、`horizontal`（水平支承）或 `incline`（斜面，须给 `angleDeg`）。
+- 粗糙水平面或斜面从静止释放时，必须提取题给 `staticFrictionCoefficient` 或已知事实 `slidesAfterRelease`（未给填 `null`，**绝不默认 μₛ = μₖ**）。
+- 题面给悬挂物离地高度时填 `body2DropToGroundM`，着地后绳松弛（T=0）及后续滑行由 B 计算，模型不代算加速度与张力。
+
+## 17. 提交前自检
 
 圆弧提取示例：质量0.1 kg，最低点水平入射速度4 m/s，半径0.4 m的光滑竖直半圆内侧，到最高点后可飞出，地面与最低点同高，g=10。输出保留全部计划，不预判提前脱轨：
 

@@ -28,6 +28,8 @@ const FILES = [
   { from: "src/physics/horizontalPlan.ts", to: "functions/horizontalPlan.ts" },
   { from: "src/physics/blockPlankTypes.ts", to: "functions/blockPlankTypes.ts" },
   { from: "src/physics/blockPlankPlan.ts", to: "functions/blockPlankPlan.ts" },
+  { from: "src/physics/pulleyTypes.ts", to: "functions/pulleyTypes.ts" },
+  { from: "src/physics/pulleyPlan.ts", to: "functions/pulleyPlan.ts" },
   { from: "src/api/command.ts", to: "functions/command.ts" },
   { from: "src/api/stageCommand.ts", to: "functions/stageCommand.ts" },
   { from: "src/physics/geometryTypes.ts", to: "functions/geometryTypes.ts" },

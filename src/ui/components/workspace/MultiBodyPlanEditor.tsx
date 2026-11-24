@@ -13,13 +13,14 @@ export function renamePlanBody(draft:StagePlanDraft,index:number,value:string|nu
   if(value&&draft.bodies?.some((b,i)=>i!==index&&b.bodyId===value))return structuredClone(draft);
   const old=draft.bodies?.[index]?.bodyId??previous,next=replacePlanValue(draft,`/bodies/${index}/bodyId`,value);
   if(value&&old&&old!==value){
-    function visit(v:unknown){if(!v||typeof v!=='object')return;for(const[k,x]of Object.entries(v)){if(k==='bodyIds'&&Array.isArray(x))(v as Obj)[k]=x.map(id=>id===old?value:id);else if((k==='bodyId'||k==='inheritFromBodyId'||k==='blockBodyId'||k==='plankBodyId')&&x===old)(v as Obj)[k]=value;else visit(x);}}
+    function visit(v:unknown){if(!v||typeof v!=='object')return;for(const[k,x]of Object.entries(v)){if(k==='bodyIds'&&Array.isArray(x))(v as Obj)[k]=x.map(id=>id===old?value:id);else if((k==='bodyId'||k==='inheritFromBodyId'||k==='blockBodyId'||k==='plankBodyId'||k==='body1Id'||k==='body2Id')&&x===old)(v as Obj)[k]=value;else visit(x);}}
     next.stages.forEach(visit);visit(next.initial);if(next.primaryBodyId===old)next.primaryBodyId=value;
   }return next;
 }
 export function MultiBodyPlanEditor({draft,onChange,missingKeys,fieldErrors}:{draft:StagePlanDraft;onChange:(p:StagePlanDraft)=>void;missingKeys:string[];fieldErrors:FieldError[]}){
   const root=draft as unknown as Obj,bodies=list(root.bodies),ids=bodies.map(b=>record(b).bodyId).filter((s):s is string=>typeof s==='string');
-  const horizontal=draft.stages[0]?.kind==='horizontal_approach'||draft.stages[0]?.kind==='block_plank'||'bodies'in record(root.initial);
+  const pulley=draft.stages[0]?.kind==='pulley_system';
+  const horizontal=!pulley&&(draft.stages[0]?.kind==='horizontal_approach'||draft.stages[0]?.kind==='block_plank'||'bodies'in record(root.initial));
   const lastIds=useRef<Record<number,string>>({});bodies.forEach((b,i)=>{const id=record(b).bodyId;if(typeof id==='string'&&id)lastIds.current[i]=id;});
   const [idConflict,setIdConflict]=useState<number|null>(null);
   const get=(p:string)=>p.split('/').slice(1).reduce<unknown>((v,k)=>v!=null&&typeof v==='object'?(v as Obj)[k]:undefined,root);
@@ -33,7 +34,23 @@ export function MultiBodyPlanEditor({draft,onChange,missingKeys,fieldErrors}:{dr
   const ref=(p:string,label:string)=>select(p,label,ids.map(id=>({value:id,label:id})));
   function stage(s:Obj,path:string,owners:string[],index:number):React.ReactNode{
     const owner=owners.join(' + ')||'物体',kind=s.kind;
-    return <section className="stage-editor-card" data-stage-path={path} key={path}><p className="body-stage-title">{owner} · {kind==='block_plank'?'滑块与可移动木板':kind==='horizontal_approach'?'水平接近':kind==='pendulum_swing'?'轻绳摆':kind==='horizontal_slide'?'水平滑动':kind==='projectile'?'抛体运动':kind==='collision_1d'?'水平正碰':'同步运动'}</p><table className="cond-table"><tbody>
+    return <section className="stage-editor-card" data-stage-path={path} key={path}><p className="body-stage-title">{owner} · {kind==='pulley_system'?'轻绳与定滑轮':kind==='block_plank'?'滑块与可移动木板':kind==='horizontal_approach'?'水平接近':kind==='pendulum_swing'?'轻绳摆':kind==='horizontal_slide'?'水平滑动':kind==='projectile'?'抛体运动':kind==='collision_1d'?'水平正碰':'同步运动'}</p><table className="cond-table"><tbody>
+      {kind==='pulley_system'&&<>
+        {ref(path+'/body1Id','支承/左侧物体 ID')}
+        {ref(path+'/body2Id','右侧悬挂物体 ID')}
+        {select(path+'/surface/kind','物体 1 支承面',choices([['hanging','竖直悬挂（阿特伍德机）'],['horizontal','水平支承面'],['incline','斜面支承']]),v=>set(path+'/surface',v==='hanging'?{kind:'hanging'}:v==='incline'?{kind:'incline',angleDeg:30,kineticFrictionCoefficient:0}:{kind:'horizontal',kineticFrictionCoefficient:0}))}
+        {record(s.surface).kind==='incline'&&number(path+'/surface/angleDeg','斜面倾角 θ','°')}
+        {(record(s.surface).kind==='horizontal'||record(s.surface).kind==='incline')&&<>
+          {number(path+'/surface/kineticFrictionCoefficient','动摩擦因数 μₖ','')}
+          {number(path+'/surface/staticFrictionCoefficient','静摩擦因数 μₛ','','粗糙静止释放时与下方起动事实至少填一项，不默认等于 μₖ')}
+          {select(path+'/surface/slidesAfterRelease','已知释放后滑动（题给事实）',facts)}
+        </>}
+        {select(path+'/lightInextensibleString','轻且不可伸长的绳',facts)}
+        {select(path+'/idealFixedPulley','理想定滑轮',facts)}
+        {number(path+'/durationSeconds','观察时长','s')}
+        {number(path+'/body2DropToGroundM','悬挂物离地高度（可选）','m')}
+        {number(path+'/body1TravelLimitM','物体 1 最大行程（可选）','m')}
+      </>}
       {kind==='block_plank'&&<>
         {ref(path+'/blockBodyId','滑块 ID')}
         {ref(path+'/plankBodyId','木板 ID')}
@@ -122,7 +139,8 @@ export function MultiBodyPlanEditor({draft,onChange,missingKeys,fieldErrors}:{dr
     {bodies.map((b,i)=>{const p=`/bodies/${i}/bodyId`,name=`物体 ${i+1} ID`,htmlId=`body-id-${i}`;return <tr key={p} data-field-path={p}><td className="name"><label htmlFor={htmlId}>{name}</label></td><td className="val"><input className="num-input" id={htmlId} aria-label={name} data-field-path={p} aria-invalid={invalid(p)||idConflict===i} aria-describedby={htmlId+'-help'} value={typeof record(b).bodyId==='string'?String(record(b).bodyId):''} onChange={e=>{const value=e.target.value;if(value&&bodies.some((other,j)=>i!==j&&record(other).bodyId===value)){setIdConflict(i);return;}setIdConflict(null);onChange(renamePlanBody(draft,i,value||null,lastIds.current[i]));}}/></td><td className="body-field-help" id={htmlId+'-help'}>{idConflict===i?'ID已被占用，已保留原引用。':error(p)??(record(b).bodyId==null?'待补':'引用同步更新')}</td></tr>;})}
     {bodies.map((b,i)=>number(`/bodies/${i}/massKg`,`${String(record(b).bodyId??`物体${i+1}`)} 质量 m`,'kg'))}
     {number('/gravityMps2','重力加速度 g','m/s²')}{ref('/primaryBodyId','默认跟踪物体')}
-    {!horizontal&&<><tr><td className="name"><label htmlFor="body-initial-mode">摆初态形式</label></td><td className="val"><select id="body-initial-mode" className="stage-select" value={signed?'signed':'rest'} onChange={e=>set('/initial',e.target.value==='signed'?{tangentialSpeedMps:initial.speedMps??null}:{speedMps:initial.tangentialSpeedMps===0?0:null})}><option value="rest">静止释放</option><option value="signed">最低点给定切向初速</option></select></td><td/></tr>
+    {pulley&&number('/initial/speedMps','沿绳初速 v₀','m/s','右侧悬挂物向下为正；静止填0。')}
+    {!horizontal&&!pulley&&<><tr><td className="name"><label htmlFor="body-initial-mode">摆初态形式</label></td><td className="val"><select id="body-initial-mode" className="stage-select" value={signed?'signed':'rest'} onChange={e=>set('/initial',e.target.value==='signed'?{tangentialSpeedMps:initial.speedMps??null}:{speedMps:initial.tangentialSpeedMps===0?0:null})}><option value="rest">静止释放</option><option value="signed">最低点给定切向初速</option></select></td><td/></tr>
     {number(signed?'/initial/tangentialSpeedMps':'/initial/speedMps',signed?'初始切向速度 q₀':'释放初速 v₀','m/s',signed?'最低点向右为正。':'题面静止填0，非零改用切向初速。')}
     </>}
     {horizontal&&(list(initial.bodies).length?list(initial.bodies):ids.map(()=>({}))).map((b,i)=>{const value=record(b),id=String(value.bodyId??`物体${i+1}`),p=`/initial/bodies/${i}`;return <tr key={p}><td colSpan={3}><table className="cond-table"><tbody>
@@ -134,5 +152,5 @@ export function MultiBodyPlanEditor({draft,onChange,missingKeys,fieldErrors}:{dr
         {select(p+'/constraint/pivotFixed',`${id} 支点固定`,facts)}{select(p+'/constraint/lightInextensibleString',`${id} 轻且不可伸长的绳`,facts)}{select(p+'/constraint/airResistanceNegligible',`${id} 忽略空气阻力`,facts)}
       </>}
     </tbody></table></td></tr>;})}
-  </tbody></table><p className="section-label">有序阶段与同时运动</p>{draft.stages.map((s,i)=>stage(s,`/stages/${i}`,s.kind==='block_plank'?[s.blockBodyId,s.plankBodyId].filter((v):v is string=>typeof v==='string'):list(s.bodyIds).filter((v):v is string=>typeof v==='string'),i))}</div>;
+  </tbody></table><p className="section-label">有序阶段与同时运动</p>{draft.stages.map((s,i)=>stage(s,`/stages/${i}`,s.kind==='pulley_system'?[s.body1Id,s.body2Id].filter((v):v is string=>typeof v==='string'):s.kind==='block_plank'?[s.blockBodyId,s.plankBodyId].filter((v):v is string=>typeof v==='string'):list(s.bodyIds).filter((v):v is string=>typeof v==='string'),i))}</div>;
 }

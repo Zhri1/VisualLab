@@ -22,6 +22,7 @@ export { createPendulum } from './pendulum.ts';
 export type { BodyState, BodySnapshot, BodyDefinition, StringState, MotionStatus, BodyGeometry } from './multiBodyTypes.ts';
 export type { HorizontalInitial, InitialBody, HorizontalApproach, HorizontalCollision, CollisionValues } from './horizontalTypes.ts';
 export type { BlockPlankStage, PostCommonForce, PlankGeometry } from './blockPlankTypes.ts';
+export type { PulleyStage, PulleySurface, PulleyGeometry } from './pulleyTypes.ts';
 export type { ConveyorBeltStage, ConveyorBeltSegment, ConveyorReading, ConveyorGeometry } from './conveyorBelt.ts';
 
 export function assembleScene(input: StagePlanDraft | ResolvedStagePlan): ReturnType<typeof assembleStageScene>;

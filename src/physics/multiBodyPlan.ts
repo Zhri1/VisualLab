@@ -1,5 +1,6 @@
 import {validateHorizontalFields} from './horizontalPlan.ts';
 import {validateBlockPlankFields} from './blockPlankPlan.ts';
+import {validatePulleyFields} from './pulleyPlan.ts';
 import type { StagePlanDraft, StagePlanValidation, ResolvedStagePlan, StageFieldError } from './stagePlan.ts';
 import { createPendulum } from './pendulum.ts';
 import { collide1D } from './collision.ts';
@@ -29,7 +30,8 @@ export function validateMultiBodyPlan(input: Obj, legacy: (v: unknown) => StageP
   choice(draft,'kind','/kind',['stage_plan']);
   if(draft.schemaVersion==null)missing.push('/schemaVersion');else if(typeof draft.schemaVersion!=='number')issue('/schemaVersion','TYPE','版本号须为数字。');else if(draft.schemaVersion!==1)issue('/schemaVersion','UNSUPPORTED','仅支持版本1。');
   const blockPlank = Array.isArray(draft.stages) && draft.stages.some(s => obj(s) && s.kind === 'block_plank');
-  const horizontal = !blockPlank && (Array.isArray(draft.stages) && draft.stages.some(s => obj(s) && s.kind === 'horizontal_approach') || obj(draft.initial) && 'bodies' in draft.initial);
+  const pulley = !blockPlank && Array.isArray(draft.stages) && draft.stages.some(s => obj(s) && s.kind === 'pulley_system');
+  const horizontal = !blockPlank && !pulley && (Array.isArray(draft.stages) && draft.stages.some(s => obj(s) && s.kind === 'horizontal_approach') || obj(draft.initial) && 'bodies' in draft.initial);
   const usesGravity=(v:unknown):boolean=>Array.isArray(v)?v.some(usesGravity):obj(v)?v.kind==='projectile'||v.kind==='pendulum_swing'||v.kind==='pendulum_string'||typeof v.kineticFrictionCoefficient==='number'&&v.kineticFrictionCoefficient>0||Object.values(v).some(usesGravity):false;
   num(draft,'gravityMps2','/gravityMps2',v=>v>0,!horizontal||usesGravity(draft));
   if('massKg'in draft)issue('/massKg','PRECONDITION_CONFLICT','新摆计划的质量只取body表，请移除旧顶层质量。');
@@ -57,6 +59,7 @@ export function validateMultiBodyPlan(input: Obj, legacy: (v: unknown) => StageP
     return list.filter((v):v is string=>typeof v==='string');
   };
   if(blockPlank){validateBlockPlankFields(draft,{missing,errors,issue,num,choice,fact,block,ref});return result();}
+  if(pulley){validatePulleyFields(draft,{missing,errors,issue,num,choice,fact,block,ref});return result();}
   if(horizontal){validateHorizontalFields(draft,{missing,errors,issue,num,choice,fact,block,ref,bodyList},legacy);return result();}
   const initial=block(draft,'initial','/initial');
   if(initial){

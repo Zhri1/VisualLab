@@ -28,6 +28,7 @@ export type CommandResult =
 const KEYWORDS: Array<{ kind: string; words: string[] }> = [
   { kind:'horizontal_approach',words:['接近','碰前','碰撞前','正碰前','接触前'] },
   { kind:'block_plank',words:['木板','长木板','共速','板边'] },
+  { kind:'pulley_system',words:['滑轮','定滑轮','连接体','张力','悬挂'] },
   { kind:'vertical_arc',words:['圆轨','竖直圆弧','圆弧'] },
   { kind:'constant_force_1d',words:['常力','合力','匀加速','匀减速','匀变速'] },
   { kind:'conveyor_belt',words:['传送带','皮带','带面','共速'] },
@@ -110,7 +111,7 @@ export function parseCommand(command: string, plan: { stages: PlanStageLike[] })
   }
 
   for (const { kind, words } of KEYWORDS) {
-    if ((kind === 'horizontal_approach'||kind==='vertical_arc'||kind==='constant_force_1d'||kind==='block_plank'||kind==='conveyor_belt') && findStageIndex(plan.stages, kind) < 0) continue;
+    if ((kind === 'horizontal_approach'||kind==='vertical_arc'||kind==='constant_force_1d'||kind==='block_plank'||kind==='conveyor_belt'||kind==='pulley_system') && findStageIndex(plan.stages, kind) < 0) continue;
     if (!words.some((word) => text.includes(word))) continue;
     const index = findStageIndex(plan.stages, kind);
     if (index < 0) {
