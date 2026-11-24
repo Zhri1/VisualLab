@@ -157,7 +157,8 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  if (!pathname.startsWith('/api/')) {
+  const isPlanRoute = pathname.startsWith('/api/') || pathname === '/functions/v1/app';
+  if (!isPlanRoute) {
     if (sendStatic(req, res, pathname)) return;
 
     res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' });
