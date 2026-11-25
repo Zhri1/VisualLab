@@ -4,7 +4,10 @@
  * Qoder 平台不允许 CLI 写 Secret（`secretValueInput: false`，`sites operations`
  * 里只有 `delete_secret`），密钥值只能在客户端手工填一次。在填之前，用本脚本
  * 把本地 `.env` 里的 Key 临时写进 `functions/inline-key.ts`，让 `prepare_site`
- * 打进函数包，打包完成后立刻 `restore`。
+ * 打进函数包，首轮打包完成后立刻 `restore`。若 `prepare_site` 返回
+ * `descriptorStatus: "pending"`，等 `canPublish` 变为 `true` 后用同一
+ * `actionId` 和同一入参再跑一次 `prepare_site` 时，平台会从冻结的 ZIP 恢复而
+ * 不重新打包，因此无需再次 `inject`。
  *
  * 仓库是 public，所以 `functions/inline-key.ts` 在 git 里必须是空值。
  * 本脚本的 `restore` 就是保证这一点，任何注入都必须配对还原。
