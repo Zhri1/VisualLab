@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# 文本模式走查用的 mock 构建产物（不入库）
+dist-mock/
 # 浏览器走查的截图与报告输出目录
 artifacts/
 .env

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Image as ImageIcon, Repeat } from "lucide-react";
+import { Bookmark, ChevronDown, Image as ImageIcon, Repeat, Share2 } from "lucide-react";
 import type { Workspace } from "../../../hooks/useWorkspace";
 import { isStageReading } from "../../../types";
 import type { Motion } from "../../../types";
@@ -287,9 +287,11 @@ const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primar
               </button>
             )}
             <button className="ghost-button" onClick={saveCurrent} aria-label="收藏到错题本">
+              <Bookmark size={14} strokeWidth={1.8} />
               <span className="btn-label">收藏</span>
             </button>
             <button className="ghost-button" onClick={copyShare} aria-label="复制分享链接">
+              <Share2 size={14} strokeWidth={1.8} />
               <span className="btn-label">分享</span>
             </button>
             {motion && (
