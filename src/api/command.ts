@@ -27,6 +27,8 @@ const KEYWORDS: Array<{ kind: string; words: string[] }> = [
   { kind:'horizontal_approach',words:['接近','碰前','碰撞前','正碰前','接触前'] },
   { kind:'block_plank',words:['木板','长木板','共速','板边'] },
   { kind:'pulley_system',words:['滑轮','定滑轮','连接体','张力','悬挂'] },
+  { kind:'movable_arc',words:['圆弧槽','可自由滑动','槽静置','光滑圆弧槽'] },
+  { kind:'spring_pair',words:['轻质弹簧','两球','双球','弹性势能'] },
   { kind:'vertical_arc',words:['圆轨','竖直圆弧','圆弧'] },
   { kind:'constant_force_1d',words:['常力','合力','匀加速','匀减速','匀变速'] },
   { kind:'conveyor_belt',words:['传送带','皮带','带面','共速'] },
@@ -108,8 +110,12 @@ export function parseCommand(command: string, plan: { stages: PlanStageLike[] })
     };
   }
 
+  // 「圆弧槽」是可移动槽的专名：旧计划没有该段时不能退化成「圆弧→转向」静默截断。
+  if (text.includes('圆弧槽') && findStageIndex(plan.stages, 'movable_arc') < 0) {
+    return { status: 'unsupported', message: '当前计划里没有「圆弧槽」对应的阶段' };
+  }
   for (const { kind, words } of KEYWORDS) {
-    if ((kind === 'horizontal_approach'||kind==='vertical_arc'||kind==='constant_force_1d'||kind==='block_plank'||kind==='conveyor_belt'||kind==='pulley_system') && findStageIndex(plan.stages, kind) < 0) continue;
+    if ((kind === 'horizontal_approach'||kind==='vertical_arc'||kind==='constant_force_1d'||kind==='block_plank'||kind==='conveyor_belt'||kind==='pulley_system'||kind==='movable_arc'||kind==='spring_pair') && findStageIndex(plan.stages, kind) < 0) continue;
     if (!words.some((word) => text.includes(word))) continue;
     const index = findStageIndex(plan.stages, kind);
     if (index < 0) {

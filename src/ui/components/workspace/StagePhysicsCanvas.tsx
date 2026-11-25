@@ -90,6 +90,24 @@ export function stageWorldBounds(motion: Motion): WorldBounds {
   for (const sp of springs) {
     points.push({ x: sp.contact.xM, y: sp.contact.yM }, { x: sp.anchor.xM, y: sp.anchor.yM });
   }
+  if (g.movableArc) {
+    const ma = g.movableArc;
+    const drift = Math.max(0, motion.durationSeconds - ma.exitTimeSeconds) * ma.exitGrooveVX;
+    points.push(
+      { x: ma.entryXM - ma.radiusM, y: ma.entryYM },
+      { x: ma.entryXM + ma.radiusM, y: ma.entryYM },
+      { x: ma.exitGrooveXM - ma.radiusM + Math.min(0, drift), y: 0 },
+      { x: ma.exitGrooveXM + ma.radiusM + Math.max(0, drift), y: 0 },
+    );
+  }
+  if (g.springPair) {
+    const pair = g.springPair;
+    const endTarget = motion.springPairAt?.(motion.durationSeconds);
+    points.push(
+      { x: pair.targetEntryXM - 0.6, y: pair.yM },
+      { x: (endTarget?.x2M ?? pair.targetEntryXM) + 0.6, y: pair.yM },
+    );
+  }
   if (g.springRelease) {
     points.push({ x: g.springRelease.start.xM, y: g.springRelease.start.yM }, { x: g.springRelease.naturalContact.xM, y: g.springRelease.naturalContact.yM });
     if (g.springRelease.anchor) points.push({ x: g.springRelease.anchor.xM, y: g.springRelease.anchor.yM });
@@ -259,6 +277,47 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
       ctx.textBaseline = "bottom";
       ctx.fillText("桌沿", X(hor.plannedEnd.xM) + 7, Y(hor.plannedEnd.yM) - 5);
     }
+  }
+  if (g.movableArc) {
+    const ma = g.movableArc;
+    const gs = motion.movableArcAt?.(time) ?? { grooveXM: ma.entryXM + ma.exitDirection * ma.radiusM, grooveVX: 0 };
+    // grooveXM 为槽圆心横坐标：初始圆心 = entryXM + s·R。
+    const d = gs.grooveXM - (ma.entryXM + ma.exitDirection * ma.radiusM);
+    const cx = ma.entryXM + ma.exitDirection * ma.radiusM + d;
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(X(worldBounds.minX), Y(0)); ctx.lineTo(X(worldBounds.maxX), Y(0)); ctx.stroke();
+    ctx.strokeStyle = HAIR; ctx.lineWidth = 1;
+    for (let x = worldBounds.minX + 0.15; x < worldBounds.maxX; x += 0.25) {
+      ctx.beginPath(); ctx.moveTo(X(x), Y(0)); ctx.lineTo(X(x - 0.12), Y(0) + 6); ctx.stroke();
+    }
+    ctx.strokeStyle = INK; ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i <= 24; i += 1) {
+      const th = (Math.PI / 2) * (i / 24);
+      const px = cx - ma.exitDirection * ma.radiusM * Math.cos(th);
+      const py = ma.entryYM - ma.radiusM * Math.sin(th);
+      if (i === 0) ctx.moveTo(X(px), Y(py)); else ctx.lineTo(X(px), Y(py));
+    }
+    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(X(cx - ma.exitDirection * ma.radiusM), Y(ma.entryYM)); ctx.lineTo(X(cx - ma.exitDirection * ma.radiusM), Y(0)); ctx.stroke();
+    ctx.fillStyle = SOFT; ctx.font = `500 12px ${SANS}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    ctx.fillText(`M = ${ma.grooveMassKg} kg`, X(cx - ma.exitDirection * ma.radiusM * 0.4), Y(0) - 6);
+  }
+  if (g.springPair) {
+    const pair = g.springPair;
+    const ps = motion.springPairAt?.(time) ?? { x2M: pair.targetEntryXM, vx2Mps: 0, compressionM: 0 };
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(X(worldBounds.minX), Y(pair.yM)); ctx.lineTo(X(worldBounds.maxX), Y(pair.yM)); ctx.stroke();
+    const contacting = time >= pair.contactTimeSeconds && time <= pair.separateTimeSeconds && ps.compressionM > 1e-9;
+    const springLeft = ps.x2M + 0.04;
+    const springRight = contacting ? Math.max(springLeft + 0.02, sample.position.x - 0.04) : ps.x2M + 0.44;
+    ctx.strokeStyle = SOFT; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(X(springLeft), Y(pair.yM));
+    for (let i = 1; i <= 12; i += 1) ctx.lineTo(X(springLeft + (springRight - springLeft) * i / 12), Y(pair.yM) + (i % 2 ? -5 : 5));
+    ctx.lineTo(X(springRight), Y(pair.yM)); ctx.stroke();
+    ctx.save(); ctx.beginPath(); ctx.arc(X(ps.x2M), Y(pair.yM), 6, 0, 2 * Math.PI); ctx.fillStyle = "#8e8e88"; ctx.fill(); ctx.restore();
+    ctx.fillStyle = SOFT; ctx.font = `500 12px ${SANS}`; ctx.textAlign = "center"; ctx.textBaseline = "top";
+    ctx.fillText(`m₂ = ${pair.mass2Kg} kg`, X(ps.x2M), Y(pair.yM) + 10);
   }
   if (g.conveyor) {
     const xL = X(g.conveyor.minXM - size), xR = X(g.conveyor.maxXM + size), y0 = Y(0);
@@ -579,6 +638,12 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   } else if (g.linearTrack) {
     ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = SOFT;
     ctx.fillText(`x = ${componentText(sample.position.x)} m，vₓ = ${componentText(sample.velocity.x)} m/s`, 12, 12);
+  } else if (g.movableArc || g.springPair) {
+    const gs = motion.movableArcAt?.(time);
+    const ps = motion.springPairAt?.(time);
+    ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = SOFT;
+    ctx.fillText(`v₁ = ${componentText(sample.velocity.x)} m/s${gs ? `，V槽 = ${componentText(gs.grooveVX)} m/s` : ""}`, 12, 12);
+    if (ps) ctx.fillText(`v₂ = ${componentText(ps.vx2Mps)} m/s，弹簧压缩 = ${componentText(ps.compressionM)} m`, 12, 28);
   }
   for (const mg of g.magnetics ?? (g.magnetic ? [g.magnetic] : [])) {
     const x0 = mg.entry.xM;

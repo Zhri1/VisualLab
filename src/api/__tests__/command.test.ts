@@ -87,4 +87,19 @@ describe("parseCommand", () => {
     const result = parseCommand("只看 斜面。", PLAN);
     expect(result.status).toBe("ok");
   });
+
+  it("只看圆弧槽 / 只看弹簧双球 → 动量守恒组合的两段", () => {
+    const plan = { stages: [{ kind: "movable_arc" }, { kind: "spring_pair" }] };
+    const arc = parseCommand("只看圆弧槽", plan);
+    expect(arc.status).toBe("ok");
+    if (arc.status === "ok") expect(arc.intent.throughStageIndex).toBe(0);
+    const pair = parseCommand("只看弹簧双球", plan);
+    expect(pair.status).toBe("ok");
+    if (pair.status === "ok") expect(pair.intent.throughStageIndex).toBe(1);
+  });
+
+  it("旧计划里没有圆弧槽 → 不静默成功", () => {
+    const result = parseCommand("只看圆弧槽", PLAN);
+    expect(result.status).toBe("unsupported");
+  });
 });

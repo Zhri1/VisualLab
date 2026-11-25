@@ -38,6 +38,8 @@ const FILES = [
   { from: 'src/physics/springEnergy.ts', to: 'functions/springEnergy.ts' },
   { from: 'src/physics/gaokaoConstraints.ts', to: 'functions/gaokaoConstraints.ts' },
   { from: 'src/physics/magneticDeflection.ts', to: 'functions/magneticDeflection.ts' },
+  { from: 'src/physics/movableArc.ts', to: 'functions/movableArc.ts' },
+  { from: 'src/physics/springPair.ts', to: 'functions/springPair.ts' },
   { from: 'src/physics/stagePlan.ts', to: 'functions/stagePlan.ts' },
   { from: 'src/api/stageTypes.ts', to: 'functions/stageTypes.ts' },
   { from: 'src/api/stageStatus.ts', to: 'functions/stageStatus.ts' },

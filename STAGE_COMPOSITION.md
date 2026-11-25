@@ -95,6 +95,8 @@ Node 服务与 Qoder 云函数识别新题时使用同一张映射表。
 | `vertical_arc` | `radiusM`、`endAngleDeg`、`side: "inside"`、`frictionless: true`，质量与重力读计划顶层；完整范围见 [圆弧扩展契约](VERTICAL_ARC.md#1-输入单位与范围)。 | 计算到端点飞出、提前失去接触或停下回滑，输出圆弧几何、约束状态和关键事件。 |
 | `projectile` | 旧 `dropHeightM` 继续表示发射点到落地平面的非负落差，平面为 `launch.yM - dropHeightM`。扩展允许互斥的固定世界坐标 `landingPlaneYM`；圆弧后抛体必须选固定平面，详见 [固定地面约定](VERTICAL_ARC.md#2-接抛体时固定地面)。斜面末端直接抛出可选上述一种输入，详见 [檐口与地面坐标](INCLINE_PROJECTILE.md#2-坐标地面及绘图参考点)。 | 自实际发射状态起算，记录实际发生的最高点与落地；斜面接续保留向下竖直分量，不产生内部最高点。 |
 | `pendulum_swing` / `collision_1d` / `parallel_motion`（待实现扩展） | 具体字段、张力/松绳、两质量、带符号速度和碰后约束见 [摆与碰撞契约第2至4节](PENDULUM_COLLISION.md#2-有序阶段与受控并行)。 | 一根轻绳的非线性摆动、最低点瞬时正碰及碰后同钟轨道；不新增整题模板或任意规则求解器。 |
+| `movable_arc` | `radiusM`、`grooveMassKg`、可选 `exitDirection`（-1/1）；球质量读顶层 `massKg`，`initial.speedMps: 0`。 | 四分之一光滑槽静置光滑地面可自由滑动：水平动量守恒 + 机械能守恒，RK4 积分槽内过程；离槽球速 `√(2gRM/(M+m))`、槽速反向 `m·v/M`，离槽后槽匀速外推。 |
+| `spring_pair` | `springConstantNpm`、`targetMassKg`（可 null）、`separationSpeedMps`（可 null）、可选 `gapM`；入射球质量读顶层 `massKg`。 | 弹簧不锚墙的弹性双球作用：匀速走完 gap → 压缩 → 共速（Ep 最大）→ 恢复原长分离。`targetMassKg` 缺而给 `separationSpeedMps` 时反求 m₂ = m₁(u+s)/(u−s)。末段。 |
 
 `horizontal_slide.end` 原有 `distance/stop` 两种互斥分支保持兼容。指定距离时，库比较到达目标与因摩擦停止两个事件。停止更早时返回 `stop_before_target`，恰好同时发生时停止优先，返回 `stop_at_target`。只指定 `stop` 时，以停止为目标。光滑面上有正初速且要求因摩擦停止，返回可定位的前提冲突。
 
@@ -103,6 +105,8 @@ Node 服务与 Qoder 云函数识别新题时使用同一张映射表。
 V1 支持斜面到坡底接无损转向，转向接水平滑动或弹簧，水平正速到达指定距离后接弹簧或抛体。按 [圆弧扩展契约](VERTICAL_ARC.md#1-输入单位与范围)，无损转向和水平定距段还都可以接竖直圆弧，圆弧实际离弧后可以接固定 `landingPlaneYM` 的抛体。单段可以独立运行。水平段直接接抛体时，距离目标就是题设桌沿，只有正速到达才产生离桌事件；接圆弧时目标是圆弧入口，水平提前停或恰停均不执行圆弧及其抛体后缀。弹簧脱离及落地为原有终止事件，圆弧的脱离和返回入口等终止口径见 [扩展分支约定](VERTICAL_ARC.md#3-物理状态分支与时间)。
 
 [斜面斜抛扩展](INCLINE_PROJECTILE.md)另允许 `incline_slide → projectile`，不要求转向或水平过渡。斜面正速到末端才离檐；提前停和恰停均不执行抛体。已有 `reach_bottom` 后同刻依序输出 `projectile_launch`，保留两个带符号速度分量，不输出 `leave_table`；完整范围见扩展第3、4节。
+
+动量守恒扩展另允许 `movable_arc → spring_pair` 与 `movable_arc → horizontal_slide`（μ=0）；`spring_pair` 为末段。识别文案见 [vision-reading.v2 第17、18节](skills/vision-reading.v2.md)。「恰好不能再次滑上槽」一类临界条件写成 `separationSpeedMps`（= 槽速），由库反求靶球质量，识别端不代算答案。多体阶段的系统能量把槽与靶球计入，耗散按守恒校验而非单体质点初末差。
 
 ## 4. 装配结果、绘图与阶段修改
 

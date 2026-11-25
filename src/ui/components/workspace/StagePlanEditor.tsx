@@ -14,6 +14,8 @@ const STAGE_LABELS: Record<StageKind, string> = {
   spring_contact: "弹簧接触",
   projectile: "抛体运动",
   magnetic_deflection: "匀强磁场偏转",
+  movable_arc: "可移动圆弧槽",
+  spring_pair: "自由弹簧双球",
 };
 
 const STAGE_KINDS = Object.keys(STAGE_LABELS) as StageKind[];
@@ -52,6 +54,16 @@ const NUMBER_FIELDS: Partial<Record<StageKind, NumberMeta[]>> = {
     { key: "beltLengthM", label: "带长 L（可选）", unit: "m", step: 0.5 },
   ],
   spring_contact: [{ key: "springConstantNpm", label: "弹簧劲度系数 k", unit: "N/m", step: 10 }],
+  movable_arc: [
+    { key: "radiusM", label: "圆弧槽半径 R", unit: "m", step: 0.05 },
+    { key: "grooveMassKg", label: "槽质量 M", unit: "kg", step: 0.5, hint: "地面光滑，槽可自由滑动" },
+  ],
+  spring_pair: [
+    { key: "springConstantNpm", label: "弹簧劲度系数 k", unit: "N/m", step: 10, hint: "题未给时仅影响过程时长" },
+    { key: "targetMassKg", label: "靶球质量 m₂（可空）", unit: "kg", step: 0.5, hint: "留空时由分离速度反求" },
+    { key: "separationSpeedMps", label: "分离后入射球速率", unit: "m/s", step: 0.5, hint: "临界条件：等于槽速即恰好不再滑上" },
+    { key: "gapM", label: "接触前间距", unit: "m", step: 0.1 },
+  ],
   vertical_arc: [
     { key: "radiusM", label: "圆弧半径 R", unit: "m", step: 0.05, hint: "质点轨迹半径，大于 0" },
     { key: "endAngleDeg", label: "圆弧端点角 φ", unit: "°", step: 1, hint: "从最低点量起，0° < φ ≤ 180°" },

@@ -16,8 +16,8 @@ function build(input: unknown) {
 }
 
 describe("内置示例题库（多过程多模型高考压轴题 + 传送带）", () => {
-  it("恰好 7 道题、id 唯一、默认示例存在且全部附带真实存在的原题图片", () => {
-    expect(SAMPLES.length).toBe(7);
+  it("恰好 8 道题、id 唯一、默认示例存在且全部附带真实存在的原题图片", () => {
+    expect(SAMPLES.length).toBe(8);
     const ids = SAMPLES.map((sample) => sample.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(getSample("missing-id").id).toBe(SAMPLES[0].id);
@@ -84,6 +84,20 @@ describe("内置示例题库（多过程多模型高考压轴题 + 传送带）"
     expect(kinds).toContain("turn_around");
     expect(motion.durationSeconds).toBeGreaterThan(1.4);
     expect(getSample("pulley-ground-slack").difficulty).toBe("压轴");
+  });
+
+  it("movable-arc-spring 为动量守恒压轴：球槽反向分离 + 弹簧双球反求 m₂ = 2 kg、Ep = 3 J", () => {
+    const motion = build(getSample("movable-arc-spring").reading);
+    expect(motion.segments.map((s) => s.kind)).toEqual(["movable_arc", "spring_pair"]);
+    const kinds = motion.events.map((event) => event.eventKind);
+    expect(kinds).toEqual(expect.arrayContaining(["movable_arc_exit", "spring_pair_contact", "spring_pair_max_compression", "spring_pair_separate"]));
+    const exit = motion.events.find((event) => event.eventKind === "movable_arc_exit")!;
+    expect(Math.abs(exit.velocityAfter!.x)).toBeCloseTo(3, 6);
+    const sep = motion.events.find((event) => event.eventKind === "spring_pair_separate")!;
+    expect(Math.abs(sep.velocityAfter!.x)).toBeCloseTo(1, 6);
+    const max = motion.events.find((event) => event.eventKind === "spring_pair_max_compression")!;
+    expect(Math.abs(max.velocityAfter!.x)).toBeCloseTo(1, 6);
+    expect(getSample("movable-arc-spring").difficulty).toBe("压轴");
   });
 
   it("弹簧弹射·圆弧跳台·斜抛·切向入斜坡：五段五模型连贯且含斜抛最高点与 A~E 地标", () => {

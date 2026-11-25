@@ -11,6 +11,8 @@ import { landingTime, linearState, springMetrics, springState } from "./kinemati
 import { solveRoughSpring, type RoughSpring, type RoughSpringConflict } from "./roughSpring.ts";
 import { solveConveyorBelt, type ConveyorGeometry, type ConveyorReading } from "./conveyorBelt.ts";
 import { solveMagneticDeflection, type MagneticGeometry } from "./magneticDeflection.ts";
+import { solveMovableArc } from "./movableArc.ts";
+import { solveSpringPair } from "./springPair.ts";
 
 type Velocity = { vxMps: number; vyMps: number };
 export type StageGeometry = BodyGeometry & {
@@ -22,6 +24,8 @@ export type StageGeometry = BodyGeometry & {
   conveyor?: ConveyorGeometry;
   magnetic?: MagneticGeometry;
   magnetics?: MagneticGeometry[];
+  movableArc?: { stageIndex: number; radiusM: number; grooveMassKg: number; exitDirection: -1 | 1; entryXM: number; entryYM: number; exitTimeSeconds: number; exitGrooveXM: number; exitGrooveVX: number };
+  springPair?: { stageIndex: number; yM: number; gapM: number; mass2Kg: number; targetEntryXM: number; contactTimeSeconds: number; separateTimeSeconds: number; springConstantNpm: number };
   spring?: { contact: Point; anchor: Point };
   springs?: Array<{ stageIndex: number; contact: Point; anchor: Point }>;
   projectile?: { launch: Point; landingPlane: { yM: number } };
@@ -34,7 +38,7 @@ export type StageGeometry = BodyGeometry & {
   blockSizeM: number;
   positionReference: "front_bottom" | "particle";
 };
-export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit' | 'magnetic_exit';
+export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit' | 'magnetic_exit' | 'movable_arc_exit' | 'spring_pair_separate';
 export type StageEvent = {
   collision?: import('./horizontalTypes.ts').CollisionValues;
   bodyIds?: string[]; stagePath?: string;
@@ -59,6 +63,10 @@ export type StageMotion = {
   energyAt?(timeSeconds: number): EnergyReading | null;
   /** 与 sampleAt 同一时钟的传送带读数（带速、相对带面位移等）。 */
   conveyorAt?(timeSeconds: number): ConveyorReading | null;
+  /** 与 sampleAt 同一时钟的可移动槽读数（槽位置/速度）；离槽后按匀速外推。 */
+  movableArcAt?(timeSeconds: number): { grooveXM: number; grooveVX: number } | null;
+  /** 与 sampleAt 同一时钟的弹簧双球读数（靶球位置/速度、压缩量）。 */
+  springPairAt?(timeSeconds: number): { x2M: number; vx2Mps: number; compressionM: number } | null;
 };
 /** 动能、相关势能与播放窗口内累计已知摩擦耗能（J）。 */
 export type EnergyReading = {
@@ -368,10 +376,12 @@ function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: Motion
 
 function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | StagePlanFailure {
   if (plan.bodies) return computeMultiBodyMotion(plan);
-  const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage, i) => stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "magnetic_deflection"
+  const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage, i) => stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "magnetic_deflection" || stage.kind === "movable_arc" || stage.kind === "spring_pair"
     || stage.kind === "incline_slide" && plan.stages[i + 1]?.kind === "projectile") ? "particle" : "front_bottom" };
   const first = plan.stages[0];
   let state = "speedMps" in plan.initial ? moving(0, 0, plan.initial.speedMps) : "vxMps" in plan.initial ? moving(0, 0, plan.initial.vxMps, "vyMps" in plan.initial ? plan.initial.vyMps : 0) : moving(0,0,"tangentialSpeedMps" in plan.initial ? plan.initial.tangentialSpeedMps : 0);
+  // 可移动槽的槽顶比地面高 R：初态抬到槽顶，离槽时恰好落回地面 y=0。
+  if (first?.kind === "movable_arc") state = { ...state, yM: state.yM + first.radiusM };
   if(first.kind==='vertical_arc'&&first.path)state=circularEntry({...first,path:first.path},Math.hypot(state.vxMps,state.vyMps),plan.gravityMps2!,plan.massKg!,0);
   if (first.kind === "spring_release" && scope?.mode === "full") state.springCompressionM = first.initialCompressionM!;
   if (scope && scope.mode !== "full") state = moving(scope.xM!, 0, scope.vxMps!);
@@ -400,6 +410,8 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   const eventStates: MotionSample[] = [];
   const runs: { start: number; end: number; run: Run; stageIndex: number; heatBase: number }[] = [];
   let conveyorEval: ((timeSeconds: number) => ConveyorReading) | null = null;
+  let movableArcEval: ((timeSeconds: number) => { grooveXM: number; grooveVX: number }) | null = null;
+  let springPairEval: ((timeSeconds: number) => { x2M: number; vx2Mps: number; compressionM: number }) | null = null;
   let heatBase = 0;
   function append(item: EventState, stageIndex: number, startTime: number) {
     const order = events.length;
@@ -538,6 +550,60 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
         };
         break;
       }
+      case "movable_arc": {
+        const solved = solveMovableArc(stage, { xM: state.xM, yM: state.yM }, plan.massKg!, plan.gravityMps2!);
+        const startTime = time;
+        geometry.movableArc = { stageIndex: index, ...solved.geometry, exitTimeSeconds: startTime + solved.durationSeconds, exitGrooveXM: solved.exit.grooveXM, exitGrooveVX: solved.exit.grooveVX };
+        movableArcEval = (q) => {
+          if (q >= startTime + solved.durationSeconds) {
+            const dt = q - (startTime + solved.durationSeconds);
+            return { grooveXM: solved.exit.grooveXM + solved.exit.grooveVX * dt, grooveVX: solved.exit.grooveVX };
+          }
+          const r = solved.at(Math.max(0, q - startTime));
+          return { grooveXM: r.grooveXM, grooveVX: r.grooveVX };
+        };
+        const endSample = moving(solved.exit.xM, solved.exit.yM, solved.exit.vxMps, solved.exit.vyMps);
+        run = {
+          duration: solved.durationSeconds,
+          end: endSample,
+          reason: index + 1 >= plan.stages.length ? "movable_arc_exit" : undefined,
+          events: solved.events.map((ev) => {
+            const st = moving(ev.xM, ev.yM, ev.vxMps, ev.vyMps);
+            return event(ev.kind, ev.timeSeconds, st, st, ev.label, ev.explanation);
+          }),
+          sampleAt: (dt) => {
+            const r = solved.at(dt);
+            return moving(r.xM, r.yM, r.vxMps, r.vyMps);
+          },
+        };
+        break;
+      }
+      case "spring_pair": {
+        if (state.vyMps !== 0 || state.vxMps === 0) return failure("弹簧双球段需要非零水平速度入口。", "/stages/" + index, "PRECONDITION_CONFLICT");
+        const solved = solveSpringPair(stage, { xM: state.xM, yM: state.yM, vxMps: state.vxMps }, plan.massKg!);
+        const startTime = time;
+        const gap = stage.gapM ?? 0.5;
+        geometry.springPair = { stageIndex: index, yM: state.yM, gapM: gap, mass2Kg: solved.mass2Kg, targetEntryXM: solved.geometry.targetEntryXM, contactTimeSeconds: startTime + gap / Math.abs(state.vxMps), separateTimeSeconds: startTime + solved.durationSeconds, springConstantNpm: stage.springConstantNpm };
+        springPairEval = (q) => {
+          const r = solved.at(Math.min(solved.durationSeconds, Math.max(0, q - startTime)));
+          return { x2M: r.x2M, vx2Mps: r.vx2Mps, compressionM: r.compressionM };
+        };
+        const endSample = moving(solved.at(solved.durationSeconds).x1M, state.yM, solved.separation.vx1Mps, 0);
+        run = {
+          duration: solved.durationSeconds,
+          end: endSample,
+          reason: index + 1 >= plan.stages.length ? "spring_pair_separate" : undefined,
+          events: solved.events.map((ev) => {
+            const st = moving(ev.xM, ev.yM, ev.vxMps, ev.vyMps);
+            return event(ev.kind, ev.timeSeconds, st, st, ev.label, ev.explanation);
+          }),
+          sampleAt: (dt) => {
+            const r = solved.at(dt);
+            return { ...moving(r.x1M, r.y1M, r.vx1Mps, 0), springCompressionM: r.compressionM };
+          },
+        };
+        break;
+      }
       case "spring_contact": run = "kineticFrictionCoefficient" in stage ? roughSpring(stage, state, plan.massKg!, plan.gravityMps2!, geometry, index) : spring(stage, state, plan.massKg!, geometry, index); break;
       case "spring_release": run = release(stage, state, plan.massKg!, plan.gravityMps2 ?? 0, geometry, index + 1 < plan.stages.length); break;
       case "projectile": run = projectile(stage, state, plan.gravityMps2!, geometry, plan.stages[index - 1]?.kind, index + 1 < plan.stages.length, index); break;
@@ -623,9 +689,21 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       const t = Number.isNaN(timeSeconds) ? 0 : Math.min(time, Math.max(0, timeSeconds));
       return conveyorEval(t);
     },
+    movableArcAt(timeSeconds) {
+      if (!movableArcEval) return null;
+      const t = Number.isNaN(timeSeconds) ? 0 : Math.min(time, Math.max(0, timeSeconds));
+      return movableArcEval(t);
+    },
+    springPairAt(timeSeconds) {
+      if (!springPairEval) return null;
+      const t = Number.isNaN(timeSeconds) ? 0 : Math.min(time, Math.max(0, timeSeconds));
+      return springPairEval(t);
+    },
     energyAt(timeSeconds) {
       const mass = plan.massKg, g = plan.gravityMps2;
       if (mass === undefined) return null;
+      // 多体系统（可移动槽/弹簧双球）的单体质点能量读数会漏掉另一物体，宁缺勿假。
+      if (plan.stages.some((s) => s.kind === "movable_arc" || s.kind === "spring_pair")) return null;
       const needsGravity = plan.stages.some((s) => s.kind === "incline_slide" || s.kind === "vertical_arc" || s.kind === "projectile");
       if (needsGravity && g === undefined) return null;
       const t = Number.isNaN(timeSeconds) ? 0 : Math.min(time, Math.max(0, timeSeconds));

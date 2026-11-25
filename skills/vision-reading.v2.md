@@ -10,6 +10,7 @@
 | **单物体多过程**（斜面、水平面、平抛/斜抛、竖直圆弧/整圆、弹簧、分段常力；含高考多段串联） | 单物体多阶段（第 3、4、8、11、12、13 节） | 顶层 `massKg`（含弹簧/圆弧/常力必填）；`initial` 用 `{ speedMps }`，首段为抛体时用 `{ vxMps, vyMps }` | 不写 `bodies`/`primaryBodyId`；`projectile` 的 `dropHeightM`、`landingPlaneYM`、`end` 三者互斥 |
 | **轻绳摆 / 最低点正碰 / 独立水平两物体正碰** | 多体摆与正碰（第 9、10 节） | 顶层 `bodies` + `primaryBodyId`；摆用 `{ speedMps: 0 }` 或 `{ tangentialSpeedMps }`，水平正碰用 `initial.bodies` | **不写顶层 `massKg`**；独立水平正碰不套摆的 `targetApproach` |
 | **滑块-木板 / 传送带 / 轻绳定滑轮连接体** | 专用力学模型（第 14、15、16 节） | 木板/滑轮用 `bodies` + `primaryBodyId`；传送带用 `initial: { vxMps }` | 静摩擦未给填 `null`，绝不默认 `μs = μk` |
+| **可自由滑动的圆弧槽 / 不锚墙弹簧连两球** | 动量守恒专用模型（第 17、18 节） | 顶层 `massKg`（入射球/下滑球）+ `initial: { speedMps: 0 }`；槽质量写段内 `grooveMassKg`，靶球质量写段内 `targetMassKg` | 不写 `bodies`；槽/靶球不是跟踪主体；「恰好不再滑上」写 `separationSpeedMps` 反求，不代算 m₂ |
 | **不支持题型**（电磁、天体、热光原、机械波、未登记模型等） | 超范围（第 6 节） | `stages: []` + 非空 `unsupportedReason` | 不硬套不匹配的阶段 |
 
 轻绳摆和最低点两物体正碰另按第9节输出，使用body表，不套旧顶层massKg。
@@ -71,7 +72,7 @@
 | `kind` | 固定 `"stage_plan"` | 总是 | — |
 | `schemaVersion` | 固定 `1` | 总是 | — |
 | `gravityMps2` | 重力加速度 g | 含斜面、含摩擦的水平段/接近阶段、初态已有绳、抛体或竖直圆弧时必需；只有光滑水平运动或弹簧接触时可省略 | 题面未给填 `null`，**不要默认 10** |
-| `massKg` | 运动物体质量 | 含 `spring_contact` 或 `vertical_arc` 时必需且为有限正数；其余可省略 | `null` |
+| `massKg` | 运动物体质量 | 含 `spring_contact`、`vertical_arc`、`movable_arc` 或 `spring_pair` 时必需且为有限正数；其余可省略 | `null` |
 | `initial` | 初态速度，见 3.2 | 总是 | — |
 | `stages` | 有序阶段列表，非空 | 总是 | — |
 | `bodies`、`primaryBodyId` | 轻绳摆及正碰的稳定物体ID、各自质量与默认跟踪对象 | 第9、10节；独立摆也有一项body表 | 质量未知写null，不能猜等质量；不再提交顶层massKg |
@@ -107,6 +108,8 @@
 | `collision_1d` | bodyIds、mode、normalXM、contact、targetApproach、externalImpulseNegligible | 第9节；两质量和带方向速度，碰撞算式由B执行 |
 | `parallel_motion` | tracks、end | 第9节；碰后摆与目标同时运动，不顺序串成两个时间段 |
 | `horizontal_approach` | tracks:[{bodyId,kineticFrictionCoefficient}]、end | 第10节；按两体初态计算实际接近或先停止，不猜碰撞时刻 |
+| `movable_arc` | `radiusM`、`grooveMassKg`、可选 `exitDirection`（-1 默认向左离槽 / 1 向右） | 第17节；四分之一光滑槽静置光滑地面可自由滑动；球从槽顶静止释放；离槽速度由动量+能量守恒由 B 计算 |
+| `spring_pair` | `springConstantNpm`、`targetMassKg`（可 `null`）、`separationSpeedMps`（可 `null`）、可选 `gapM` | 第18节；弹簧不锚墙、另一端自由；`targetMassKg` 与 `separationSpeedMps` 至少给一个，给后者时 B 反求 m₂；k 未给时填题设确认值或 `null` 待补 |
 
 阶段特有的事实写在阶段内，**没有全局 `facts`**。
 
@@ -134,6 +137,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 7. `spring_release`作为首段可独立，或接水平、弹簧接触、圆弧、抛体；接续和距离/能量前提见第8节。
 8. `pendulum_swing → collision_1d → parallel_motion`（弹性）或碰后同绳`pendulum_swing`（粘连）；独立摆也合法，详细字段见第9节。
 9. `horizontal_approach → collision_1d → parallel_motion`，或只给有依据的前缀；字段见第10节，碰后可以滑动、飞行或继承已有绳。由B判定是否实际发生碰撞，不预删未发生的计划后段。
+10. `movable_arc → spring_pair`（球离槽后冲向带自由弹簧的静止球）或 `movable_arc → horizontal_slide`；`spring_pair` 为末段，之后不接任何段。字段见第17、18节。
 
 > 「只看斜面」这类截断请求会生成只有 `incline_slide` 的前缀计划，必须能通过校验，终止原因为 `prefix_end`。
 
@@ -207,7 +211,8 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 出现下列任一情况，输出 `kind: "stage_plan"`、`stages: []`、`gravityMps2: null`、`initial: { "speedMps": null }`，并在 `unsupportedReason` 写一句中文：
 
-- 电磁学、未登记的圆周轨道、天体、第9、10节以外的碰撞/连接体、传送带、浮力热学、光学原子物理、机械波；轻绳摆、最低点正碰和独立水平正碰已支持
+- 电磁学、未登记的圆周轨道、天体、第9、10、14、15、16、17、18节以外的碰撞/连接体/槽/弹簧系统、浮力热学、光学原子物理、机械波；轻绳摆、最低点正碰、独立水平正碰、传送带、可移动圆弧槽与自由弹簧双球已支持
+- 圆弧槽固定不动却写 `movable_arc`，或槽面/地面粗糙（本模型只支持双光滑）；弹簧另一端锚墙却写 `spring_pair`（锚墙用 `spring_contact`）
 - 不符合第8节前提的预压释放/能量题
 - 斜面直接接弹簧（缺题设支持的转向）；斜面沿切向直接抛出已支持
 - 弹簧与滑块连接、转向有明显能量损失
@@ -537,7 +542,48 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - 粗糙水平面或斜面从静止释放时，必须提取题给 `staticFrictionCoefficient` 或已知事实 `slidesAfterRelease`（未给填 `null`，**绝不默认 μₛ = μₖ**）。
 - 题面给悬挂物离地高度时填 `body2DropToGroundM`，着地后绳松弛（T=0）及后续滑行由 B 计算，模型不代算加速度与张力。
 
-## 17. 提交前自检
+## 17. 可自由滑动的圆弧槽（movable_arc）
+
+题面特征：四分之一（或光滑）圆弧槽**静置于光滑水平地面、可自由滑动**，球从槽顶由静止释放。槽不固定 ⇒ 水平动量守恒，不能套固定轨 `vertical_arc`。
+
+```json
+{
+  "kind": "stage_plan", "schemaVersion": 1, "gravityMps2": 10, "massKg": 1,
+  "initial": { "speedMps": 0 },
+  "stages": [{ "kind": "movable_arc", "radiusM": 0.6, "grooveMassKg": 3, "exitDirection": -1 }],
+  "assumptions": []
+}
+```
+
+- `massKg` 是**球**的质量；`grooveMassKg` 是槽的质量；两者都必需且为正。
+- `exitDirection`：球离槽的水平方向，-1 向左（槽向右）、1 向右；按题图球下滑朝向填，未明确默认 -1。
+- 只支持槽面与地面**双光滑**；粗糙槽/地面 → 超范围。球必须从槽顶静止释放（`initial.speedMps: 0`）。
+- 离槽时球速 `√(2gRM/(M+m))`、槽速 `m·v球/M` 反向，由 B 计算；模型不代写速度答案。
+- 球离槽后冲向另一球/弹簧时接 `spring_pair`（第18节）；只在光滑地面继续滑行时接 `horizontal_slide`（μ=0）。
+
+## 18. 不锚墙弹簧连接两球（spring_pair）
+
+题面特征：运动球冲向静止球，静止球连一**轻质弹簧、弹簧另一端自由（不锚墙）**；或两球经自由弹簧弹性相互作用。锚墙弹簧用 `spring_contact`，不得混用。
+
+```json
+{
+  "kind": "stage_plan", "schemaVersion": 1, "gravityMps2": 10, "massKg": 1,
+  "initial": { "speedMps": 0 },
+  "stages": [
+    { "kind": "movable_arc", "radiusM": 0.6, "grooveMassKg": 3, "exitDirection": -1 },
+    { "kind": "spring_pair", "springConstantNpm": 100, "gapM": 0.5, "targetMassKg": null, "separationSpeedMps": 1 }
+  ],
+  "assumptions": []
+}
+```
+
+- `massKg` 是入射球 m₁；`targetMassKg` 是靶球 m₂。m₂ 未知而题给临界条件（如「m₁ 恰好不能再次滑上圆弧槽」⇒ 分离后 m₁ 速率等于槽速）时：`targetMassKg: null` + `separationSpeedMps: 槽速`，由 B 反求 m₂ = m₁(u+s)/(u−s)。
+- 两质量都已知时 `separationSpeedMps: null`；两者都缺 → 待补 `targetMassKg`。
+- `springConstantNpm` 题未给时：若只问能量/速度（与 k 无关），填一个题设确认的假设值并在 `assumptions` 声明「k 仅影响过程时长」；完全无依据填 `null` 待补。
+- `gapM` 是入射球接触弹簧前到靶球的间距，未给默认 0.5 并在假设声明；地面必须光滑。
+- 共速时压缩最大、Ep = ½m₁u² − ½(m₁+m₂)v共²，分离后弹性势能归零，均由 B 计算；本段为末段。
+
+## 19. 提交前自检
 
 圆弧提取示例：质量0.1 kg，最低点水平入射速度4 m/s，半径0.4 m的光滑竖直半圆内侧，到最高点后可飞出，地面与最低点同高，g=10。输出保留全部计划，不预判提前脱轨：
 

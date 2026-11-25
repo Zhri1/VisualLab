@@ -103,9 +103,15 @@ check("分享链接含 #s=", typeof shareUrl === "string" && shareUrl.includes("
 const savedTime = await ev('parseFloat(document.querySelector(".time-readout b")?.textContent ?? "0")');
 await send("Page.navigate", { url: shareUrl });
 for (let i = 0; i < 20 && !(await ev('!!document.querySelector(".canvas-frame canvas")')); i += 1) await sleep(200);
-await sleep(600);
+// 分享还原是异步装配：轮询时刻读数直到收敛，避免固定 sleep 造成的偶发误报。
+let restored = false;
+for (let i = 0; i < 40; i += 1) {
+  restored = Math.abs((await ev('parseFloat(document.querySelector(".time-readout b")?.textContent ?? "0")')) - savedTime) < 0.35;
+  if (restored) break;
+  await sleep(200);
+}
 check("分享链接复现题目", await ev('!!document.querySelector(".canvas-frame canvas")'));
-check("分享链接复现时刻", Math.abs((await ev('parseFloat(document.querySelector(".time-readout b")?.textContent ?? "0")')) - savedTime) < 0.35, `saved=${savedTime}`);
+check("分享链接复现时刻", restored, `saved=${savedTime}`);
 
 const t0 = Date.now();
 await ev('[...document.querySelectorAll(".export-menu button")].find(b=>b.textContent==="存图")?.click()'); await sleep(900);

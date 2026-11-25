@@ -1,0 +1,1 @@
+{"kind": "stage_plan", "schemaVersion": 1, "gravityMps2": 10, "massKg": 1, "initial": {"speedMps": 0}, "stages": [{"kind": "movable_arc", "radiusM": 0.6, "grooveMassKg": 3, "exitDirection": -1}, {"kind": "spring_pair", "springConstantNpm": 100, "gapM": 0.5, "targetMassKg": null, "separationSpeedMps": 1}]}
