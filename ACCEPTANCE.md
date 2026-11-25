@@ -68,7 +68,7 @@
 > **真实浏览器验收**：网关要求请求来源必须是站点自身，且会拦无头浏览器。与其绕过，不如把验收页放进站点 —— 打开 <https://visuallab-physics-ecumfnqswpu.qoder.zone/acceptance/index.html> 点「开始验收」，页面在你自己的浏览器里同源跑完上面四条用例，结果可一键复制。
 
 >
-> **密钥的落地方式**：Qoder 把 CLI 上下文的 `secretValueInput` 固定为 `false`，`sites operations` 里也没有 set secret 操作，密钥值无法经命令行写入。因此改用**构建期注入**——`scripts/inline-key.mjs` 在 `prepare_site` 打包前把 `.env` 里的 Key 写进 `functions/inline-key.ts`，打包完成后立即还原。该文件在仓库中**恒为空字符串**（本仓库是 public），函数运行时按 `Deno.env` → 构建期注入值的顺序取 Key。若以后在站点设置里填了 `DASHSCOPE_API_KEY`，平台 Secret 会覆盖注入值，该文件可长期留空。重新发布时用 `npm run sync:functions && node scripts/inline-key.mjs inject && <prepare_site> && node scripts/inline-key.mjs restore && <publish_site>`，顺序不能乱。
+> **密钥的落地方式**：Qoder 把 CLI 上下文的 `secretValueInput` 固定为 `false`，`sites operations` 里也没有 set secret 操作，密钥值无法经命令行写入。因此改用**构建期注入**——`scripts/inline-key.mjs` 在 `prepare_site` 打包前把 `.env` 里的 Key 写进 `functions/inline-key.ts`，打包完成后立即还原。该文件在仓库中**恒为空字符串**（本仓库是 public），函数运行时按 `Deno.env` → 构建期注入值的顺序取 Key。若以后在站点设置里填了 `DASHSCOPE_API_KEY`，平台 Secret 会覆盖注入值，该文件可长期留空。重新发布时用 `npm run sync:functions && node scripts/inline-key.mjs inject && <prepare_site> && node scripts/inline-key.mjs restore && <若 descriptorStatus=pending，等 get_publish_status 的 canPublish=true 后用同一 actionId 和同一入参再跑一次 prepare_site> && <publish_site>`，顺序不能乱（第二次 `prepare_site` 从冻结的 ZIP 恢复、不重新打包，因此 `restore` 后无需再次 `inject`）。
 
 ## 0. 工程验证
 
@@ -220,9 +220,13 @@ sites prepare_site --input '{"actionId":"<新UUID>","projectRoot":"<项目绝对
 # 2) 等 readiness=ready、canPublish=true
 sites get_publish_status --input '{"actionId":"<新UUID>"}'
 
-# 3) 到 Site Settings 填 DASHSCOPE_API_KEY 的值（CLI 不支持输入密钥值）
+# 3) 若步骤 1 返回 descriptorStatus=pending：等 canPublish=true 后，必须用同一 actionId 和同一入参再跑一次 prepare_site
+#    （平台会从冻结的 ZIP 恢复，不重新打包，描述文件才写成；已 key:restore 的本地文件无需再次 key:inject）
+sites prepare_site --input '{"actionId":"<新UUID>","projectRoot":"<项目绝对路径>","webDirectory":"dist","functionDirectory":"functions","secretNames":["DASHSCOPE_API_KEY"],"projectId":"01a1f4aa-fd83-7e8c-ba8d-8ba7d20aa62c"}'
 
-# 4) 发布
+# 4) 到 Site Settings 填 DASHSCOPE_API_KEY 的值（CLI 不支持输入密钥值；走构建期注入可跳过）
+
+# 5) 发布
 sites publish_site --input '{"actionId":"<新UUID>"}'
 ```
 
@@ -235,3 +239,4 @@ sites publish_site --input '{"actionId":"<新UUID>"}'
 - 新建站点用 `slug`，更新站点用 `projectId`，两者不要同时传。
 - CLI 主机 `secretValueInput: false`，密钥值只能在 Sites Settings 网页填。
 - 公开访问设置需要 `accessRef`（先 `get_site_access` 取）+ `requestId` + `confirmPublic: true`。
+- `prepare_site` 返回 `descriptorStatus: "pending"` 时不能直接 `publish_site`：需等 `get_publish_status` 的 `canPublish` 变为 `true` 后，用**同一 `actionId` 和同一入参**再跑一次 `prepare_site`（平台会从冻结的 ZIP 恢复，不重新打包，无需重新 `key:inject`），描述文件写成后再执行 `publish_site`。
