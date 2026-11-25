@@ -505,7 +505,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
         run = {
           duration: solved.duration,
           end: endSample,
-          reason: solved.exited ? "conveyor_exit" : undefined,
+          reason: solved.exited && index + 1 >= plan.stages.length ? "conveyor_exit" : undefined,
           events: solved.events.map((ev) => {
             const st = moving(ev.xM, state.yM, ev.vxMps);
             return event(ev.kind, ev.time, st, st, ev.label, ev.explanation);
@@ -526,7 +526,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
         run = {
           duration: solved.durationSeconds,
           end: endSample,
-          reason: "magnetic_exit",
+          reason: index + 1 >= plan.stages.length ? "magnetic_exit" : undefined,
           events: solved.events.map((ev) => {
             const st = moving(ev.xM, ev.yM, ev.vxMps, ev.vyMps);
             return event(ev.kind, ev.timeSeconds, st, st, ev.label, ev.explanation);

@@ -200,15 +200,15 @@ export const SAMPLES: Sample[] = [
   },
   {
     id: "conveyor-accel",
-    title: "传送带模型 · 轻放物块与带面加速",
+    title: "传送带 · 轻放留痕后滑离带端平抛",
     imageUrl: "/samples/conveyor-accel.svg",
     problemText:
-      "水平传送带先以 2 m/s 匀速运行，随后以 1 m/s² 加速 3 s。将物块无初速轻放于带面左端，物块与带面间 μ = 0.2、μs = 0.25，g = 10 m/s²。求：(1) 物块相对带面留下的滑动痕迹长度；(2) 共速后物块是否相对带面打滑。",
-    message: "已载入传送带示例：先相对滑动留痕，共速后静摩擦共加速。",
-    description: "物块轻放上 2 m/s 的带面，先相对滑动留下痕迹；共速后带面再以 1 m/s² 加速，静摩擦带着物块一起走。",
-    difficulty: "中档",
-    tags: ["传送带", "摩擦", "相对运动"],
-    assumptions: ["g = 10 m/s²", "μ = 0.2、μs = 0.25", "带面先匀速 2 s 再以 1 m/s² 加速 3 s"],
+      "水平传送带以 2 m/s 匀速运行，带长 2 m、带端离地 1.25 m。将物块无初速轻放于带面左端，物块与带面间 μ = 0.2，g = 10 m/s²。求：(1) 物块相对带面留下的滑动痕迹长度；(2) 物块滑离带端时的速度；(3) 落地点到带端的水平距离。",
+    message: "已载入传送带组合示例：先相对滑动留痕，共速后滑离带端做平抛。",
+    description: "物块轻放后先打滑留痕，共速随带匀速到带端，再平抛落地——摩擦、相对运动与抛体三模型串联。",
+    difficulty: "压轴",
+    tags: ["传送带", "摩擦", "平抛"],
+    assumptions: ["g = 10 m/s²", "μ = 0.2，带速 2 m/s 恒定", "带长 2 m、带端离地 1.25 m"],
     questions: [
       {
         label: "(1) 痕迹长度",
@@ -217,18 +217,24 @@ export const SAMPLES: Sample[] = [
         substitution: "t = 2/2 = 1 s；Δx = 2×1 − ½×2×1² = 1 m",
       },
       {
-        label: "(2) 共速后是否打滑",
-        timeSeconds: 3,
-        formula: "a带 ≤ μs·g 时静摩擦足以共加速",
-        substitution: "1 m/s² ≤ 0.25×10 = 2.5 m/s² → 不打滑，一起加速",
+        label: "(2) 离带速度",
+        eventKind: "conveyor_exit",
+        formula: "共速后随带匀速；带长 2 m = 打滑 1 m + 共速 1 m",
+        substitution: "共速后再走 1 m 恰离带 → v = 2 m/s",
+      },
+      {
+        label: "(3) 平抛射程",
+        eventKind: "land",
+        formula: "t = √(2h/g)，x = v·t",
+        substitution: "t = √(2×1.25/10) = 0.5 s；x = 2×0.5 = 1 m",
       },
     ],
     practice: [
       {
-        prompt: "物块轻放后，相对带面留下的滑动痕迹长度是？",
-        options: ["1 m", "2 m", "0.5 m"],
+        prompt: "若把带长改为 1 m，物块滑离带端时的速度是？",
+        options: ["√2 m/s ≈ 1.4 m/s", "2 m/s", "4 m/s"],
         answer: 0,
-        explain: "共速前带面走 2 m、物块走 1 m，相对位移 1 m 即痕迹长度。",
+        explain: "1 m 内物块一直打滑（共速需 1 m 恰好边界之外），v = √(2·μg·s) = √(2×2×1) = √2 m/s。",
       },
     ],
     compare: {
@@ -240,11 +246,10 @@ export const SAMPLES: Sample[] = [
           {
             ...(conveyorAccel.stages[0] as object),
             initialBeltSpeedMps: 4,
-            segments: [
-              { accelerationMps2: 0, durationSeconds: 2 },
-              { accelerationMps2: 1, durationSeconds: 3 },
-            ],
+            segments: [{ accelerationMps2: 0, durationSeconds: 2 }],
+            beltLengthM: 2,
           },
+          { kind: "projectile", dropHeightM: 1.25 },
         ],
       } as WorkspaceReading,
     },
@@ -253,25 +258,24 @@ export const SAMPLES: Sample[] = [
       stages: [
         {
           ...(conveyorAccel.stages[0] as object),
-          segments: [
-            { accelerationMps2: 0, durationSeconds: 2 },
-            { accelerationMps2: 1, durationSeconds: 3 },
-          ],
+          segments: [{ accelerationMps2: 0, durationSeconds: 2 }],
+          beltLengthM: 2,
         },
+        { kind: "projectile", dropHeightM: 1.25 },
       ],
     } as WorkspaceReading,
   },
   {
     id: "magnetic-deflection",
-    title: "匀强磁场偏转 · 带电粒子圆周运动",
+    title: "组合场 · 磁场偏转后平抛落回地面",
     imageUrl: "/samples/magnetic-deflection.svg",
     problemText:
-      "宽 1 m 的匀强磁场区域，磁感应强度 B = 1 T、方向垂直纸面向里。带电粒子 m = 1×10⁻³ kg、q = +1×10⁻³ C 以 2 m/s 水平射入，忽略重力。求：轨道半径、穿过磁场后的偏转角与出射速度方向。",
-    message: "已载入磁场偏转示例：洛伦兹力提供向心力，R = mv/(qB) = 2 m。",
-    description: "粒子在磁场区域内走一段圆弧后从右边界穿出；半径大于区域宽度时偏转角由 asin(W/R) 决定。",
-    difficulty: "中档",
-    tags: ["磁场", "洛伦兹力", "圆周运动"],
-    assumptions: ["忽略重力", "B = 1 T 垂直纸面向里", "m = 1×10⁻³ kg、q = +1×10⁻³ C"],
+      "宽 1 m 的匀强磁场区域下边界贴地面，B = 1 T、方向垂直纸面向里。带电粒子 m = 1×10⁻³ kg、q = +1×10⁻³ C 以 2 m/s 沿地面水平射入，磁区内忽略重力；穿出磁场后只受重力 g = 10 m/s²。求：(1) 磁中轨道半径；(2) 偏转角与出射速度；(3) 落地点到入射点的水平距离。",
+    message: "已载入组合场示例：磁中圆周偏转 30°，出磁后重力接管平抛落回地面。",
+    description: "洛伦兹力只改方向不改速率；出磁场后重力接管——圆周+抛体串联的组合场压轴。",
+    difficulty: "压轴",
+    tags: ["磁场", "洛伦兹力", "组合场", "平抛"],
+    assumptions: ["磁区内忽略重力", "B = 1 T 垂直纸面向里", "出磁后 g = 10 m/s²，地面 y = 0"],
     questions: [
       {
         label: "(1) 轨道半径",
@@ -280,10 +284,16 @@ export const SAMPLES: Sample[] = [
         substitution: "R = 1×10⁻³×2 / (1×10⁻³×1) = 2 m",
       },
       {
-        label: "(2) 偏转角与出射方向",
+        label: "(2) 偏转角与出射速度",
         eventKind: "magnetic_exit",
         formula: "sinθ = W/R；出射速率不变",
         substitution: "sinθ = 1/2 → θ = 30°；v = (√3, 1) m/s，速率仍 2 m/s",
+      },
+      {
+        label: "(3) 落点水平距离",
+        eventKind: "land",
+        formula: "h = R(1−cosθ)；t = (v_y + √(v_y² + 2gh))/g；x = W + v_x·t",
+        substitution: "h = 2−√3 ≈ 0.27 m；t ≈ 0.35 s；x ≈ 1 + 0.61 = 1.61 m",
       },
     ],
     practice: [
@@ -299,64 +309,99 @@ export const SAMPLES: Sample[] = [
       backLabel: "回到 B = 1 T",
       reading: {
         ...magneticDeflection,
-        stages: [{ ...(magneticDeflection.stages[0] as object), magneticTeslaB: 2 }],
+        gravityMps2: 10,
+        stages: [
+          { ...(magneticDeflection.stages[0] as object), magneticTeslaB: 2 },
+          { kind: "projectile", landingPlaneYM: 0 },
+        ],
       } as WorkspaceReading,
     },
-    reading: magneticDeflection as WorkspaceReading,
+    reading: {
+      ...magneticDeflection,
+      gravityMps2: 10,
+      stages: [
+        magneticDeflection.stages[0],
+        { kind: "projectile", landingPlaneYM: 0 },
+      ],
+    } as WorkspaceReading,
   },
   {
     id: "pulley-ground-slack",
-    title: "连接体 · 悬挂物着地后绳松弛",
+    title: "连接体 · 斜面桌面着地绳松弛后冲上斜面",
     imageUrl: "/samples/pulley-ground-slack.svg",
     problemText:
-      "桌面滑块 m₁ = 2 kg 与桌面间 μ = 0.25，经轻绳绕过理想定滑轮与 m₂ = 3 kg 的悬挂物相连，悬挂物离地 1.6 m。系统由静止释放，滑块限位 5 m。求：(1) 共同加速度；(2) 悬挂物着地瞬间的速度；(3) 着地后滑块继续滑行的距离。",
-    message: "已载入连接体示例：着地前共同加速，着地后绳松弛、滑块单独摩擦减速。",
-    description: "绳只能拉不能推：悬挂物着地后张力归零，滑块凭惯性继续滑行直到摩擦把它停下。",
-    difficulty: "中档",
-    tags: ["连接体", "绳松弛", "摩擦"],
-    assumptions: ["g = 10 m/s²", "轻绳不可伸长、滑轮理想", "μ = 0.25，悬挂物离地 1.6 m"],
+      "倾角 37° 的粗糙斜面桌面上滑块 m₁ = 2 kg（μ = μs = 0.25），经轻绳绕过理想定滑轮与 m₂ = 4 kg 的悬挂物相连，悬挂物离地 2 m，斜面足够长。系统由静止释放（sin37° = 0.6、cos37° = 0.8）。求：(1) 共同加速度；(2) 悬挂物着地瞬间的速度；(3) 绳松弛后滑块沿斜面上滑的最大距离；(4) 滑块到最高点后能否自行返回。",
+    message: "已载入连接体压轴示例：斜面共加速 → 着地绳松弛 → 沿斜面上滑到瞬时零速边界。",
+    description: "绳只能拉不能推：着地后张力归零，滑块凭惯性冲上斜面减速到零；能否返回由 μ 与 tanθ 比较判断。",
+    difficulty: "压轴",
+    tags: ["连接体", "绳松弛", "斜面"],
+    assumptions: ["g = 10 m/s²，sin37° = 0.6、cos37° = 0.8", "轻绳不可伸长、滑轮理想", "μ = μs = 0.25，悬挂物离地 2 m"],
     questions: [
       {
         label: "(1) 共同加速度",
-        timeSeconds: 0.4,
-        formula: "a = (m₂g − μm₁g)/(m₁ + m₂)",
-        substitution: "a = (30 − 0.25×20)/5 = 5 m/s²",
+        timeSeconds: 0.5,
+        formula: "a = (m₂g − m₁g·sinθ − μm₁g·cosθ)/(m₁ + m₂)",
+        substitution: "a = (40 − 12 − 4)/6 = 4 m/s²",
       },
       {
         label: "(2) 着地瞬间速度",
-        timeSeconds: 0.8,
+        timeSeconds: 1,
         formula: "v = √(2ah)",
-        substitution: "v = √(2×5×1.6) = 4 m/s",
+        substitution: "v = √(2×4×2) = 4 m/s",
       },
       {
-        label: "(3) 着地后滑行距离",
-        timeSeconds: 1.6,
-        formula: "绳松弛 T = 0；s = v²/(2μg)",
-        substitution: "s = 16/(2×0.25×10) = 3.2 m（未超 5 m 限位）",
+        label: "(3) 上滑最大距离",
+        eventKind: "string_slack",
+        formula: "绳松弛 T = 0；a上 = g·sinθ + μg·cosθ；s = v²/(2a上)",
+        substitution: "a上 = 6 + 2 = 8 m/s²；s = 16/16 = 1 m",
+      },
+      {
+        label: "(4) 能否自行返回",
+        eventKind: "turn_around",
+        formula: "μ < tanθ 时重力分量胜过最大静摩擦",
+        substitution: "0.25 < tan37° = 0.75 → 能返回（下滑 a = 4 m/s²）；演示播放到瞬时零速边界",
       },
     ],
     practice: [
       {
-        prompt: "悬挂物着地的那一刻，绳中张力如何变化？",
-        options: ["立即变为 0（绳松弛）", "保持原来的张力", "变为 m₁g"],
+        prompt: "悬挂物着地后，滑块沿斜面还能上滑多远？",
+        options: ["1 m", "2 m", "0.5 m"],
         answer: 0,
-        explain: "绳只能提供拉力：悬挂物被地面托住后绳不再张紧，T = 0，滑块只受摩擦。",
+        explain: "着地时 v = 4 m/s；上滑减速度 g·sinθ + μg·cosθ = 8 m/s²，s = v²/(2a) = 1 m。",
       },
     ],
     compare: {
-      label: "看光滑桌面",
+      label: "看光滑斜面",
       backLabel: "回到 μ = 0.25",
       reading: {
         ...pulleyGroundSlack,
+        bodies: [
+          { bodyId: "block", massKg: 2 },
+          { bodyId: "hanging", massKg: 4 },
+        ],
         stages: [
           {
             ...(pulleyGroundSlack.stages[0] as object),
-            surface: { kind: "horizontal", kineticFrictionCoefficient: 0, slidesAfterRelease: true },
+            surface: { kind: "incline", angleDeg: 37, kineticFrictionCoefficient: 0, staticFrictionCoefficient: 0, slidesAfterRelease: true },
+            body2DropToGroundM: 2,
           },
         ],
       } as WorkspaceReading,
     },
-    reading: pulleyGroundSlack as WorkspaceReading,
+    reading: {
+      ...pulleyGroundSlack,
+      bodies: [
+        { bodyId: "block", massKg: 2 },
+        { bodyId: "hanging", massKg: 4 },
+      ],
+      stages: [
+        {
+          ...(pulleyGroundSlack.stages[0] as object),
+          surface: { kind: "incline", angleDeg: 37, kineticFrictionCoefficient: 0.25, staticFrictionCoefficient: 0.25, slidesAfterRelease: true },
+          body2DropToGroundM: 2,
+        },
+      ],
+    } as WorkspaceReading,
   },
 ];
 

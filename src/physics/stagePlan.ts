@@ -367,6 +367,8 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       : previous === "vertical_arc" ? ["projectile", "horizontal_slide", "incline_slide", "spring_contact", "constant_force_1d", "vertical_arc"].includes(source.kind)
       : previous === "projectile" ? source.kind === "vertical_arc" || source.kind === "incline_slide"
       : previous === "spring_release" ? ["horizontal_slide", "spring_contact", "vertical_arc", "projectile", "constant_force_1d"].includes(source.kind)
+      : previous === "conveyor_belt" ? source.kind === "projectile" || source.kind === "horizontal_slide"
+      : previous === "magnetic_deflection" ? source.kind === "projectile" || source.kind === "horizontal_slide" || source.kind === "constant_force_1d"
       : false;
     if (!permitted) issue(path + "/kind", "UNSUPPORTED", "当前版本不支持该阶段接续。");
     if (i > 0 && previous === "horizontal_slide") {
