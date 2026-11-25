@@ -101,7 +101,9 @@ const clip = await ev("navigator.clipboard.readText().catch(() => null)");
 const shareUrl = typeof clip === "string" && clip.includes("#s=") ? clip : lastPrompt;
 check("分享链接含 #s=", typeof shareUrl === "string" && shareUrl.includes("#s="), String(shareUrl).slice(0, 60));
 const savedTime = await ev('parseFloat(document.querySelector(".time-readout b")?.textContent ?? "0")');
-await send("Page.navigate", { url: shareUrl }); await sleep(1600);
+await send("Page.navigate", { url: shareUrl });
+for (let i = 0; i < 20 && !(await ev('!!document.querySelector(".canvas-frame canvas")')); i += 1) await sleep(200);
+await sleep(600);
 check("分享链接复现题目", await ev('!!document.querySelector(".canvas-frame canvas")'));
 check("分享链接复现时刻", Math.abs((await ev('parseFloat(document.querySelector(".time-readout b")?.textContent ?? "0")')) - savedTime) < 0.35, `saved=${savedTime}`);
 
