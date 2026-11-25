@@ -13,6 +13,7 @@ import inclineArcHorizSpring from "../../fixtures/gaokao-incline-arc-horiz-sprin
 import springArcProjIncline from "../../fixtures/gaokao-spring-arc-proj-incline.reading.json";
 import conveyorAccel from "../../fixtures/conveyor-accel.reading.json";
 import magneticDeflection from "../../fixtures/magnetic-deflection.reading.json";
+import movableArcSpring from "../../fixtures/movable-arc-spring.reading.json";
 import pulleyGroundSlack from "../../fixtures/pulley-ground-slack.reading.json";
 
 export type SampleDifficulty = "基础" | "中档" | "压轴";
@@ -402,6 +403,58 @@ export const SAMPLES: Sample[] = [
         },
       ],
     } as WorkspaceReading,
+  },
+  {
+    id: "movable-arc-spring",
+    title: "可移动圆弧槽 · 球离槽经弹簧恰好不再滑上",
+    imageUrl: "/samples/movable-arc-spring.svg",
+    problemText:
+      "质量 M = 3.0 kg、半径 R = 0.6 m 的四分之一光滑圆弧槽静置于光滑水平地面上，可自由滑动。m₁ = 1 kg 的小球从槽顶端由静止释放；m₂ 右侧与球心等高处连接一轻质弹簧，弹簧另一端自由，m₂ 质量未知。已知 m₁ 恰好不能再次滑上圆弧槽，g = 10 m/s²。求：(1) m₁ 离开圆弧槽时槽的速度 v₁；(2) m₂ 的质量；(3) 弹簧被压缩过程中弹性势能的最大值 Ep。",
+    message: "已载入可移动圆弧槽压轴示例：球槽动量守恒分离 → 自由弹簧双球弹性作用 → 恰好不再滑上反求 m₂。",
+    description: "槽不固定：水平动量守恒让球与槽反向分离；弹簧不锚墙：共速时压缩最大；「恰好不再滑上」把分离速度钉在槽速上反求 m₂。",
+    difficulty: "压轴",
+    tags: ["圆弧槽", "动量守恒", "弹簧双球", "临界反求"],
+    assumptions: ["g = 10 m/s²，地面与槽面均光滑", "弹簧轻质、另一端自由，作用弹性无耗散", "k 取 100 N/m（题未给，仅影响过程时长）"],
+    questions: [
+      {
+        label: "(1) 离槽时槽的速度",
+        eventKind: "movable_arc_exit",
+        formula: "m·v球 = M·V槽；mgR = ½mv球² + ½MV槽²",
+        substitution: "v球 = √(2gRM/(M+m)) = 3 m/s；V槽 = m·v球/M = 1 m/s（反向）",
+      },
+      {
+        label: "(2) m₂ 的质量",
+        eventKind: "spring_pair_separate",
+        formula: "恰好不再滑上 → 分离后 m₁ 速率 = 槽速 1 m/s；m₂ = m₁(u+s)/(u−s)",
+        substitution: "m₂ = 1×(3+1)/(3−1) = 2 kg",
+      },
+      {
+        label: "(3) 最大弹性势能",
+        eventKind: "spring_pair_max_compression",
+        formula: "共速 v = m₁u/(m₁+m₂)；Ep = ½m₁u² − ½(m₁+m₂)v²",
+        substitution: "v = 3/3 = 1 m/s；Ep = 4.5 − 1.5 = 3 J",
+      },
+    ],
+    practice: [
+      {
+        prompt: "球离槽之后，圆弧槽做什么运动？",
+        options: ["以 1 m/s 匀速直线运动", "立即静止", "继续加速"],
+        answer: 0,
+        explain: "地面光滑、水平方向无外力：槽保持离槽瞬间的 1 m/s 匀速运动，这正是「恰好不再滑上」的比较基准。",
+      },
+    ],
+    compare: {
+      label: "看 m₂ = 3 kg",
+      backLabel: "回到反求 m₂ = 2 kg",
+      reading: {
+        ...movableArcSpring,
+        stages: [
+          movableArcSpring.stages[0],
+          { ...(movableArcSpring.stages[1] as object), targetMassKg: 3, separationSpeedMps: null },
+        ],
+      } as WorkspaceReading,
+    },
+    reading: movableArcSpring as WorkspaceReading,
   },
 ];
 

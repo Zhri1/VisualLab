@@ -9,7 +9,7 @@ import { validateMultiBodyPlan } from './multiBodyPlan.ts';
 import type { BodyDefinition, BodyStage } from './multiBodyTypes.ts';
 export type Energy = { stageIndex: number; elasticEnergyJ: number; origin: "given" | "user" | "spring_parameters" | "critical_arc_top"; basis?: Record<string, number> };
 export type PlaybackScope = { mode: "full" | "suffix" | "state_only"; startStageIndex: number; unresolvedKeys: string[]; reason: string; xM?: number; vxMps?: number; stopReason?: "stop_at_target" | "stop_before_target" | "prefix_end" };
-export type SingleStageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release" | "constant_force_1d" | "conveyor_belt" | "magnetic_deflection";
+export type SingleStageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release" | "constant_force_1d" | "conveyor_belt" | "magnetic_deflection" | "movable_arc" | "spring_pair";
 export type StageKind = SingleStageKind | BodyStage['kind'];
 export type SingleStage =
   | { kind: "incline_slide"; lengthM: number; angleDeg: number; kineticFrictionCoefficient: number; slidesAfterRelease?: boolean | null }
@@ -18,6 +18,8 @@ export type SingleStage =
   | { kind: "constant_force_1d"; netForceXN: number; end: { kind: "duration"; durationSeconds: number } | { kind: "stop" } }
   | import("./conveyorBelt.ts").ConveyorBeltStage
   | import("./magneticDeflection.ts").MagneticDeflectionStage
+  | import("./movableArc.ts").MovableArcStage
+  | import("./springPair.ts").SpringPairStage
   | { kind: "spring_release"; springConstantNpm: number | null; initialCompressionM: number | null; kineticFrictionCoefficient: number; unattached: true; slidesAfterRelease: boolean; releaseCompleteByM?: number | null }
   | { kind: "spring_contact"; springConstantNpm: number; frictionless: true; unattached: true; kineticFrictionCoefficient?: never; staticFrictionCoefficient?: never; reboundAtMaxCompression?: never }
   | { kind: "spring_contact"; springConstantNpm: number; kineticFrictionCoefficient: number; staticFrictionCoefficient?: number | null; reboundAtMaxCompression?: boolean | null; unattached: true; frictionless?: never }
@@ -60,7 +62,7 @@ export type StagePlanFailure = {
 };
 export type StagePlanValidation = { ok: true; reading: ResolvedStagePlan; playback?: PlaybackScope } | StagePlanFailure;
 
-const stageKinds: readonly string[] = ["incline_slide", "lossless_turn", "horizontal_slide", "spring_contact", "projectile", "vertical_arc", "spring_release", "constant_force_1d", "conveyor_belt", "magnetic_deflection"];
+const stageKinds: readonly string[] = ["incline_slide", "lossless_turn", "horizontal_slide", "spring_contact", "projectile", "vertical_arc", "spring_release", "constant_force_1d", "conveyor_belt", "magnetic_deflection", "movable_arc", "spring_pair"];
 const positive = (value: number) => value > 0;
 const nonnegative = (value: number) => value >= 0;
 const finite = (_value: number) => true;
@@ -72,6 +74,8 @@ const numericRules: Record<StageKind, Record<string, (value: number) => boolean>
   constant_force_1d: { netForceXN: finite },
   conveyor_belt: { initialBeltSpeedMps: finite, kineticFrictionCoefficient: nonnegative },
   magnetic_deflection: { magneticTeslaB: positive, chargeC: (value) => value !== 0, regionWidthM: positive },
+  movable_arc: { radiusM: positive, grooveMassKg: positive },
+  spring_pair: { springConstantNpm: positive },
   spring_contact: { springConstantNpm: positive },
   spring_release: { kineticFrictionCoefficient: nonnegative },
   projectile: {},
@@ -181,9 +185,9 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
   for (const key of ["speedMps", "vxMps", "vyMps"]) {
     if (!initialKeys.includes(key) && key in initial) numberField(initial, normalizedInitial, key, "/initial/" + key, key === "speedMps" ? nonnegative : finite, false);
   }
-  const needsGravity = stages.some((stage) => stage.kind === "incline_slide" || stage.kind === "projectile" || stage.kind === "vertical_arc" || stage.kind === "conveyor_belt" || (stage.kind === "spring_contact" && Object.prototype.hasOwnProperty.call(stage, "kineticFrictionCoefficient"))
+  const needsGravity = stages.some((stage) => stage.kind === "incline_slide" || stage.kind === "projectile" || stage.kind === "vertical_arc" || stage.kind === "conveyor_belt" || stage.kind === "movable_arc" || (stage.kind === "spring_contact" && Object.prototype.hasOwnProperty.call(stage, "kineticFrictionCoefficient"))
     || ((stage.kind === "horizontal_slide" || stage.kind === "spring_release") && typeof stage.kineticFrictionCoefficient === "number" && stage.kineticFrictionCoefficient > 0));
-  const needsMass = stages.some((stage) => stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "constant_force_1d" || stage.kind === "magnetic_deflection");
+  const needsMass = stages.some((stage) => stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "constant_force_1d" || stage.kind === "magnetic_deflection" || stage.kind === "movable_arc" || stage.kind === "spring_pair");
   numberField(input, draft, "gravityMps2", "/gravityMps2", positive, needsGravity);
   numberField(input, draft, "massKg", "/massKg", positive, needsMass);
   const nonSpringConstraints = stages[0]?.kind !== "spring_release" && input.constraints != null;
@@ -348,6 +352,20 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       else if (source.exitKind !== "region_edge" && source.exitKind !== "half_circle") issue(path + "/exitKind", "UNSUPPORTED", "未登记的磁场出射方式。");
       else stage.exitKind = source.exitKind;
     }
+    if (source.kind === "movable_arc") {
+      if (source.exitDirection == null) stage.exitDirection = -1;
+      else if (source.exitDirection !== -1 && source.exitDirection !== 1) issue(path + "/exitDirection", "UNSUPPORTED", "离槽方向仅支持 -1（向左）或 1（向右）。");
+      else stage.exitDirection = source.exitDirection;
+    }
+    if (source.kind === "spring_pair") {
+      if (source.targetMassKg == null) stage.targetMassKg = null;
+      else numberField(source, stage, "targetMassKg", path + "/targetMassKg", positive);
+      if (source.separationSpeedMps == null) stage.separationSpeedMps = null;
+      else numberField(source, stage, "separationSpeedMps", path + "/separationSpeedMps", positive);
+      if (source.gapM == null) stage.gapM = 0.5;
+      else numberField(source, stage, "gapM", path + "/gapM", nonnegative);
+      if (stage.targetMassKg == null && stage.separationSpeedMps == null) missingKeys.push(path + "/targetMassKg");
+    }
     if (source.kind === "constant_force_1d") {
       if (source.end == null) { stage.end = null; missingKeys.push(path + "/end"); }
       else if (!record(source.end)) issue(path + "/end", "TYPE", "结束条件应为对象。");
@@ -371,6 +389,7 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       : previous === "spring_release" ? ["horizontal_slide", "spring_contact", "vertical_arc", "projectile", "constant_force_1d"].includes(source.kind)
       : previous === "conveyor_belt" ? source.kind === "projectile" || source.kind === "horizontal_slide"
       : previous === "magnetic_deflection" ? source.kind === "projectile" || source.kind === "horizontal_slide" || source.kind === "constant_force_1d"
+      : previous === "movable_arc" ? source.kind === "spring_pair" || source.kind === "horizontal_slide"
       : false;
     if (!permitted) issue(path + "/kind", "UNSUPPORTED", "当前版本不支持该阶段接续。");
     if (i > 0 && previous === "horizontal_slide") {

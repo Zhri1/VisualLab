@@ -111,7 +111,7 @@ export interface ResolvedConditions {
   springConstantNpm: number;
 }
 
-export type SegmentKind = "incline" | "horizontal" | "spring" | "projectile" | "vertical_arc" | 'pendulum';
+export type SegmentKind = "incline" | "horizontal" | "spring" | "projectile" | "vertical_arc" | 'pendulum' | 'movable_arc' | 'spring_pair';
 export type BodyMotionSample = Omit<BodyState,'xM'|'yM'|'vxMps'|'vyMps'> & {position:Vec2;velocity:Vec2};
 
 export interface MotionSegment {
@@ -186,6 +186,8 @@ export interface Motion {
   energyAt?(timeSeconds: number): import("../physics").EnergyReading | null;
   /** 与 sampleAt 同钟的传送带读数（带速、相对带面位移等）。 */
   conveyorAt?(timeSeconds: number): import("../physics").ConveyorReading | null;
+  movableArcAt?(timeSeconds: number): { grooveXM: number; grooveVX: number } | null;
+  springPairAt?(timeSeconds: number): { x2M: number; vx2Mps: number; compressionM: number } | null;
 }
 
 /* ---------------- 错误 ---------------- */

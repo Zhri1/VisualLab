@@ -13,6 +13,8 @@ import type {
 } from "../types";
 
 const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "formula">> = {
+  movable_arc: { name:'可移动圆弧槽', summary:'槽置于光滑地面可自由滑动：球槽系统水平动量守恒、机械能守恒，球离槽时两者反向分离。', formula:'m·v球 + M·V槽 = 0；mgR = ½mv球² + ½MV槽²' },
+  spring_pair: { name:'自由弹簧双球', summary:'弹簧不锚墙：入射球经弹簧与静止球弹性作用，共速时压缩最大，恢复原长后分离。', formula:'v共 = m₁u/(m₁+m₂)；Ep_max = ½m₁u² − ½(m₁+m₂)v共²' },
   magnetic_deflection: { name:'匀强磁场偏转', summary:'洛伦兹力提供向心力，带电粒子在磁场区域内做匀速圆周；穿出边界或转过半圆后离开。', formula:'R = mv/(|q|B)，F = qv×B' },
   horizontal_approach: {name:'水平接近',summary:'各物体按题给初位、带符号速度和各自摩擦同钟运动。',formula:'xᵢ = xᵢ₀ + vᵢ₀t + aᵢt²/2'},
   block_plank: {name:'滑块与可移动木板',summary:'光滑地面双体按相对速度选摩擦方向，比较先共速与先到板边，共速后依静摩擦上限决定共动或重滑。',formula:'m·v块 + M·v板 = 常量；fₖ = μₖmg；|fₛ| ≤ μₛmg'},
@@ -70,6 +72,8 @@ function segmentKind(kind: StageKind): SegmentKind {
   if (kind === "spring_release") return "spring";
   if (kind === "projectile") return "projectile";
   if (kind === "vertical_arc") return "vertical_arc";
+  if (kind === "movable_arc") return "movable_arc";
+  if (kind === "spring_pair") return "spring_pair";
   return "horizontal";
 }
 
@@ -161,6 +165,8 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
     termination: source.termination,
     ...(source.energyAt ? { energyAt: (time: number) => source.energyAt!(Number.isNaN(time) ? 0 : time) } : {}),
     ...(source.conveyorAt ? { conveyorAt: (time: number) => source.conveyorAt!(Number.isNaN(time) ? 0 : time) } : {}),
+    ...(source.movableArcAt ? { movableArcAt: (time: number) => source.movableArcAt!(Number.isNaN(time) ? 0 : time) } : {}),
+    ...(source.springPairAt ? { springPairAt: (time: number) => source.springPairAt!(Number.isNaN(time) ? 0 : time) } : {}),
     sampleAt(timeSeconds) {
       const sample = source.sampleAt(Number.isNaN(timeSeconds) ? 0 : timeSeconds);
       return {

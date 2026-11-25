@@ -27,6 +27,8 @@ const KEYWORDS: Array<{ kind: string; words: string[] }> = [
   { kind:'horizontal_approach',words:['接近','碰前','碰撞前','正碰前','接触前'] },
   { kind:'block_plank',words:['木板','长木板','共速','板边'] },
   { kind:'pulley_system',words:['滑轮','定滑轮','连接体','张力','悬挂'] },
+  { kind:'movable_arc',words:['圆弧槽','可自由滑动','槽静置','光滑圆弧槽'] },
+  { kind:'spring_pair',words:['轻质弹簧','两球','双球','弹性势能'] },
   { kind:'vertical_arc',words:['圆轨','竖直圆弧','圆弧'] },
   { kind:'constant_force_1d',words:['常力','合力','匀加速','匀减速','匀变速'] },
   { kind:'conveyor_belt',words:['传送带','皮带','带面','共速'] },

@@ -136,6 +136,8 @@ const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primar
     horizontal_slide: "水平",
     constant_force_1d: "常力",
     conveyor_belt: "传送带",
+    movable_arc: "可移动圆弧槽",
+    spring_pair: "弹簧双球",
     spring_contact: "弹簧",
     projectile: "抛体",
     vertical_arc: "圆弧",

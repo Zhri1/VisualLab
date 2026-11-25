@@ -52,6 +52,14 @@ export function systemEnergyAt(motion: Motion, time: number): SystemEnergy | nul
     const bodies = s.bodies
       ? Object.values(s.bodies).map((b) => ({ m: (b as { massKg?: number }).massKg ?? motion.stagePlan?.massKg ?? 1, p: b.position, v: b.velocity }))
       : [{ m: motion.stagePlan?.massKg ?? 1, p: s.position, v: s.velocity }];
+    // 可移动槽与弹簧双球：把槽/靶球计入系统，否则耗散会被错算成初末动能差。
+    const grooveStage = motion.stagePlan?.stages?.find((st) => st.kind === "movable_arc") as { grooveMassKg?: number } | undefined;
+    const groove = grooveStage ? motion.movableArcAt?.(t) : null;
+    if (groove) bodies.push({ m: grooveStage?.grooveMassKg ?? 1, p: { x: groove.grooveXM, y: 0 }, v: { x: groove.grooveVX, y: 0 } });
+    const pairStage = motion.stagePlan?.stages?.find((st) => st.kind === "spring_pair") as { springConstantNpm?: number | null } | undefined;
+    const pairGeo = motion.stageGeometry?.springPair;
+    const pair = pairStage && pairGeo ? motion.springPairAt?.(t) : null;
+    if (pair && pairGeo) bodies.push({ m: pairGeo.mass2Kg, p: { x: pair.x2M, y: pairGeo.yM }, v: { x: pair.vx2Mps, y: 0 } });
     let kinetic = 0;
     let gravity = 0;
     for (const b of bodies) {
@@ -59,8 +67,9 @@ export function systemEnergyAt(motion: Motion, time: number): SystemEnergy | nul
       gravity += b.m * g * (b.p.y - minY);
     }
     const spring = motion.stagePlan?.stages?.find((st) => st.kind === "spring_contact" || st.kind === "spring_release") as { springConstantNpm?: number | null } | undefined;
-    const k = spring?.springConstantNpm ?? 0;
-    const elastic = k > 0 ? 0.5 * k * (s.springCompressionM ?? 0) ** 2 : 0;
+    const k = pair ? pairStage?.springConstantNpm ?? 0 : spring?.springConstantNpm ?? 0;
+    const compression = pair ? pair.compressionM : s.springCompressionM ?? 0;
+    const elastic = k > 0 ? 0.5 * k * compression ** 2 : 0;
     return { kinetic, gravity, elastic };
   };
   const now = read(time);
