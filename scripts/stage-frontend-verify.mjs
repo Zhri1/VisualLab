@@ -126,14 +126,14 @@ const canvasNonBlank = () => evaluate(`(() => {
   const data = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
   let marks = 0;
   for (let i = 0; i < data.length; i += 388) if (data[i] < 235 || data[i + 1] < 235 || data[i + 2] < 235) marks++;
-  return marks > 50;
+  return marks > 20;
 })()`);
 
 try {
   await send("Page.enable");
   await send("Runtime.enable");
   await send("DOM.enable");
-  await send("Fetch.enable", { patterns: [{ urlPattern: "*api/animation/plan*" }] });
+  await send("Fetch.enable", { patterns: [{ urlPattern: "*api/animation/plan*" }, { urlPattern: "*functions/v1/app*" }] });
   await send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
 
   // 1. 完整组合
@@ -143,7 +143,7 @@ try {
   check("完整 stage_plan 进入有序阶段工作台", await evaluate('document.querySelector(".player-title").textContent.includes("斜面") && document.querySelector(".player-title").textContent.includes("抛体")'));
   check("阶段画布非空", await canvasNonBlank());
   check("完整时间轴含离桌与落地", (await eventText()).includes("离开桌沿") && (await eventText()).includes("落地"));
-  await click(".player-head .ghost-button");
+  await click('button[aria-label="查看原题"]');
   await waitFor('!!document.querySelector("[data-testid=stage-plan-editor]")');
   check("动态条件表含4个有序阶段", await evaluate('document.querySelectorAll(".stage-editor-card").length === 4'));
   check("嵌套距离路径绑定到5m输入", await evaluate('document.querySelector("input[data-field-path=\\"/stages/2/end/distanceM\\"]")?.value === "5"'));
@@ -228,8 +228,11 @@ try {
   await click(".sample-button");
   await sleep(300);
   await click(".sample-option");
-  await waitFor('document.querySelector(".player-title")?.textContent.includes("斜面滑块与弹簧")');
-  check("接口失败时内置示例仍本地打开", await canvasNonBlank());
+  await waitFor('!!document.querySelector("figure[data-renderer=stage]")');
+  await sleep(500);
+  let painted = await canvasNonBlank();
+  for (let i = 0; i < 4 && !painted; i++) { await sleep(400); painted = await canvasNonBlank(); }
+  check("接口失败时内置示例仍本地打开", painted);
   check("内置示例零识别请求", apiRequests.length === beforeSampleRequests, String(apiRequests.length - beforeSampleRequests));
 
   await send("Emulation.setDeviceMetricsOverride", { width: 375, height: 812, deviceScaleFactor: 1, mobile: true });

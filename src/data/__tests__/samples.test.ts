@@ -15,9 +15,9 @@ function build(input: unknown) {
   return built.motion;
 }
 
-describe("内置示例题库（4 道多过程多模型高考压轴题）", () => {
-  it("恰好 4 道题、id 唯一、默认示例存在且全部附带真实存在的原题图片", () => {
-    expect(SAMPLES.length).toBe(4);
+describe("内置示例题库（多过程多模型高考压轴题 + 传送带）", () => {
+  it("恰好 7 道题、id 唯一、默认示例存在且全部附带真实存在的原题图片", () => {
+    expect(SAMPLES.length).toBe(7);
     const ids = SAMPLES.map((sample) => sample.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(getSample("missing-id").id).toBe(SAMPLES[0].id);
@@ -31,8 +31,8 @@ describe("内置示例题库（4 道多过程多模型高考压轴题）", () =>
   it.each(SAMPLES)("$title 能装配并生成可播放动画", (sample) => {
     const motion = build(sample.reading);
     expect(motion.durationSeconds).toBeGreaterThan(0.5);
-    expect(motion.events.length).toBeGreaterThanOrEqual(4);
-    expect(motion.segments.length).toBeGreaterThanOrEqual(2);
+    expect(motion.events.length).toBeGreaterThanOrEqual(sample.id === "conveyor-accel" ? 3 : sample.id === "magnetic-deflection" ? 2 : 4);
+    expect(motion.segments.length).toBeGreaterThanOrEqual(["magnetic-deflection", "conveyor-accel", "pulley-ground-slack"].includes(sample.id) ? 1 : 2);
     expect(sample.problemText.length).toBeGreaterThan(40);
     expect(sample.message.length).toBeGreaterThan(0);
     expect(sample.assumptions.length).toBe(3);

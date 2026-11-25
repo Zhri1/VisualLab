@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Motion, Vec2 } from '../../../types';
 import { formatSpeed } from './playback';
 import { computeWorldBounds, fitViewport } from './canvasViewport';
+import { forcesAt } from '../../../features/forces/forceModel';
+import { drawForceArrows } from '../../../features/forces/drawForces';
 import './multiBody.css';
 
 const INK='#1c1c1c',TARGET='#386e8a',SOFT='#777770',HAIR='#d6d6d1',PAPER='#fbfbf9';
@@ -18,7 +20,7 @@ function drawingData(motion:Motion){
   for(const tr of motion.stageGeometry?.bodyTracks??[]){if(tr.horizontal){points.push({x:tr.horizontal.start.xM,y:tr.horizontal.start.yM});if(tr.horizontal.plannedEnd)points.push({x:tr.horizontal.plannedEnd.xM,y:tr.horizontal.plannedEnd.yM});}if(tr.projectile?.landingPlane)points.push({x:tr.projectile.launch.xM,y:tr.projectile.landingPlane.yM});}
   return{curves,ids:Object.keys(curves).sort(),bounds:computeWorldBounds(points)};
 }
-export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:number,motion:Motion,time:number,tracked?:string,data=drawingData(motion)){
+export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:number,motion:Motion,time:number,tracked?:string,data=drawingData(motion),forceArrows?:import("../../../features/forces/forceModel").ForceArrow[]){
   const horizontal=motion.stagePlan?.stages[0]?.kind==='horizontal_approach';
   const snapshot=motion.sampleAt(time);
   const narrow=W<420;
@@ -102,6 +104,7 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
     if(q.leader&&Math.abs(by-q.by)>=12){ctx.save();ctx.strokeStyle=HAIR;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(q.leader.x,q.leader.y);ctx.lineTo(cx,by+(q.dir===-1?4:-13));ctx.stroke();ctx.restore();}
     ctx.fillStyle=PAPER;ctx.fillRect(rect.x,rect.y,w,h);ctx.fillStyle=q.color;ctx.textAlign='center';ctx.fillText(q.text,cx,by);
   }
+  if(forceArrows?.length)drawForceArrows(ctx,forceArrows,X,Y);
 }
 /** 逐物体读数。默认渲染在画布内；工作台把它移进「路段与计时」折叠区，
  *  让画布卡片与单物体版保持同一布局（画布独占整块 frame）。 */
@@ -112,11 +115,11 @@ export function MultiBodyReadouts({motion,time,isPlaying=false}:{motion:Motion;t
     {Object.values(sample.constraints??{}).map(c=><span className="body-constraint" key={c.constraintId}>{c.bodyIds.join(' + ')}：{c.state==='taut'?'绳张紧':'绳松弛'}，总张力 T = {c.tensionN.toFixed(2)} N</span>)}
   </figcaption>;
 }
-export function MultiBodyPhysicsCanvas({motion,time,isPlaying=false,trackedBodyId,readouts=true}:{motion:Motion;time:number;isPlaying?:boolean;trackedBodyId?:string;readouts?:boolean}){
+export function MultiBodyPhysicsCanvas({motion,time,isPlaying=false,trackedBodyId,readouts=true,forces=false,decompose=false}:{motion:Motion;time:number;isPlaying?:boolean;trackedBodyId?:string;readouts?:boolean;forces?:boolean;decompose?:boolean}){
   const ref=useRef<HTMLCanvasElement|null>(null),size=useRef({w:0,h:0}),frame=useRef<number|null>(null),data=useMemo(()=>drawingData(motion),[motion]);
-  const current=useRef({motion,time,trackedBodyId,data});current.current={motion,time,trackedBodyId,data};
-  const paint=useCallback(()=>{const canvas=ref.current,ctx=canvas?.getContext('2d');if(ctx&&size.current.w){const p=current.current;drawMultiBodyScene(ctx,size.current.w,size.current.h,p.motion,p.time,p.trackedBodyId,p.data);}},[]);
+  const current=useRef({motion,time,trackedBodyId,data,forces,decompose});current.current={motion,time,trackedBodyId,data,forces,decompose};
+  const paint=useCallback(()=>{const canvas=ref.current,ctx=canvas?.getContext('2d');if(ctx&&size.current.w){const p=current.current;drawMultiBodyScene(ctx,size.current.w,size.current.h,p.motion,p.time,p.trackedBodyId,p.data,p.forces?forcesAt(p.motion,p.time,p.decompose):undefined);}},[]);
   useEffect(()=>{const canvas=ref.current;if(!canvas)return;const resize=()=>{const box=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;size.current={w:box.width,h:box.height};canvas.width=Math.round(box.width*dpr);canvas.height=Math.round(box.height*dpr);canvas.getContext('2d')?.setTransform(dpr,0,0,dpr,0,0);paint();};resize();const observer=new ResizeObserver(resize);observer.observe(canvas);return()=>observer.disconnect();},[paint]);
-  useEffect(()=>{frame.current=requestAnimationFrame(paint);return()=>{if(frame.current!==null)cancelAnimationFrame(frame.current);};},[time,motion,trackedBodyId,paint]);
+  useEffect(()=>{frame.current=requestAnimationFrame(paint);return()=>{if(frame.current!==null)cancelAnimationFrame(frame.current);};},[time,motion,trackedBodyId,forces,decompose,paint]);
   return <figure className="multi-body-figure" data-renderer="multi-body"><canvas ref={ref} role="img" aria-label={motion.stageGeometry?.pulley?'轻绳与理想定滑轮连接体同步动画':motion.stageGeometry?.plank?'滑块与可移动木板同步动画':motion.stageGeometry?.pendulums?.length?'轻绳摆与物体同步动画，P为支点，O为最低点':'两物体水平正碰与碰后同步运动'} aria-describedby="multi-body-readouts"/>{readouts&&<MultiBodyReadouts motion={motion} time={time} isPlaying={isPlaying}/>}</figure>;
 }

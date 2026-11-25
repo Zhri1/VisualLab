@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <rect width="640" height="360" fill="#fbfbf9"/>
+  <text x="32" y="48" font-family="sans-serif" font-size="20" fill="#1c1c1c">匀强磁场中的带电粒子</text>
+  <text x="32" y="80" font-family="sans-serif" font-size="14" fill="#555550">宽 1 m 的匀强磁场区域，B = 1 T、方向垂直纸面向里。</text>
+  <text x="32" y="104" font-family="sans-serif" font-size="14" fill="#555550">粒子 m = 1×10⁻³ kg、q = +1×10⁻³ C，以 2 m/s 水平射入（忽略重力）。</text>
+  <text x="32" y="128" font-family="sans-serif" font-size="14" fill="#555550">求：轨道半径、偏转角与出射速度方向。</text>
+  <rect x="200" y="170" width="240" height="150" fill="#eef3f6" stroke="#386e8a" stroke-width="2" stroke-dasharray="6 4"/>
+  <g font-family="sans-serif" font-size="14" fill="#386e8a">
+    <text x="230" y="200">×</text><text x="280" y="200">×</text><text x="330" y="200">×</text><text x="380" y="200">×</text>
+    <text x="230" y="250">×</text><text x="280" y="250">×</text><text x="330" y="250">×</text><text x="380" y="250">×</text>
+    <text x="230" y="300">×</text><text x="280" y="300">×</text><text x="330" y="300">×</text><text x="380" y="300">×</text>
+  </g>
+  <path d="M200 290 A 120 120 0 0 0 440 250" fill="none" stroke="#b42318" stroke-width="2.5"/>
+  <line x1="120" y1="290" x2="196" y2="290" stroke="#1c1c1c" stroke-width="2"/>
+  <path d="M196 290 l-8 -4 v8 z" fill="#1c1c1c"/>
+  <text x="120" y="278" font-family="sans-serif" font-size="13" fill="#1c1c1c">v₀ = 2 m/s</text>
+  <text x="452" y="240" font-family="sans-serif" font-size="13" fill="#b42318">出射</text>
+</svg>

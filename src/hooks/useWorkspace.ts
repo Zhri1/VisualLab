@@ -10,6 +10,7 @@ import type { StagePlanDraft } from "../physics/stagePlan";
 import { truncateStagePlan } from '../physics/truncateStagePlan';
 import { getSample } from "../data/samples";
 import { segmentAt } from "../ui/components/workspace/playback";
+import { decodeShareState, readShareFromLocation } from "../features/share/shareLink";
 import { isStageReading } from "../types";
 import type {
   ChatMessage,
@@ -75,6 +76,8 @@ export function useWorkspace() {
 
   const motionRef = useRef<Motion | null>(null);
   motionRef.current = motion;
+  /** 同页跳转到 #s=… 时的复现入口（在 actions 定义后赋值）。 */
+  const shareNavRef = useRef<(hash: string) => boolean>(() => false);
 
   // 首次加载若停在 #/work 但无 motion（如刷新），归一化回首页，避免假工作台。
   useEffect(() => {
@@ -91,6 +94,8 @@ export function useWorkspace() {
           window.history.replaceState(null, "", homeUrl);
         }
       } else {
+        // 分享链接（#s=…）在同页跳转时也要复现，而不是归一化回首页。
+        if (shareNavRef.current(window.location.hash)) return;
         // 后退回首页：保留 motion 以便前进恢复，不清空状态。
         setPhase("home");
       }
@@ -276,6 +281,14 @@ export function useWorkspace() {
     [recognize]
   );
 
+  /** 临界探索「应用到主题」：把扫描出的 reading 直接装配为当前运动。 */
+  const applyReadingOverride = useCallback(
+    (next: WorkspaceReading) => {
+      applyReading(next);
+    },
+    [applyReading]
+  );
+
   /** 题内对照：在示例的两组条件之间切换，保持同一道题的题面与上下文。 */
   const toggleSampleCompare = useCallback(() => {
     if (!sampleCompare || !sampleId) return;
@@ -283,6 +296,28 @@ export function useWorkspace() {
     const res = applyReading(next);
     if (res.ok) setCompareOn((value) => !value);
   }, [applyReading, compareOn, sampleCompare, sampleId]);
+
+  /** 分享链接还原：#s=… 携带题目/条件/时刻/倍率，打开即复现。 */
+  const [shareBoot] = useState(() => (typeof window !== "undefined" ? readShareFromLocation(window.location) : null));
+  const pendingShareSeek = useRef<number | null>(null);
+  shareNavRef.current = (hash: string) => {
+    const shared = decodeShareState(hash);
+    if (!shared) return false;
+    pendingShareSeek.current = shared.timeSeconds ?? 0;
+    if (typeof shared.playbackRate === "number") setPlaybackRate(shared.playbackRate);
+    if (shared.reading) applyReadingOverride(shared.reading as WorkspaceReading);
+    else if (shared.sampleId) loadSample(shared.sampleId);
+    return true;
+  };
+  useEffect(() => {
+    if (!shareBoot) return;
+    if (typeof shareBoot.playbackRate === "number") setPlaybackRate(shareBoot.playbackRate);
+    pendingShareSeek.current = shareBoot.timeSeconds ?? 0;
+    if (shareBoot.reading) applyReadingOverride(shareBoot.reading as WorkspaceReading);
+    else if (shareBoot.sampleId) loadSample(shareBoot.sampleId);
+    // 仅启动时执行一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const restartHome = useCallback(() => {
     setSegmentPlayback(null);
@@ -318,6 +353,15 @@ export function useWorkspace() {
     },
     [motion, segmentPlayback]
   );
+
+  useEffect(() => {
+    if (motion && pendingShareSeek.current != null) {
+      const t = pendingShareSeek.current;
+      pendingShareSeek.current = null;
+      seek(t);
+      setIsPlaying(false);
+    }
+  }, [motion, seek]);
 
   const seekEvent = useCallback(
     (eventId: string) => {
@@ -627,11 +671,13 @@ export function useWorkspace() {
       problemText,
       notice,
       missingKeys,
+      sampleId,
       sampleCompare,
       compareOn,
       // actions
       recognize,
       loadSample,
+      applyReadingOverride,
       toggleSampleCompare,
       restartHome,
       seek,
@@ -652,8 +698,8 @@ export function useWorkspace() {
     }),
     [
       phase, reading, appliedReading, motion, currentTime, isPlaying, playbackRate, autoPauseEvents, segmentPlayback, messages,
-      isRecognizing, isChatLoading, imageUrl, imageFile, problemText, notice, missingKeys, sampleCompare, compareOn,
-      recognize, loadSample, toggleSampleCompare, restartHome, seek, seekEvent, nextEvent, togglePlay,
+      isRecognizing, isChatLoading, imageUrl, imageFile, problemText, notice, missingKeys, sampleId, sampleCompare, compareOn,
+      recognize, loadSample, applyReadingOverride, toggleSampleCompare, restartHome, seek, seekEvent, nextEvent, togglePlay,
       replay, sendChat, undoChange, applyConditions, slowCurrentSegment, exitSegmentPlayback,
     ]
   );

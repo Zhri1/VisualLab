@@ -13,6 +13,7 @@ import type {
 } from "../types";
 
 const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "formula">> = {
+  magnetic_deflection: { name:'匀强磁场偏转', summary:'洛伦兹力提供向心力，带电粒子在磁场区域内做匀速圆周；穿出边界或转过半圆后离开。', formula:'R = mv/(|q|B)，F = qv×B' },
   horizontal_approach: {name:'水平接近',summary:'各物体按题给初位、带符号速度和各自摩擦同钟运动。',formula:'xᵢ = xᵢ₀ + vᵢ₀t + aᵢt²/2'},
   block_plank: {name:'滑块与可移动木板',summary:'光滑地面双体按相对速度选摩擦方向，比较先共速与先到板边，共速后依静摩擦上限决定共动或重滑。',formula:'m·v块 + M·v板 = 常量；fₖ = μₖmg；|fₛ| ≤ μₛmg'},
   pulley_system: {name:'轻绳与定滑轮连接体',summary:'轻质不可伸长绳绕过理想定滑轮，拉紧时两物体共加速度与同张力，着地或约束失效时张力归零。',formula:'a = (F驱动 − fₖ)/(m₁ + m₂)，T = m₂(g − a) ≥ 0'},

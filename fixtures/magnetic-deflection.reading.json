@@ -1,0 +1,1 @@
+{"kind": "stage_plan", "schemaVersion": 1, "massKg": 0.001, "initial": {"vxMps": 2, "vyMps": 0}, "stages": [{"kind": "magnetic_deflection", "magneticTeslaB": 1, "chargeC": 0.001, "regionWidthM": 1, "fieldDirection": "into_page"}]}

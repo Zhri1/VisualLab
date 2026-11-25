@@ -34,6 +34,8 @@ interface Props {
   time: number;
   isPlaying?: boolean;
   readouts?: boolean;
+  forces?: boolean;
+  decompose?: boolean;
 }
 
 interface Transform {
@@ -516,9 +518,9 @@ function drawScene(
 }
 
 export function PhysicsCanvas(props: Props) {
-  if(props.motion?.primaryBodyId)return <MultiBodyPhysicsCanvas motion={props.motion} time={props.time} isPlaying={props.isPlaying} trackedBodyId={props.trackedBodyId} readouts={props.readouts}/>;
+  if(props.motion?.primaryBodyId)return <MultiBodyPhysicsCanvas motion={props.motion} time={props.time} isPlaying={props.isPlaying} trackedBodyId={props.trackedBodyId} readouts={props.readouts} forces={props.forces} decompose={props.decompose}/>;
   if (props.motion?.stageGeometry) {
-    return <StagePhysicsCanvas motion={props.motion} time={props.time} isPlaying={props.isPlaying} />;
+    return <StagePhysicsCanvas motion={props.motion} time={props.time} isPlaying={props.isPlaying} forces={props.forces} decompose={props.decompose} />;
   }
   return <LegacyPhysicsCanvas {...props} />;
 }

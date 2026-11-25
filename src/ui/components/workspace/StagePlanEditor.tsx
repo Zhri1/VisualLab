@@ -13,6 +13,7 @@ const STAGE_LABELS: Record<StageKind, string> = {
   conveyor_belt: "传送带与滑块",
   spring_contact: "弹簧接触",
   projectile: "抛体运动",
+  magnetic_deflection: "匀强磁场偏转",
 };
 
 const STAGE_KINDS = Object.keys(STAGE_LABELS) as StageKind[];
