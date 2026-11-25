@@ -110,8 +110,12 @@ export function parseCommand(command: string, plan: { stages: PlanStageLike[] })
     };
   }
 
+  // 「圆弧槽」是可移动槽的专名：旧计划没有该段时不能退化成「圆弧→转向」静默截断。
+  if (text.includes('圆弧槽') && findStageIndex(plan.stages, 'movable_arc') < 0) {
+    return { status: 'unsupported', message: '当前计划里没有「圆弧槽」对应的阶段' };
+  }
   for (const { kind, words } of KEYWORDS) {
-    if ((kind === 'horizontal_approach'||kind==='vertical_arc'||kind==='constant_force_1d'||kind==='block_plank'||kind==='conveyor_belt'||kind==='pulley_system') && findStageIndex(plan.stages, kind) < 0) continue;
+    if ((kind === 'horizontal_approach'||kind==='vertical_arc'||kind==='constant_force_1d'||kind==='block_plank'||kind==='conveyor_belt'||kind==='pulley_system'||kind==='movable_arc'||kind==='spring_pair') && findStageIndex(plan.stages, kind) < 0) continue;
     if (!words.some((word) => text.includes(word))) continue;
     const index = findStageIndex(plan.stages, kind);
     if (index < 0) {
