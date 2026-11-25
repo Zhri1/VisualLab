@@ -3,6 +3,8 @@ import type { Motion, StageGeometry, Vec2 } from "../../../types";
 import type { VerticalArcGeometry } from "../../../physics/stageMotion";
 import { formatSpeed } from "./playback";
 import { EnergyReadout, energyText, showsEnergy } from "./EnergyReadout";
+import { forcesAt } from "../../../features/forces/forceModel";
+import { drawForceArrows } from "../../../features/forces/drawForces";
 import { computeWorldBounds, fitViewport, type WorldBounds } from "./canvasViewport";
 
 type DisplayArc = VerticalArcGeometry | NonNullable<NonNullable<StageGeometry["schematic"]>["verticalArc"]>;
@@ -47,6 +49,8 @@ interface Props {
   motion: Motion;
   time: number;
   isPlaying?: boolean;
+  forces?: boolean;
+  decompose?: boolean;
 }
 
 export function stageWorldBounds(motion: Motion): WorldBounds {
@@ -75,6 +79,13 @@ export function stageWorldBounds(motion: Motion): WorldBounds {
   }
   if (g.conveyor) {
     points.push({ x: g.conveyor.minXM, y: 0 }, { x: g.conveyor.maxXM, y: 0 });
+  }
+  for (const mg of g.magnetics ?? (g.magnetic ? [g.magnetic] : [])) {
+    points.push(
+      { x: mg.entry.xM, y: mg.center.yM + mg.radiusM },
+      { x: mg.entry.xM + mg.regionWidthM, y: mg.center.yM - mg.radiusM },
+      { x: mg.exit.xM, y: mg.exit.yM },
+    );
   }
   for (const sp of springs) {
     points.push({ x: sp.contact.xM, y: sp.contact.yM }, { x: sp.anchor.xM, y: sp.anchor.yM });
@@ -118,7 +129,7 @@ export function stageWorldBounds(motion: Motion): WorldBounds {
   return computeWorldBounds(points);
 }
 
-export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: number, motion: Motion, time: number, precomputedBounds?: WorldBounds) {
+export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: number, motion: Motion, time: number, precomputedBounds?: WorldBounds, forceArrows?: import("../../../features/forces/forceModel").ForceArrow[]) {
   const g = motion.stageGeometry!;
   const inclineLaunch = hasInclineLaunch(motion);
   const verticalArcs = getVerticalArcs(g);
@@ -569,24 +580,63 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = SOFT;
     ctx.fillText(`x = ${componentText(sample.position.x)} m，vₓ = ${componentText(sample.velocity.x)} m/s`, 12, 12);
   }
+  for (const mg of g.magnetics ?? (g.magnetic ? [g.magnetic] : [])) {
+    const x0 = mg.entry.xM;
+    const x1 = mg.entry.xM + mg.regionWidthM;
+    const yTop = mg.center.yM + mg.radiusM;
+    const yBot = mg.center.yM - mg.radiusM;
+    ctx.save();
+    ctx.fillStyle = "rgba(56,110,138,0.07)";
+    ctx.fillRect(X(x0), Y(yTop), (x1 - x0) * S, (yTop - yBot) * S);
+    ctx.strokeStyle = "#386e8a";
+    ctx.lineWidth = 1.2;
+    ctx.setLineDash([5, 4]);
+    ctx.strokeRect(X(x0), Y(yTop), (x1 - x0) * S, (yTop - yBot) * S);
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#386e8a";
+    ctx.font = `11px ${SANS}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const glyph = mg.fieldDirection === "into_page" ? "×" : "·";
+    for (let ix = x0 + 0.25; ix < x1; ix += 0.5) {
+      for (let iy = yBot + 0.25; iy < yTop; iy += 0.5) ctx.fillText(glyph, X(ix), Y(iy));
+    }
+    ctx.strokeStyle = "#b42318";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const sweep = mg.exitAngleRad - mg.entryAngleRad;
+    for (let i = 0; i <= 48; i += 1) {
+      const a = mg.entryAngleRad + (sweep * i) / 48;
+      const px = mg.center.xM + mg.radiusM * Math.cos(a);
+      const py = mg.center.yM + mg.radiusM * Math.sin(a);
+      if (i === 0) ctx.moveTo(X(px), Y(py));
+      else ctx.lineTo(X(px), Y(py));
+    }
+    ctx.stroke();
+    ctx.textAlign = "left";
+    ctx.textBaseline = "bottom";
+    ctx.fillText(`B ${mg.fieldDirection === "into_page" ? "⊗" : "⊙"}　R = ${mg.radiusM.toFixed(2)} m`, X(x0) + 6, Y(yTop) - 6);
+    ctx.restore();
+  }
+  if (forceArrows?.length) drawForceArrows(ctx, forceArrows, X, Y);
 }
 
-export function StagePhysicsCanvas({ motion, time, isPlaying = false }: Props) {
+export function StagePhysicsCanvas({ motion, time, isPlaying = false, forces = false, decompose = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<number | null>(null);
   const sizeRef = useRef({ w: 0, h: 0 });
   const stableBounds = useMemo(() => stageWorldBounds(motion), [motion]);
-  const stateRef = useRef({ motion, time, stableBounds });
-  stateRef.current = { motion, time, stableBounds };
+  const stateRef = useRef({ motion, time, stableBounds, forces, decompose });
+  stateRef.current = { motion, time, stableBounds, forces, decompose };
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const { motion: currentMotion, time: currentTime, stableBounds: bounds } = stateRef.current;
+    const { motion: currentMotion, time: currentTime, stableBounds: bounds, forces: showForces, decompose: split } = stateRef.current;
     const { w, h } = sizeRef.current;
     if (!w || !h) return;
     const ctx = canvas.getContext("2d");
-    if (ctx) drawStageScene(ctx, w, h, currentMotion, currentTime, bounds);
+    if (ctx) drawStageScene(ctx, w, h, currentMotion, currentTime, bounds, showForces ? forcesAt(currentMotion, currentTime, split) : undefined);
   }, []);
 
   useEffect(() => {
@@ -613,7 +663,7 @@ export function StagePhysicsCanvas({ motion, time, isPlaying = false }: Props) {
     if (frameRef.current) cancelAnimationFrame(frameRef.current);
     frameRef.current = requestAnimationFrame(paint);
     return () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); };
-  }, [motion, time, paint]);
+  }, [motion, time, forces, decompose, paint]);
 
   const velocity = motion.sampleAt(time).velocity;
   const constraint = motion.sampleAt(time).constraint;

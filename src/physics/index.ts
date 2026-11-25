@@ -26,6 +26,8 @@ export type { HorizontalInitial, InitialBody, HorizontalApproach, HorizontalColl
 export type { BlockPlankStage, PostCommonForce, PlankGeometry } from './blockPlankTypes.ts';
 export type { PulleyStage, PulleySurface, PulleyGeometry } from './pulleyTypes.ts';
 export type { ConveyorBeltStage, ConveyorBeltSegment, ConveyorReading, ConveyorGeometry } from './conveyorBelt.ts';
+export { solveMagneticDeflection } from './magneticDeflection.ts';
+export type { MagneticDeflectionStage, MagneticDeflectionSolution, MagneticGeometry, MagneticFieldDirection, MagneticExitKind, MagneticPoint, MagneticEntry, MagneticState, MagneticEvent } from './magneticDeflection.ts';
 
 export function assembleScene(input: StagePlanDraft | ResolvedStagePlan): ReturnType<typeof assembleStageScene>;
 export function assembleScene(input: Omit<Reading, "templateId"> & { templateId: string }): ReturnType<typeof assembleLegacyScene>;

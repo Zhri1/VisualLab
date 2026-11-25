@@ -1,0 +1,96 @@
+/* 打印讲义：屏幕隐藏，仅 @media print 可见（配合 PrintSheet.tsx 使用）。 */
+
+.print-sheet {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* 兜底：隐藏 .app 及其余屏幕内容，只保留讲义（visibility 方案全浏览器可用）。 */
+  body * {
+    visibility: hidden !important;
+  }
+  .print-sheet,
+  .print-sheet * {
+    visibility: visible !important;
+  }
+
+  /* 支持 :has 的浏览器直接移除其余子树，避免隐藏元素占位产生空白页。 */
+  @supports selector(:has(*)) {
+    .app *:not(.print-sheet):not(.print-sheet *):not(:has(.print-sheet)) {
+      display: none !important;
+    }
+  }
+
+  .print-sheet {
+    display: block !important;
+    position: absolute !important;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    color: #000;
+    font-size: 12pt;
+    line-height: 1.5;
+  }
+
+  .print-sheet__title {
+    margin: 0 0 4mm;
+    font-size: 16pt;
+  }
+
+  .print-sheet__problem {
+    margin: 0 0 6mm;
+    white-space: pre-wrap;
+  }
+
+  .print-sheet__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6mm;
+    margin: 0 0 6mm;
+  }
+
+  /* 关键帧不跨页断裂 */
+  .print-sheet__frame {
+    margin: 0;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-sheet__frame img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border: 0.3mm solid #999;
+  }
+
+  .print-sheet__frame figcaption {
+    margin-top: 1.5mm;
+    font-size: 9pt;
+  }
+
+  .print-sheet__formulas {
+    margin: 0;
+    padding-left: 6mm;
+  }
+
+  .print-sheet__formulas li {
+    margin-bottom: 1.5mm;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    font-family: "Cambria Math", "STIX Two Math", Georgia, serif;
+  }
+}

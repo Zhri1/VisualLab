@@ -111,7 +111,7 @@ check('时间轴有关键事件', wsText.includes('到达接续点') && wsText.i
 await shot('02-workspace-1440');
 
 // 2a. 内置示例点右上角「查看原题」能展示原题图片
-await evaluate('document.querySelector(".ghost-button[aria-label=\'查看原题\'], .player-head .ghost-button")?.click()');
+await evaluate('document.querySelector(".ghost-button[aria-label=\'查看原题\']")?.click()');
 await sleep(400);
 const thumbInfo = await evaluate(`(() => {
   const img = document.querySelector(".problem-thumb img");

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <rect width="640" height="360" fill="#fbfbf9"/>
+  <text x="32" y="44" font-family="sans-serif" font-size="20" fill="#1c1c1c">连接体 · 斜面桌面着地绳松弛后冲上斜面</text>
+  <text x="32" y="74" font-family="sans-serif" font-size="14" fill="#555550">37° 粗糙斜面桌面上 m₁ = 2 kg（μ = μs = 0.25），经定滑轮连 m₂ = 4 kg。</text>
+  <text x="32" y="98" font-family="sans-serif" font-size="14" fill="#555550">悬挂物离地 2 m，斜面足够长；sin37° = 0.6、cos37° = 0.8，g = 10 m/s²。</text>
+  <text x="32" y="122" font-family="sans-serif" font-size="14" fill="#555550">求：(1) 共同加速度；(2) 着地速度；(3) 松弛后上滑距离；(4) 能否自行返回。</text>
+  <line x1="80" y1="300" x2="560" y2="300" stroke="#1c1c1c" stroke-width="2"/>
+  <line x1="120" y1="300" x2="440" y2="180" stroke="#1c1c1c" stroke-width="2"/>
+  <text x="150" y="290" font-family="sans-serif" font-size="13" fill="#555550">37°</text>
+  <rect x="230" y="238" width="34" height="26" fill="#8e8e88" transform="rotate(-20.5 247 251)"/>
+  <text x="222" y="228" font-family="sans-serif" font-size="14" fill="#1c1c1c">m₁</text>
+  <circle cx="452" cy="176" r="12" fill="none" stroke="#1c1c1c" stroke-width="2"/>
+  <line x1="264" y1="244" x2="444" y2="172" stroke="#1c1c1c" stroke-width="1.5"/>
+  <line x1="464" y1="176" x2="464" y2="248" stroke="#1c1c1c" stroke-width="1.5"/>
+  <rect x="450" y="248" width="28" height="26" fill="#5f5f5b"/>
+  <text x="484" y="266" font-family="sans-serif" font-size="14" fill="#1c1c1c">m₂</text>
+  <line x1="500" y1="274" x2="500" y2="300" stroke="#8e8e88" stroke-width="1.5" stroke-dasharray="3 3"/>
+  <text x="508" y="292" font-family="sans-serif" font-size="13" fill="#555550">h = 2 m</text>
+  <path d="M262 240 l 60 -22" stroke="#8a4b4b" stroke-width="2" stroke-dasharray="5 4"/>
+  <text x="300" y="212" font-family="sans-serif" font-size="13" fill="#8a4b4b">松弛后上滑 s = ?</text>
+</svg>

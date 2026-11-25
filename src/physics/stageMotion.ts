@@ -10,6 +10,7 @@ import { validateStagePlan } from "./stagePlan.ts";
 import { landingTime, linearState, springMetrics, springState } from "./kinematics.ts";
 import { solveRoughSpring, type RoughSpring, type RoughSpringConflict } from "./roughSpring.ts";
 import { solveConveyorBelt, type ConveyorGeometry, type ConveyorReading } from "./conveyorBelt.ts";
+import { solveMagneticDeflection, type MagneticGeometry } from "./magneticDeflection.ts";
 
 type Velocity = { vxMps: number; vyMps: number };
 export type StageGeometry = BodyGeometry & {
@@ -19,6 +20,8 @@ export type StageGeometry = BodyGeometry & {
   horizontals?: Array<{ stageIndex: number; start: Point; plannedEnd: Point | null }>;
   linearTrack?: { minXM: number; maxXM: number; yM: number };
   conveyor?: ConveyorGeometry;
+  magnetic?: MagneticGeometry;
+  magnetics?: MagneticGeometry[];
   spring?: { contact: Point; anchor: Point };
   springs?: Array<{ stageIndex: number; contact: Point; anchor: Point }>;
   projectile?: { launch: Point; landingPlane: { yM: number } };
@@ -31,7 +34,7 @@ export type StageGeometry = BodyGeometry & {
   blockSizeM: number;
   positionReference: "front_bottom" | "particle";
 };
-export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit';
+export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit' | 'magnetic_exit';
 export type StageEvent = {
   collision?: import('./horizontalTypes.ts').CollisionValues;
   bodyIds?: string[]; stagePath?: string;
@@ -365,7 +368,7 @@ function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: Motion
 
 function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | StagePlanFailure {
   if (plan.bodies) return computeMultiBodyMotion(plan);
-  const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage, i) => stage.kind === "vertical_arc" || stage.kind === "spring_release"
+  const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage, i) => stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "magnetic_deflection"
     || stage.kind === "incline_slide" && plan.stages[i + 1]?.kind === "projectile") ? "particle" : "front_bottom" };
   const first = plan.stages[0];
   let state = "speedMps" in plan.initial ? moving(0, 0, plan.initial.speedMps) : "vxMps" in plan.initial ? moving(0, 0, plan.initial.vxMps, "vyMps" in plan.initial ? plan.initial.vyMps : 0) : moving(0,0,"tangentialSpeedMps" in plan.initial ? plan.initial.tangentialSpeedMps : 0);
@@ -502,7 +505,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
         run = {
           duration: solved.duration,
           end: endSample,
-          reason: solved.exited ? "conveyor_exit" : undefined,
+          reason: solved.exited && index + 1 >= plan.stages.length ? "conveyor_exit" : undefined,
           events: solved.events.map((ev) => {
             const st = moving(ev.xM, state.yM, ev.vxMps);
             return event(ev.kind, ev.time, st, st, ev.label, ev.explanation);
@@ -510,6 +513,27 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
           sampleAt: (dt) => {
             const r = solved.evalAt(dt);
             return moving(r.xM, state.yM, r.vxMps);
+          },
+        };
+        break;
+      }
+      case "magnetic_deflection": {
+        // 磁场阶段忽略重力（题目约定）；入口位置/速度继承前一阶段末端或计划初态。
+        const solved = solveMagneticDeflection(stage, { xM: state.xM, yM: state.yM, vxMps: state.vxMps, vyMps: state.vyMps }, plan.massKg!);
+        geometry.magnetic = solved.geometry;
+        (geometry.magnetics ??= []).push(solved.geometry);
+        const endSample = moving(solved.geometry.exit.xM, solved.geometry.exit.yM, solved.exitVelocity.vxMps, solved.exitVelocity.vyMps);
+        run = {
+          duration: solved.durationSeconds,
+          end: endSample,
+          reason: index + 1 >= plan.stages.length ? "magnetic_exit" : undefined,
+          events: solved.events.map((ev) => {
+            const st = moving(ev.xM, ev.yM, ev.vxMps, ev.vyMps);
+            return event(ev.kind, ev.timeSeconds, st, st, ev.label, ev.explanation);
+          }),
+          sampleAt: (dt) => {
+            const r = solved.at(dt);
+            return moving(r.xM, r.yM, r.vxMps, r.vyMps);
           },
         };
         break;
