@@ -1,0 +1,65 @@
+{
+  "description": "滑块与可移动木板独立基准，不是运行时回包。",
+  "toleranceSI": 1e-9,
+  "cases": [
+    {
+      "id": "common",
+      "readingFile": "block-plank-common.reading.json",
+      "durationSeconds": 1,
+      "endReason": "prefix_end",
+      "commonVelocityTimeSeconds": 1,
+      "finalBlock": { "xM": 2.5, "vxMps": 1 },
+      "finalPlank": { "xM": 0.5, "vxMps": 1 },
+      "relativeDisplacementM": 2
+    },
+    {
+      "id": "edge",
+      "readingFile": "block-plank-edge.reading.json",
+      "durationSeconds": 0.5,
+      "endReason": "plank_edge_leave",
+      "finalBlock": { "xM": 1.625, "vxMps": 2.5 },
+      "finalPlank": { "xM": 0.125, "vxMps": 0.5 },
+      "relativeDisplacementM": 1.5
+    },
+    {
+      "id": "force_together",
+      "readingFile": "block-plank-force-together.reading.json",
+      "durationSeconds": 2,
+      "endReason": "prefix_end",
+      "commonVelocityTimeSeconds": 1,
+      "postCommonAccelMps2": { "block": 3, "plank": 3 },
+      "finalBlock": { "xM": 5, "vxMps": 4 },
+      "finalPlank": { "xM": 3, "vxMps": 4 }
+    },
+    {
+      "id": "force_threshold",
+      "readingFile": "block-plank-force-threshold.reading.json",
+      "durationSeconds": 2,
+      "endReason": "prefix_end",
+      "commonVelocityTimeSeconds": 1,
+      "postCommonAccelMps2": { "block": 4, "plank": 4 },
+      "finalBlock": { "xM": 5.5, "vxMps": 5 },
+      "finalPlank": { "xM": 3.5, "vxMps": 5 }
+    },
+    {
+      "id": "force_reslide",
+      "readingFile": "block-plank-force-reslide.reading.json",
+      "durationSeconds": 2.224744871391589,
+      "endReason": "plank_edge_leave",
+      "commonVelocityTimeSeconds": 1,
+      "postCommonAccelMps2": { "block": 3, "plank": 5.666666666666667 },
+      "finalBlock": { "xM": 5.974744871391589, "vxMps": 4.674234614174767 },
+      "finalPlank": { "xM": 5.974744871391589, "vxMps": 7.940220937885671 }
+    },
+    {
+      "id": "reverse",
+      "readingFile": "block-plank-reverse.reading.json",
+      "durationSeconds": 1,
+      "endReason": "prefix_end",
+      "commonVelocityTimeSeconds": 1,
+      "finalBlock": { "xM": 2.5, "vxMps": 1 },
+      "finalPlank": { "xM": 1.5, "vxMps": 1 },
+      "relativeDisplacementM": -2
+    }
+  ]
+}

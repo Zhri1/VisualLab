@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { Motion, Vec2 } from "../../../types";
 import { formatSpeed } from "./playback";
 import { StagePhysicsCanvas } from "./StagePhysicsCanvas";
+import { MultiBodyPhysicsCanvas } from './MultiBodyPhysicsCanvas';
 
 const INK = "#1c1c1c";
 const SOFT = "#8e8e88";
@@ -28,9 +29,11 @@ const MATH = '"Cambria", "Cambria Math", Georgia, "Times New Roman", serif';
 const SANS = '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
 
 interface Props {
+  trackedBodyId?:string;
   motion: Motion | null;
   time: number;
   isPlaying?: boolean;
+  readouts?: boolean;
 }
 
 interface Transform {
@@ -513,6 +516,7 @@ function drawScene(
 }
 
 export function PhysicsCanvas(props: Props) {
+  if(props.motion?.primaryBodyId)return <MultiBodyPhysicsCanvas motion={props.motion} time={props.time} isPlaying={props.isPlaying} trackedBodyId={props.trackedBodyId} readouts={props.readouts}/>;
   if (props.motion?.stageGeometry) {
     return <StagePhysicsCanvas motion={props.motion} time={props.time} isPlaying={props.isPlaying} />;
   }

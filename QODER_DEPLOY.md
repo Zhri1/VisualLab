@@ -41,10 +41,17 @@ Qoder Sites 发布技能要求 **static 产物**，但平台支持「静态站�
 
 1. 确认登录的是**个人版 Qoder 账号**。组织账号无法公开访问，设 public 会报 `sites_invalid_access_mode`，站点虽上线但评委看到登录墙。
 2. 读 Qoder Sites 发布技能，确认用 static 产物。
-3. `prepare_site` 打包上传为草稿 → 检查草稿就绪、无阻塞项。
+3. `prepare_site` 打包上传为草稿 → 检查草稿就绪、无阻塞项。若本次返回 `descriptorStatus: "pending"`，必须先用 `get_publish_status` 轮询到 `canPublish: true`，再用**同一 `actionId` 和同一入参**再执行一次 `prepare_site`（平台会从冻结的 ZIP 恢复，不重新打包），待描述文件写入完成再进入下一步。
 4. `publish_site` 发布 → `get_publish_status` 轮询到 `published: true`。
 5. 把站点访问范围改为 `public`（公开访问）。
 6. 拿到公开链接 `https://<id>.qoder.zone`。
+
+### ⚠️ 四条硬约束（2026-11-22 ～ 2026-11-25 实测）
+
+1. **发布是整站快照，`functionDirectory` 不能省。** 它可选，但不传表示「这次部署没有云函数」：`get_site.functions` 会变 `[]`，接口立刻 `409 sites_gateway_supabase_not_ready`。只想更新前端时，让 `functions/` 内容与线上一致再带上该参数。
+2. **重新打包函数前必须 `key:inject`，首轮 `prepare_site` 打包完成后立刻 `key:restore`。** 站点 `secrets` 恒为 `[]`，密钥只存在于 `functions/inline-key.ts` 的构建期注入值里；忘了注入，线上函数就没有 `DASHSCOPE_API_KEY`。若因第 4 条需要二次补跑 `prepare_site`，因为平台从冻结 ZIP 恢复而不重新打包，**无需再次 `key:inject`**。
+3. **`--input-file` 必须放在项目根目录内。** 路径会被 `tL()` 做包含校验，指到项目外一律报 `sites_current_session_required`（看起来像会话问题，其实是路径问题）。CLI 还需要一条本地会话记录（`~/.qoder-cn/sites/sessions/<sha256(sessionId)>.json`），WorkBuddy 侧不会自动生成。
+4. **`prepare_site` 返回 `descriptorStatus: "pending"` 时，不能直接 `publish_site`。** 必须先用 `get_publish_status` 等 `canPublish` 变为 `true`，再用**同一 `actionId` 和完全相同的入参**重跑一次 `prepare_site`（平台会从首次冻结的 ZIP 恢复、不重新打包），描述文件才会被写成；只有描述文件就绪后，才能调用 `publish_site`。
 
 ## 5. 上线验收（必须做，不能只跑 mock）
 

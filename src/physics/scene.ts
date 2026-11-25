@@ -1,10 +1,7 @@
 import { validateReading } from "./reading.ts";
 import type { PhysicsFailure } from "./reading.ts";
-
-export type Point = {
-  xM: number;
-  yM: number;
-};
+import type { Point } from './geometryTypes.ts';
+export type { Point } from './geometryTypes.ts';
 
 export type Scene = {
   geometry: {

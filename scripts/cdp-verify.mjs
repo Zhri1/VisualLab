@@ -92,6 +92,9 @@ await shot('01-home-1440');
 
 // 2. 内置示例 → 工作台
 await evaluate('document.querySelector(".sample-button").click()');
+await sleep(250);
+check('内置示例先弹出选择', await evaluate('!!document.querySelector(".sample-picker")'));
+await evaluate('document.querySelector(".sample-option").click()');
 await sleep(4000);
 check('进入工作台并画出画布', await evaluate('!!document.querySelector("canvas")'));
 const canvasBox = await evaluate(`(() => {
@@ -104,8 +107,19 @@ const wsText = await text();
 // 正文只报条数，假设条目收进胶囊（P2 · S1），所以这里不再断言正文出现 g=10
 check('正文含 按以下 3 条假设计算', wsText.includes('按以下 3 条假设计算'), wsText.slice(-140));
 check('正文不重复假设条目', !wsText.includes('已按 g=10'), '');
-check('时间轴有关键事件', wsText.includes('接触弹簧') && wsText.includes('恢复原长'));
+check('时间轴有关键事件', wsText.includes('到达接续点') && wsText.includes('经过圆轨最高点'));
 await shot('02-workspace-1440');
+
+// 2a. 内置示例点右上角「查看原题」能展示原题图片
+await evaluate('document.querySelector(".ghost-button[aria-label=\'查看原题\'], .player-head .ghost-button")?.click()');
+await sleep(400);
+const thumbInfo = await evaluate(`(() => {
+  const img = document.querySelector(".problem-thumb img");
+  return img ? { src: img.getAttribute("src"), loaded: img.complete && img.naturalWidth > 0, nw: img.naturalWidth } : null;
+})()`);
+check('内置示例查看原题展示原题图片', Boolean(thumbInfo?.loaded), JSON.stringify(thumbInfo));
+await evaluate('document.querySelector(".drawer-head .icon-button")?.click()');
+await sleep(200);
 
 // 2b. 假设胶囊：出现 → 标题带条数 → 点击展开后条目齐全、首条是 g=10
 check('工作台出现 .assumption 胶囊', await evaluate('!!document.querySelector(".assumption")'));
@@ -135,7 +149,7 @@ await shot('02b-assumptions-open');
 // 3. 播放 1.2 s
 const before = await evaluate(`document.body.innerText.match(/(\\d+\\.\\d\\d) s \\//)?.[1] ?? null`);
 await evaluate(`(() => {
-  const b = [...document.querySelectorAll("button")].find((x) => /播放|暂停/.test(x.getAttribute("aria-label") ?? x.textContent));
+  const b = document.querySelector("button.tbtn.primary") ?? [...document.querySelectorAll("button")].find((x) => /播放|暂停/.test(x.getAttribute("aria-label") ?? x.textContent));
   if (b) b.click();
   return !!b;
 })()`);

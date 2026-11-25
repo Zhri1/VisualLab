@@ -10,15 +10,60 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { dispatchStageCommand } from './stageCommand';
 import { join } from 'node:path';
 
-import { callVisionModel, VisionError } from './dashscope';
+import { callTutorChat, callVisionModel, VisionError, type TutorChatMessage, type VisionRepairContext } from './dashscope';
 import { applyLegacyContract, outputContractFromEnv, type ClientResult } from './legacyBridge';
 import { STAGE_HTTP_STATUS } from './stageTypes';
 import type { StagePlanResult } from './stageTypes';
 import { buildPlanResponse, type PlanResponse } from './validate';
 import { UNSUPPORTED_PREFIX } from './contract';
 import { validateReading } from '../physics/reading';
+
+function repairRetryEnabled(): boolean {
+  return (process.env.VISION_REPAIR_RETRY ?? '').trim() !== '0';
+}
+
+function buildRepairContext(raw: unknown, result: PlanResponse): VisionRepairContext | null {
+  if (!isStagePlanResult(result)) return null;
+  if (result.status === 'invalid_reading') {
+    return {
+      previousRaw: raw,
+      errors: [{ path: '/', code: 'INVALID_READING', message: result.message }],
+    };
+  }
+  if (result.status === 'needs_input' && result.fieldErrors.length > 0) {
+    return {
+      previousRaw: raw,
+      errors: result.fieldErrors,
+      missingKeys: result.missingKeys.length > 0 ? result.missingKeys : undefined,
+    };
+  }
+  return null;
+}
+
+function isRepairImproved(before: PlanResponse, after: PlanResponse): boolean {
+  if (after.status === 'ok') return true;
+  if (before.status === 'invalid_reading') {
+    return after.status === 'needs_input' || after.status === 'unsupported';
+  }
+  if (
+    before.status === 'needs_input' &&
+    isStagePlanResult(before) &&
+    after.status === 'needs_input' &&
+    isStagePlanResult(after)
+  ) {
+    if (after.fieldErrors.length < before.fieldErrors.length) return true;
+    if (
+      after.fieldErrors.length === before.fieldErrors.length &&
+      after.missingKeys.length < before.missingKeys.length
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * 判断回包是否来自阶段计划路径。
@@ -137,6 +182,50 @@ export async function handlePlan(request: Request): Promise<Response> {
     return json({ message: '无法解析上传内容，请重新选择图片' }, 400, base);
   }
 
+  const commandResult=dispatchStageCommand(form);
+  if(commandResult)return json(commandResult.body,commandResult.status,base);
+
+  const rawChat = form.get('chatMessage');
+  if (typeof rawChat === 'string') {
+    const chatMessage = rawChat.trim().slice(0, 2000);
+    if (!chatMessage) return json({ message: '提问内容不能为空' }, 400, base);
+    if (form.get('image') instanceof Blob || form.get('command') !== null) {
+      return json({ message: '问答模式不能同时提交图片或阶段指令' }, 400, base);
+    }
+    let context: Record<string, unknown> | null = null;
+    let history: TutorChatMessage[] = [];
+    const rawContext = form.get('chatContext');
+    if (typeof rawContext === 'string' && rawContext.trim()) {
+      try {
+        const parsed = JSON.parse(rawContext) as { history?: TutorChatMessage[]; [key: string]: unknown };
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          if (Array.isArray(parsed.history)) history = parsed.history;
+          const { history: _h, ...rest } = parsed;
+          context = rest;
+        }
+      } catch {
+        return json({ message: 'chatContext 须为合法 JSON 字符串' }, 400, base);
+      }
+    }
+    try {
+      const chat = await callTutorChat({ message: chatMessage, context, history });
+      const elapsed = Date.now() - startedAt;
+      console.log(`[chat] ${requestId} ok ${elapsed}ms model=${chat.model} len=${chatMessage.length}`);
+      return json(
+        { status: 'ok', reply: chat.reply },
+        200,
+        { ...base, 'x-request-id': requestId, 'x-elapsed-ms': String(elapsed), 'x-vision-model': chat.model },
+      );
+    } catch (error) {
+      const elapsed = Date.now() - startedAt;
+      const failure = error instanceof VisionError ? error.kind : 'upstream';
+      const message = error instanceof VisionError ? error.message : 'AI 助教服务异常，请稍后重试';
+      const status = failure === 'timeout' ? 504 : 502;
+      console.error(`[chat] ${requestId} ${failure} ${elapsed}ms ${message}`);
+      return json({ status: 'error', message }, status, { ...base, 'x-request-id': requestId, 'x-elapsed-ms': String(elapsed) });
+    }
+  }
+
   // 文字模式：只输文字、不传图时 image 可以缺席（见 HANDOFF-C.md）
   const rawText = form.get('text');
   const text = typeof rawText === 'string' ? rawText.trim().slice(0, 2000) : '';
@@ -168,21 +257,13 @@ export async function handlePlan(request: Request): Promise<Response> {
   }
 
   let vision;
-  let internal: PlanResponse;
   try {
-    const visionInput = {
+    vision = await callVisionModel({
       imageBase64,
       mime,
       text,
       skillText: loadSkillText(),
-    };
-    vision = await callVisionModel(visionInput);
-    internal = buildPlanResponse(vision.raw);
-    // 已解析但结构损坏时，用同一输入再识别一次；缺项和超范围不重试。
-    if (internal.status === 'invalid_reading') {
-      vision = await callVisionModel(visionInput);
-      internal = buildPlanResponse(vision.raw);
-    }
+    });
   } catch (error) {
     const elapsed = Date.now() - startedAt;
     const failure = error instanceof VisionError ? error.kind : 'upstream';
@@ -200,6 +281,43 @@ export async function handlePlan(request: Request): Promise<Response> {
 
   // 内部统一按 stage_plan 校验，对外形状由 API_CONTRACT_MODE 决定：
   // 默认 legacy（A 的前端尚未接入），设成 stage_plan 才吐新契约。
+  let internal = buildPlanResponse(vision.raw);
+  const repairContext = repairRetryEnabled() ? buildRepairContext(vision.raw, internal) : null;
+  if (repairContext) {
+    try {
+      const repairedVision = await callVisionModel({
+        imageBase64,
+        mime,
+        text,
+        skillText: loadSkillText(),
+        repairContext,
+      });
+      const repairedInternal = buildPlanResponse(repairedVision.raw);
+      if (isRepairImproved(internal, repairedInternal)) {
+        vision = repairedVision;
+        internal = repairedInternal;
+      }
+    } catch (error) {
+      if (internal.status === 'invalid_reading') {
+        const elapsed = Date.now() - startedAt;
+        const failure = error instanceof VisionError ? error.kind : 'upstream';
+        const message =
+          error instanceof VisionError ? error.message : '识别服务异常，请稍后重试';
+        const status = failure === 'timeout' ? 504 : 502;
+
+        console.error(`[plan] ${requestId} ${failure} ${elapsed}ms ${message}`);
+        return json({ message }, status, {
+          ...base,
+          'x-request-id': requestId,
+          'x-elapsed-ms': String(elapsed),
+        });
+      }
+      // 定向纠错失败或超时时降级保留首次校验结果，避免把可补正的 200 变成 502
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(`[plan] ${requestId} repair_fallback ${reason}`);
+    }
+  }
+
   const result: ClientResult =
     isStagePlanResult(internal) && outputContractFromEnv(process.env.API_CONTRACT_MODE) === 'legacy'
       ? applyLegacyContract(internal, validateReading, UNSUPPORTED_PREFIX)

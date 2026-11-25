@@ -1,0 +1,46 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "massKg": 1,
+  "gravityMps2": 10,
+  "initial": { "speedMps": 0 },
+  "stages": [
+    {
+      "kind": "incline_slide",
+      "lengthM": 5,
+      "angleDeg": 37,
+      "kineticFrictionCoefficient": 0.25,
+      "slidesAfterRelease": true,
+      "startLabel": "A",
+      "endLabel": "B"
+    },
+    {
+      "kind": "vertical_arc",
+      "radiusM": 2.5,
+      "side": "inside",
+      "frictionless": true,
+      "path": {
+        "startAngleDeg": -37,
+        "direction": "positive",
+        "end": { "kind": "physical_endpoint", "sweepAngleDeg": 37 }
+      },
+      "startLabel": "B",
+      "endLabel": "C"
+    },
+    {
+      "kind": "horizontal_slide",
+      "kineticFrictionCoefficient": 0.2,
+      "end": { "kind": "distance", "distanceM": 3 },
+      "startLabel": "C",
+      "endLabel": "D"
+    },
+    {
+      "kind": "spring_contact",
+      "springConstantNpm": 60,
+      "kineticFrictionCoefficient": 0.15,
+      "staticFrictionCoefficient": 0.2,
+      "unattached": true,
+      "startLabel": "D"
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { advancePlayback, formatSpeed, segmentAt } from "./playback";
+import { readFileSync } from "node:fs";
+import { advancePlayback, computeDefaultPace, formatPace, formatSpeed, segmentAt } from "./playback";
+import { computeWorldBounds, fitViewport } from "./canvasViewport";
 import type { MotionSegment } from "../../../types";
 import fixture from "../../../../fixtures/incline-spring.reading.json";
 import { motionLibrary } from "../../../adapters";
@@ -62,5 +64,66 @@ describe("速度和阶段边界", () => {
     ] as MotionSegment[];
     expect(segmentAt(segments, 2)?.kind).toBe("horizontal");
     expect(segmentAt(segments, 4)?.kind).toBe("spring");
+  });
+});
+
+describe("默认观看节奏与统一取景", () => {
+  const load = (file: string) => {
+    const raw = JSON.parse(readFileSync(new URL(`../../../../fixtures/${file}`, import.meta.url), "utf8"));
+    const a = motionLibrary.assembleScene(raw);
+    if (!a.ok) throw new Error(JSON.stringify(a));
+    const b = motionLibrary.buildMotion(a.scene);
+    if (!b.ok) throw new Error(b.message);
+    return b.motion;
+  };
+
+  it("2.39 s 斜面弹簧参考题默认节奏放慢到 0.55×（只放慢不加速），物理事件与时长不变", () => {
+    const motion = load("incline-spring.reading.json");
+    const pace = computeDefaultPace(motion);
+    const watch = motion.durationSeconds / pace;
+    expect(pace).toBe(0.55);
+    expect(watch).toBeCloseTo(motion.durationSeconds / 0.55, 6);
+    expect(motion.durationSeconds).toBeCloseTo(2.3932, 3);
+    expect(formatPace(pace)).toBe("0.55");
+  });
+
+  it("快例（0.5 s 木板到边 / 0.81 s 圆轨）放慢到 0.15×；6 s 常力保持 1× 不加速", () => {
+    const fastPlank = load("block-plank-edge.reading.json");
+    const fastArc = load("circular-track-critical.reading.json");
+    const longCf = load("constant-force-benchmark.reading.json");
+    expect(computeDefaultPace(fastPlank)).toBe(0.15);
+    expect(computeDefaultPace(fastArc)).toBe(0.15);
+    expect(computeDefaultPace(longCf)).toBe(1);
+    expect(formatPace(1)).toBe("1");
+  });
+
+  it("多物体碰撞接摆动放慢到 0.25×，共用同一时间映射，采样与事件不受节奏系数影响", () => {
+    const motion = load("horizontal-collision-pendulum.reading.json");
+    const pace = computeDefaultPace(motion);
+    expect(pace).toBe(0.25);
+    expect(formatPace(pace)).toBe("0.25");
+    const col = motion.events.find((e) => e.eventKind === "collision")!;
+    const step = advancePlayback(col.timeSeconds - 0.001, 0.05, 1 * pace, motion.durationSeconds, motion.events);
+    expect(step.time).toBe(col.timeSeconds);
+    expect(step.pause).toBe(true);
+    const s = motion.sampleAt(col.timeSeconds);
+    expect(s.bodies?.one.position.x).toBeCloseTo(s.bodies!.two.position.x, 9);
+  });
+
+  it("fitViewport：横长 1D 场景占足横向宽度不受虚高限制，静止点与 2D 场景等比居中", () => {
+    const horiz = fitViewport(900, 360, computeWorldBounds([{ x: 0, y: 0 }, { x: 12, y: 0 }]), { top: 40, right: 50, bottom: 40, left: 50 });
+    expect(horiz.X(0)).toBeCloseTo(50, 6);
+    expect(horiz.X(12)).toBeCloseTo(850, 6);
+    expect(horiz.Y(0)).toBeCloseTo(180, 6);
+
+    const still = fitViewport(375, 300, computeWorldBounds([{ x: 2, y: 1 }]), { top: 40, right: 30, bottom: 40, left: 30 });
+    expect(Number.isFinite(still.S)).toBe(true);
+    expect(still.X(2)).toBeCloseTo(187.5, 6);
+    expect(still.Y(1)).toBeCloseTo(150, 6);
+
+    const box2d = fitViewport(800, 400, computeWorldBounds([{ x: 0, y: 0 }, { x: 2, y: 2 }]), { top: 40, right: 40, bottom: 40, left: 40 });
+    expect(box2d.S).toBeCloseTo(320 / 2, 6);
+    expect(box2d.Y(2)).toBeCloseTo(40, 6);
+    expect(box2d.Y(0)).toBeCloseTo(360, 6);
   });
 });

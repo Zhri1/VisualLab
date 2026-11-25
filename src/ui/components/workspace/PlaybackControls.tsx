@@ -1,6 +1,7 @@
 import { Pause, Play, RotateCcw, SkipForward } from "lucide-react";
 import type { Motion } from "../../../types";
 import { EventTimeline } from "./EventTimeline";
+import { formatPace } from "./playback";
 
 interface Props {
   motion: Motion;
@@ -13,6 +14,9 @@ interface Props {
   onSeekEvent: (id: string) => void;
   onScrubStart: () => void;
   playbackRate: number;
+  defaultPace?: number;
+  paceEnabled?: boolean;
+  onPaceEnabledChange?: (enabled: boolean) => void;
   onRateChange: (rate: number) => void;
   autoPauseEvents: boolean;
   onAutoPauseChange: (enabled: boolean) => void;
@@ -32,6 +36,9 @@ export function PlaybackControls({
   onSeekEvent,
   onScrubStart,
   playbackRate,
+  defaultPace = 1,
+  paceEnabled = true,
+  onPaceEnabledChange,
   onRateChange,
   autoPauseEvents,
   onAutoPauseChange,
@@ -39,10 +46,13 @@ export function PlaybackControls({
   onSlowSegment,
   onExitSegment,
 }: Props) {
+  const unavailable=motion.timing?.mode==='state_only'||!!motion.primaryBodyId&&motion.durationSeconds===0;
+  const effectivePace = playbackRate * (paceEnabled ? defaultPace : 1);
+  const paceAdjusted = paceEnabled && Math.abs(defaultPace - 1) > 1e-6;
   return (
     <div className="transport">
       <div className="transport-row">
-        <button className="tbtn" onClick={onReplay} title="从头重播" aria-label="从头重播">
+        <button className="tbtn" onClick={onReplay} title="从头重播" aria-label="从头重播" disabled={unavailable}>
           <RotateCcw size={17} strokeWidth={1.9} />
         </button>
 
@@ -51,6 +61,7 @@ export function PlaybackControls({
           onClick={onTogglePlay}
           title={isPlaying ? "暂停" : "播放"}
           aria-label={isPlaying ? "暂停" : "播放"}
+          disabled={unavailable}
         >
           {isPlaying ? (
             <Pause size={15} fill="currentColor" strokeWidth={0} />
@@ -64,23 +75,24 @@ export function PlaybackControls({
           onClick={onNextEvent}
           title="跳到下一关键事件"
           aria-label="跳到下一关键事件"
+          disabled={unavailable}
         >
           <SkipForward size={17} strokeWidth={1.9} />
         </button>
 
         <div className="time-readout">
-          <b>{time.toFixed(2)}</b> s / {motion.durationSeconds.toFixed(2)} s
+          {motion.timing?.mode === "state_only" ? "已知状态 · 用时未知" : <><b>{time.toFixed(2)}</b> s / {motion.durationSeconds.toFixed(2)} s</>}
         </div>
       </div>
 
-      <EventTimeline
+      {motion.timing?.mode !== 'state_only' && <EventTimeline
         motion={motion}
         time={time}
         onSeek={onSeek}
         onSeekEvent={onSeekEvent}
         onScrubStart={onScrubStart}
-      />
-      <div className="playback-auxiliary" aria-label="辅助播放选项">
+      />}
+      {!unavailable && <div className="playback-auxiliary" aria-label="辅助播放选项">
         <div className="playback-options">
           <label className="rate-control">
             播放倍率
@@ -100,11 +112,21 @@ export function PlaybackControls({
             <input type="checkbox" checked={autoPauseEvents} onChange={(event) => onAutoPauseChange(event.target.checked)} />
             关键点自动暂停
           </label>
+          {onPaceEnabledChange && (
+            <label className="auto-pause-control auto-slow-control" title="统一缩放时间轴，各物体相对速度不变；只放慢不加速">
+              <input type="checkbox" checked={paceEnabled} onChange={(event) => onPaceEnabledChange(event.target.checked)} />
+              自动慢放
+            </label>
+          )}
         </div>
         <p className="playback-mode" role="status">
-          {segmentName ? `本段慢放 · ${segmentName} · 段末停止` : "全程播放"}
+          {segmentName
+            ? `本段慢放 · ${segmentName} · 段末停止${paceAdjusted ? `（物理流速 ${formatPace(effectivePace)}×）` : ""}`
+            : paceAdjusted
+              ? `默认已按观看节奏${defaultPace < 1 ? "放慢" : "调快"}至 ${formatPace(defaultPace)}× 物理时间${playbackRate !== 1 ? `（当前 ${formatPace(effectivePace)}×）` : ""}`
+              : "全程播放"}
         </p>
-      </div>
+      </div>}
     </div>
   );
 }

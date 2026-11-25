@@ -1,0 +1,51 @@
+{
+    "description":  "粗糙弹簧接触独立基准，不是运行时回包。m=1, k=10, g=10, μk=0.2, μs=0.25；符号以向右（压缩方向）为正，脱离速度为负。",
+    "toleranceSI":  1E-09,
+    "cases":  [
+                  {
+                      "id":  "detach",
+                      "readingFile":  "rough-spring-detach.reading.json",
+                      "speedMps":  2,
+                      "outcome":  "detach",
+                      "maxCompressionM":  0.46332495807108004,
+                      "maxCompressionTimeSeconds":  0.3998760050557661,
+                      "durationSeconds":  1.1693744908484982,
+                      "finalCompressionM":  0,
+                      "frictionHeatJ":  1.8532998322843202,
+                      "detachVxMps":  -0.5416644121883593
+                  },
+                  {
+                      "id":  "residual",
+                      "readingFile":  "rough-spring-residual.reading.json",
+                      "speedMps":  1.5,
+                      "outcome":  "stop_residual",
+                      "maxCompressionM":  0.31478150704935,
+                      "maxCompressionTimeSeconds":  0.3705486118765269,
+                      "durationSeconds":  1.364007438456137,
+                      "finalCompressionM":  0.08521849295065004,
+                      "frictionHeatJ":  1.0886890422961
+                  },
+                  {
+                      "id":  "hold",
+                      "readingFile":  "rough-spring-hold.reading.json",
+                      "speedMps":  1,
+                      "outcome":  "hold_max",
+                      "maxCompressionM":  0.17416573867739416,
+                      "maxCompressionTimeSeconds":  0.31839509165069857,
+                      "durationSeconds":  0.31839509165069857,
+                      "finalCompressionM":  0.17416573867739416,
+                      "frictionHeatJ":  0.3483314773547883
+                  },
+                  {
+                      "id":  "natural",
+                      "readingFile":  "rough-spring-natural.reading.json",
+                      "speedMps":  1.7888543819998317,
+                      "outcome":  "stop_natural",
+                      "maxCompressionM":  0.39999999999999997,
+                      "maxCompressionTimeSeconds":  0.38926354660306167,
+                      "durationSeconds":  1.3827223731826717,
+                      "finalCompressionM":  0,
+                      "frictionHeatJ":  1.5999999999999999
+                  }
+              ]
+}

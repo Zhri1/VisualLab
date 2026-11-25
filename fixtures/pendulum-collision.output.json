@@ -1,0 +1,175 @@
+{
+  "contractPreview": true,
+  "input": "pendulum-elastic.reading.json",
+  "primaryBodyId": "bob",
+  "collisionEvent": {
+    "id": "1:collision:3",
+    "stageIndex": 1,
+    "stagePath": "/stages/1",
+    "kind": "collision",
+    "timeSeconds": 0.5330810687644838,
+    "order": 3,
+    "bodyIds": [
+      "bob",
+      "target"
+    ],
+    "position": {
+      "xM": 0,
+      "yM": 0
+    },
+    "velocityBefore": {
+      "vxMps": 3.1622776601683795,
+      "vyMps": 0
+    },
+    "velocityAfter": {
+      "vxMps": 0,
+      "vyMps": 0
+    },
+    "bodyStatesBefore": {
+      "bob": {
+        "bodyId": "bob",
+        "massKg": 1,
+        "xM": 0,
+        "yM": 0,
+        "vxMps": 3.1622776601683795,
+        "vyMps": 0,
+        "springCompressionM": 0,
+        "status": "moving",
+        "constraintId": "string:bob"
+      },
+      "target": {
+        "bodyId": "target",
+        "massKg": 1,
+        "xM": 0,
+        "yM": 0,
+        "vxMps": 0,
+        "vyMps": 0,
+        "springCompressionM": 0,
+        "status": "resting"
+      }
+    },
+    "bodyStatesAfter": {
+      "bob": {
+        "bodyId": "bob",
+        "massKg": 1,
+        "xM": 0,
+        "yM": 0,
+        "vxMps": 0,
+        "vyMps": 0,
+        "springCompressionM": 0,
+        "status": "resting",
+        "constraintId": "string:bob"
+      },
+      "target": {
+        "bodyId": "target",
+        "massKg": 1,
+        "xM": 0,
+        "yM": 0,
+        "vxMps": 3.1622776601683795,
+        "vyMps": 0,
+        "springCompressionM": 0,
+        "status": "moving"
+      }
+    },
+    "constraintsBefore": {
+      "string:bob": {
+        "kind": "pendulum_string",
+        "constraintId": "string:bob",
+        "bodyIds": [
+          "bob"
+        ],
+        "pivot": {
+          "xM": 0,
+          "yM": 1
+        },
+        "lengthM": 1,
+        "state": "taut",
+        "tensionN": 20,
+        "angleDeg": 0,
+        "angularVelocityRadps": 3.1622776601683795
+      }
+    },
+    "constraintsAfter": {
+      "string:bob": {
+        "kind": "pendulum_string",
+        "constraintId": "string:bob",
+        "bodyIds": [
+          "bob"
+        ],
+        "pivot": {
+          "xM": 0,
+          "yM": 1
+        },
+        "lengthM": 1,
+        "state": "taut",
+        "tensionN": 10,
+        "angleDeg": 0,
+        "angularVelocityRadps": 0
+      }
+    }
+  },
+  "sampleAtCollision": {
+    "xM": 0,
+    "yM": 0,
+    "vxMps": 0,
+    "vyMps": 0,
+    "springCompressionM": 0,
+    "bodies": {
+      "bob": {
+        "bodyId": "bob",
+        "massKg": 1,
+        "xM": 0,
+        "yM": 0,
+        "vxMps": 0,
+        "vyMps": 0,
+        "springCompressionM": 0,
+        "status": "resting",
+        "constraintId": "string:bob"
+      },
+      "target": {
+        "bodyId": "target",
+        "massKg": 1,
+        "xM": 0,
+        "yM": 0,
+        "vxMps": 3.1622776601683795,
+        "vyMps": 0,
+        "springCompressionM": 0,
+        "status": "moving"
+      }
+    },
+    "constraints": {
+      "string:bob": {
+        "kind": "pendulum_string",
+        "constraintId": "string:bob",
+        "bodyIds": [
+          "bob"
+        ],
+        "pivot": {
+          "xM": 0,
+          "yM": 1
+        },
+        "lengthM": 1,
+        "state": "taut",
+        "tensionN": 10,
+        "angleDeg": 0,
+        "angularVelocityRadps": 0
+      }
+    }
+  },
+  "durationSeconds": 2.1142198988486736,
+  "termination": {
+    "reason": "stopped",
+    "eventId": "2:stop:5",
+    "stageIndex": 2
+  },
+  "endReason": "stopped",
+  "motionStatus": {
+    "state": "complete",
+    "reason": "stopped",
+    "message": "摆锤保持最低点平衡，目标因摩擦停止。",
+    "bodyIds": [
+      "bob",
+      "target"
+    ]
+  }
+}

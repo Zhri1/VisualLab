@@ -72,3 +72,7 @@
   .scene-legend li { padding: 4px; }
   .playback-options { gap: 4px 8px; }
 }
+
+/* 弹簧题的能量读数：与画布同钟，贴底，不拦截点击。 */
+.energy-readout { position: absolute; left: 8px; right: 8px; bottom: 6px; display: flex; flex-wrap: wrap; gap: 2px 10px; justify-content: center; padding: 3px 8px; font-size: 11px; line-height: 1.4; color: var(--soft, #6d6d68); background: rgba(251, 251, 249, .88); border-radius: 6px; pointer-events: none; font-variant-numeric: tabular-nums; }
+.energy-readout b { font-weight: 600; color: var(--ink, #1c1c1c); }

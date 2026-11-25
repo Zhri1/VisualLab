@@ -1,0 +1,69 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "massKg": 2,
+  "gravityMps2": 10,
+  "initial": {
+    "vxMps": 6,
+    "vyMps": 0
+  },
+  "constraints": [
+    {
+      "kind": "critical_arc_top",
+      "stageIndex": 3
+    }
+  ],
+  "stages": [
+    {
+      "kind": "projectile",
+      "end": {
+        "kind": "tangent_to_next_arc"
+      },
+      "startLabel": "A",
+      "endLabel": "B"
+    },
+    {
+      "kind": "vertical_arc",
+      "radiusM": null,
+      "verticalDropM": 2,
+      "side": "inside",
+      "frictionless": true,
+      "path": {
+        "startAngleDeg": -53,
+        "direction": "positive",
+        "end": {
+          "kind": "physical_endpoint",
+          "sweepAngleDeg": 53
+        }
+      },
+      "startLabel": "B",
+      "endLabel": "C"
+    },
+    {
+      "kind": "horizontal_slide",
+      "kineticFrictionCoefficient": 0.25,
+      "end": {
+        "kind": "distance",
+        "distanceM": 8
+      },
+      "startLabel": "C",
+      "endLabel": "D"
+    },
+    {
+      "kind": "vertical_arc",
+      "radiusM": null,
+      "side": "inside",
+      "frictionless": true,
+      "path": {
+        "startAngleDeg": 0,
+        "direction": "positive",
+        "end": {
+          "kind": "observation",
+          "sweepAngleDeg": 360
+        }
+      },
+      "startLabel": "D",
+      "endLabel": "E"
+    }
+  ]
+}

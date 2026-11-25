@@ -15,7 +15,12 @@ export interface StagePlanDraft {
   massKg?: number | null;
   initial:
     | { speedMps: number | null }
-    | { vxMps: number | null; vyMps: number | null };
+    | { vxMps: number | null; vyMps: number | null }
+    | { vxMps: number | null }
+    | { tangentialSpeedMps: number | null }
+    | { bodies: Array<Record<string, unknown>> };
+  bodies?: Array<{ bodyId: string | null; massKg: number | null }>;
+  primaryBodyId?: string | null;
   stages: Array<Record<string, unknown>>;
 }
 
@@ -36,7 +41,7 @@ export type StagePlanFailureCode =
 
 /** B 的 validateStagePlan 返回形状 */
 export type StagePlanValidation =
-  | { ok: true; reading: unknown }
+  | { ok: true; reading: unknown; playback?: { reason: string } }
   | {
       ok: false;
       code: StagePlanFailureCode;

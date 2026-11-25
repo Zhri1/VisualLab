@@ -3,8 +3,10 @@
  * 字段名一律沿用契约原文，不在这里做重命名。
  */
 
-import type { EndReason, StageGeometry } from "../physics/stageMotion";
+import type { EndReason, StageGeometry, ArcConstraint } from "../physics/stageMotion";
+export type { StageGeometry };
 import type { ResolvedStagePlan, StageKind, StagePlanDraft } from "../physics/stagePlan";
+import type { BodyState, StringState, MotionStatus } from '../physics/multiBodyTypes';
 
 export type TemplateId = "incline_spring";
 
@@ -109,9 +111,11 @@ export interface ResolvedConditions {
   springConstantNpm: number;
 }
 
-export type SegmentKind = "incline" | "horizontal" | "spring" | "projectile";
+export type SegmentKind = "incline" | "horizontal" | "spring" | "projectile" | "vertical_arc" | 'pendulum';
+export type BodyMotionSample = Omit<BodyState,'xM'|'yM'|'vxMps'|'vyMps'> & {position:Vec2;velocity:Vec2};
 
 export interface MotionSegment {
+  bodyIds?:string[]; stagePath?:string;
   kind: SegmentKind;
   /** 新阶段计划中的原始零基下标；旧模板缺省。 */
   stageIndex?: number;
@@ -131,6 +135,10 @@ export type EventId =
   | "detach_spring";
 
 export interface MotionEvent {
+  collision?:import('../physics').CollisionValues;
+  bodyIds?:string[]; stagePath?:string;
+  bodyStatesBefore?:Record<string,BodyMotionSample>; bodyStatesAfter?:Record<string,BodyMotionSample>;
+  constraintsBefore?:Record<string,StringState>; constraintsAfter?:Record<string,StringState>;
   id: EventId | string;
   /** 新计划保留原事件 kind 与执行顺序，避免同刻事件靠数组猜测。 */
   eventKind?: string;
@@ -143,18 +151,26 @@ export interface MotionEvent {
   segment: SegmentKind;
   velocityBefore?: Vec2;
   velocityAfter?: Vec2;
+  position?: Vec2;
+  normalForceBeforeN?: number;
+  normalForceAfterN?: number;
   /** 供 AI 联动使用的补充数值 */
   detail?: string;
 }
 
 export interface MotionSample {
-  /** 滑块前下沿接触点 */
+  bodies?:Record<string,BodyMotionSample>; constraints?:Record<string,StringState>;
+  /** 由 stageGeometry.positionReference 指定；旧场景为滑块前下沿。 */
   position: Vec2;
   velocity: Vec2;
   springCompressionM: number;
+  constraint?: ArcConstraint;
 }
 
 export interface Motion {
+  primaryBodyId?:string; motionStatus?:MotionStatus;
+  timing?: import("../physics").StageMotion["timing"];
+  calculations?: import("../physics").StageMotion["calculations"];
   /** 旧模板几何继续保留；新计划另带完整 StageGeometry 供专用画布使用。 */
   geometry: SceneGeometry;
   stageGeometry?: StageGeometry;
@@ -166,6 +182,10 @@ export interface Motion {
   endReason?: EndReason;
   termination?: { reason: EndReason; eventId: string; stageIndex: number };
   sampleAt(timeSeconds: number): MotionSample;
+  /** 与 sampleAt 同钟的能量读数；缺条件为 null，无此能力的运动省略。 */
+  energyAt?(timeSeconds: number): import("../physics").EnergyReading | null;
+  /** 与 sampleAt 同钟的传送带读数（带速、相对带面位移等）。 */
+  conveyorAt?(timeSeconds: number): import("../physics").ConveyorReading | null;
 }
 
 /* ---------------- 错误 ---------------- */
@@ -181,7 +201,18 @@ export interface FieldError {
 /* ---------------- 识别接口 ---------------- */
 
 export type PlanResponse =
-  | { status: "ok"; reading: WorkspaceReading; message?: string; assumptions?: string[] }
+  | {
+      status: "ok";
+      reading: WorkspaceReading;
+      message?: string;
+      assumptions?: string[];
+      /** 内置示例的完整题面；识别接口不回传该字段。 */
+      problemText?: string;
+      /** 内置示例的原题图片地址；识别接口不回传该字段。 */
+      imageUrl?: string;
+      /** 命中的内置示例 id，用于题内对照切换。 */
+      sampleId?: string;
+    }
   | {
       status: "needs_input";
       reading: WorkspaceReading | null;

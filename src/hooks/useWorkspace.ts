@@ -2,11 +2,13 @@
  * 工作台状态机。整个应用只有这一处维护物理状态，
  * 动画、时间轴、字幕、AI 面板全部读同一份。
  */
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatErrors, motionLibrary } from "../adapters";
 import { mockChatService } from "../services/chatService";
 import { requestPlan, requestStageCommand } from "../services/imageRecognition";
 import type { StagePlanDraft } from "../physics/stagePlan";
+import { truncateStagePlan } from '../physics/truncateStagePlan';
+import { getSample } from "../data/samples";
 import { segmentAt } from "../ui/components/workspace/playback";
 import { isStageReading } from "../types";
 import type {
@@ -53,6 +55,12 @@ export function useWorkspace() {
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  /** 内置示例的题面；识别题图时为 null。 */
+  const [problemText, setProblemText] = useState<string | null>(null);
+  /** 当前内置示例 id 与「对照」开关。 */
+  const [sampleId, setSampleId] = useState<string | null>(null);
+  const [compareOn, setCompareOn] = useState(false);
+  const sampleCompare = sampleId ? getSample(sampleId).compare : undefined;
 
   const [notice, setNotice] = useState<Notice | null>(null);
   /** 缺项：需要用户在核对表里补齐 */
@@ -62,6 +70,44 @@ export function useWorkspace() {
   /** 连续对话改值时，必须基于「最新已生效」的 reading，而不是闭包里的旧值 */
   const latestAppliedRef = useRef<WorkspaceReading | null>(null);
   latestAppliedRef.current = appliedReading;
+
+  /* ---------------- 浏览器历史：后退回到首页，前进恢复工作台 ---------------- */
+
+  const motionRef = useRef<Motion | null>(null);
+  motionRef.current = motion;
+
+  // 首次加载若停在 #/work 但无 motion（如刷新），归一化回首页，避免假工作台。
+  useEffect(() => {
+    const homeUrl = window.location.pathname + window.location.search;
+    if (window.location.hash === "#/work" && !motionRef.current) {
+      window.history.replaceState(null, "", homeUrl);
+    }
+    const onPop = () => {
+      if (window.location.hash === "#/work") {
+        if (motionRef.current) {
+          setPhase("workspace");
+        } else {
+          setPhase("home");
+          window.history.replaceState(null, "", homeUrl);
+        }
+      } else {
+        // 后退回首页：保留 motion 以便前进恢复，不清空状态。
+        setPhase("home");
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // phase 变化时写入历史，使浏览器后退/前进与页内视图一致。
+  useEffect(() => {
+    const homeUrl = window.location.pathname + window.location.search;
+    if (phase === "workspace" && window.location.hash !== "#/work") {
+      window.history.pushState(null, "", "#/work");
+    } else if (phase === "home" && window.location.hash === "#/work") {
+      window.history.pushState(null, "", homeUrl);
+    }
+  }, [phase]);
 
   /* ---------------- 核心：reading -> motion ---------------- */
 
@@ -77,7 +123,7 @@ export function useWorkspace() {
         errors: [{ code: "PRECONDITION_CONFLICT" as const, message: built.message }],
       };
     }
-    return { ok: true as const, motion: built.motion };
+    return { ok: true as const, motion: built.motion, reading: "kind" in assembled.scene ? assembled.scene.reading : r };
   }, []);
 
   /** 应用一份 reading：成功则整体切换并重置时间轴 */
@@ -90,8 +136,8 @@ export function useWorkspace() {
         }
         return { ok: false as const, errors: res.errors };
       }
-      setReading(r);
-      setAppliedReading(r);
+      setReading(res.reading);
+      setAppliedReading(res.reading);
       setMotion(res.motion);
       setSegmentPlayback(null);
       if (segmentPlayback) setIsPlaying(false);
@@ -106,16 +152,21 @@ export function useWorkspace() {
   /* ---------------- 识别 ---------------- */
 
   const recognize = useCallback(
-    async (input: { file?: File | null; text?: string; isSample?: boolean }) => {
+    async (input: { file?: File | null; text?: string; isSample?: boolean; sampleId?: string }) => {
       setIsRecognizing(true);
       setNotice(null);
+      setProblemText(null);
+
+      const revokeIfBlob = (url: string | null) => {
+        if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+      };
 
       if (input.file) {
         // 提到外层常量：类型收窄进不了 setState 的更新回调
         const file = input.file;
         setImageFile(file);
         setImageUrl((prev) => {
-          if (prev) URL.revokeObjectURL(prev);
+          revokeIfBlob(prev);
           return URL.createObjectURL(file);
         });
       }
@@ -124,11 +175,23 @@ export function useWorkspace() {
         file: input.file,
         text: input.text,
         isSample: input.isSample,
+        sampleId: input.sampleId,
       });
       setIsRecognizing(false);
 
       if (res.status === "ok") {
         setPhase("workspace");
+        setProblemText(res.problemText ?? null);
+        setSampleId(res.sampleId ?? null);
+        setCompareOn(false);
+        if (!input.file) {
+          const nextImageUrl = res.imageUrl ?? (res.sampleId ? getSample(res.sampleId).imageUrl : null);
+          setImageFile(null);
+          setImageUrl((prev) => {
+            revokeIfBlob(prev);
+            return nextImageUrl ?? null;
+          });
+        }
         applyReading(res.reading);
         // 假设不写在正文里重复：有假设时正文只报条数，条目交给对话胶囊；
         // 没有假设就退回回包 message（或通用开场白），离线 mock 与真实服务保持一致。
@@ -137,14 +200,21 @@ export function useWorkspace() {
           assumptions.length > 0
             ? `已识别题目，按以下 ${assumptions.length} 条假设计算`
             : res.message?.trim() || "已识别题目";
-        setMessages([
-          {
-            id: uid(),
-            role: "assistant",
-            text: `${summary}。可以直接提问，也可以让我修改条件，比如「把劲度系数改成 100 N/m」。`,
-            assumptions,
-          },
-        ]);
+        const summaryMessage: ChatMessage = {
+          id: uid(),
+          role: "assistant",
+          text: `${summary}。可以直接提问，也可以让我修改条件，比如「把劲度系数改成 100 N/m」。`,
+          assumptions,
+        };
+        // 内置示例把完整题面放在对话首条，用户不用打开抽屉也能看到在算什么。
+        setMessages(
+          res.problemText
+            ? [
+                { id: uid(), role: "assistant", text: `【题目】\n${res.problemText}` },
+                summaryMessage,
+              ]
+            : [summaryMessage]
+        );
         return res;
       }
 
@@ -200,12 +270,19 @@ export function useWorkspace() {
 
   /** 内置示例：绕过联调开关，永远成功 */
   const loadSample = useCallback(
-    (_scenario?: unknown) => {
-      // 参数保留给 DevBar 的调用签名，示例本身不参与模拟失败
-      void recognize({ text: "内置示例", isSample: true });
+    (sampleId?: string) => {
+      void recognize({ text: "内置示例", isSample: true, sampleId });
     },
     [recognize]
   );
+
+  /** 题内对照：在示例的两组条件之间切换，保持同一道题的题面与上下文。 */
+  const toggleSampleCompare = useCallback(() => {
+    if (!sampleCompare || !sampleId) return;
+    const next = compareOn ? getSample(sampleId).reading : sampleCompare.reading;
+    const res = applyReading(next);
+    if (res.ok) setCompareOn((value) => !value);
+  }, [applyReading, compareOn, sampleCompare, sampleId]);
 
   const restartHome = useCallback(() => {
     setSegmentPlayback(null);
@@ -218,9 +295,12 @@ export function useWorkspace() {
     setIsPlaying(false);
     setNotice(null);
     setMissingKeys([]);
+    setProblemText(null);
+    setSampleId(null);
+    setCompareOn(false);
     setImageFile(null);
     setImageUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
+      if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
       return null;
     });
   }, []);
@@ -328,7 +408,7 @@ export function useWorkspace() {
           pushMessage({ id: uid(), role: "assistant", text: "返回的阶段下标无效，已保留原动画。", error: true });
           return;
         }
-        const nextPlan: StagePlanDraft = { ...base, stages: base.stages.slice(0, through + 1) };
+        const nextPlan = truncateStagePlan(base,through);
         const result = applyReading(nextPlan, { silent: true });
         if (!result.ok) {
           pushMessage({ id: uid(), role: "assistant", text: `截取失败：${formatErrors(result.errors)}。已保留原动画。`, error: true });
@@ -343,8 +423,18 @@ export function useWorkspace() {
         return;
       }
 
+      const history = messages
+        .filter((m): m is ChatMessage & { role: "user" | "assistant" } =>
+          (m.role === "user" || m.role === "assistant") && !m.pending && !m.error && m.text.trim().length > 0
+        )
+        .slice(-8)
+        .map((m) => ({ role: m.role, text: m.text }));
       const intent = await mockChatService.send(trimmed, {
         motion,
+        reading: latestAppliedRef.current ?? reading,
+        problemText,
+        currentTime,
+        history,
         conditions: (isStageReading(reading) ? {} : (reading?.conditions ?? {})) as Record<string, number | null>,
       });
 
@@ -457,7 +547,7 @@ export function useWorkspace() {
         text: intent.text + "动画与时间轴已同步更新。",
       });
     },
-    [applyReading, isChatLoading, motion, pushMessage, reading, replay, seekEvent, isPlaying, togglePlay]
+    [applyReading, currentTime, isChatLoading, messages, motion, problemText, pushMessage, reading, replay, seekEvent, isPlaying, togglePlay]
   );
 
   /** 撤销某次参数修改：回到该次修改前的 conditions */
@@ -534,11 +624,15 @@ export function useWorkspace() {
       isChatLoading,
       imageUrl,
       imageFile,
+      problemText,
       notice,
       missingKeys,
+      sampleCompare,
+      compareOn,
       // actions
       recognize,
       loadSample,
+      toggleSampleCompare,
       restartHome,
       seek,
       seekEvent,
@@ -558,8 +652,8 @@ export function useWorkspace() {
     }),
     [
       phase, reading, appliedReading, motion, currentTime, isPlaying, playbackRate, autoPauseEvents, segmentPlayback, messages,
-      isRecognizing, isChatLoading, imageUrl, imageFile, notice, missingKeys,
-      recognize, loadSample, restartHome, seek, seekEvent, nextEvent, togglePlay,
+      isRecognizing, isChatLoading, imageUrl, imageFile, problemText, notice, missingKeys, sampleCompare, compareOn,
+      recognize, loadSample, toggleSampleCompare, restartHome, seek, seekEvent, nextEvent, togglePlay,
       replay, sendChat, undoChange, applyConditions, slowCurrentSegment, exitSegmentPlayback,
     ]
   );

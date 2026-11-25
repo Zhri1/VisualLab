@@ -1,0 +1,22 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "bodies": [
+    { "bodyId": "left", "massKg": 1 },
+    { "bodyId": "right", "massKg": 3 }
+  ],
+  "primaryBodyId": "right",
+  "initial": { "speedMps": 0 },
+  "stages": [
+    {
+      "kind": "pulley_system",
+      "body1Id": "left",
+      "body2Id": "right",
+      "surface": { "kind": "hanging" },
+      "lightInextensibleString": true,
+      "idealFixedPulley": true,
+      "durationSeconds": 1
+    }
+  ]
+}

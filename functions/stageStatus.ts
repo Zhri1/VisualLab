@@ -53,7 +53,7 @@ export function toStagePlanResult(
     return {
       status: 'ok',
       reading: validation.reading,
-      message: DEFAULT_MESSAGES.ok,
+      message: validation.playback?.reason ?? DEFAULT_MESSAGES.ok,
       assumptions,
     };
   }

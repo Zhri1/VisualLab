@@ -12,6 +12,7 @@
  */
 
 import { SKILL_TEXT } from "./skill.ts";
+import { dispatchStageCommand } from './stageCommand.ts';
 import { INLINE_API_KEY } from "./inline-key.ts";
 import { applyLegacyContract, outputContractFromEnv } from "./legacyBridge.ts";
 import type { ClientResult } from "./legacyBridge.ts";
@@ -384,6 +385,7 @@ class VisionError extends Error {
 
 const DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const DEFAULT_MODEL = "qwen4-max";
+const DEFAULT_MAX_TOKENS = 2048;
 
 function env(name: string): string {
   let fromRuntime = "";
@@ -405,6 +407,15 @@ function timeoutMs(): number {
   return Number.isFinite(value) && value > 0 ? value : 25_000;
 }
 
+function maxTokens(): number {
+  const value = Number(env("VISION_MAX_TOKENS"));
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : DEFAULT_MAX_TOKENS;
+}
+
+function repairRetryEnabled(): boolean {
+  return env("VISION_REPAIR_RETRY") !== "0";
+}
+
 function extractJson(text: string): unknown {
   let body = text.trim();
   if (!body) throw new VisionError("parse", "识别服务返回了空内容");
@@ -422,10 +433,84 @@ function extractJson(text: string): unknown {
   }
 }
 
+interface VisionRepairError {
+  path: string;
+  code: string;
+  message: string;
+}
+
+interface VisionRepairContext {
+  previousRaw: unknown;
+  errors: VisionRepairError[];
+  missingKeys?: string[];
+}
+
 interface VisionRequest {
   imageBase64?: string;
   mime?: string;
   text?: string;
+  repairContext?: VisionRepairContext;
+}
+
+function formatRepairPrompt(repairContext: VisionRepairContext): string {
+  const previousJson = JSON.stringify(repairContext.previousRaw);
+  const errorLines =
+    repairContext.errors.length > 0
+      ? repairContext.errors
+          .map((err, index) => `${index + 1}. [${err.code}] ${err.path || "/"}: ${err.message}`)
+          .join("\n")
+      : "1. [INVALID_READING] /: 整体结构或字段类型不符合 schema 契约";
+  const missingLine =
+    Array.isArray(repairContext.missingKeys) && repairContext.missingKeys.length > 0
+      ? `\n当前标记的缺项路径（若题面确实未给仍保持 null，绝不猜测）：${repairContext.missingKeys.join("、")}`
+      : "";
+
+  return [
+    "你上一次输出的 JSON 未通过后端校验，请根据报错只修正出错字段并重新输出单个合法 JSON 对象：",
+    `上一次输出的 JSON：\n${previousJson}`,
+    `后端校验报错列表：\n${errorLines}${missingLine}`,
+    "要求：只修正上述报错字段，保持其他正确识别的题面条件不变；题面未给的数值一律保持 null，绝不猜数；只输出一个纯 JSON 对象，不要任何额外文字。",
+  ].join("\n\n");
+}
+
+function buildRepairContext(raw: unknown, result: PlanResponse): VisionRepairContext | null {
+  if (!isStagePlanResult(result)) return null;
+  if (result.status === "invalid_reading") {
+    return {
+      previousRaw: raw,
+      errors: [{ path: "/", code: "INVALID_READING", message: result.message }],
+    };
+  }
+  if (result.status === "needs_input" && result.fieldErrors.length > 0) {
+    return {
+      previousRaw: raw,
+      errors: result.fieldErrors,
+      missingKeys: result.missingKeys.length > 0 ? result.missingKeys : undefined,
+    };
+  }
+  return null;
+}
+
+function isRepairImproved(before: PlanResponse, after: PlanResponse): boolean {
+  if (after.status === "ok") return true;
+  if (before.status === "invalid_reading") {
+    return after.status === "needs_input" || after.status === "unsupported";
+  }
+  if (
+    before.status === "needs_input" &&
+    isStagePlanResult(before) &&
+    after.status === "needs_input" &&
+    isStagePlanResult(after)
+  ) {
+    if (after.fieldErrors.length < before.fieldErrors.length) return true;
+    if (
+      after.fieldErrors.length === before.fieldErrors.length &&
+      after.missingKeys.length < before.missingKeys.length
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function callOnce(model: string, request: VisionRequest, apiKey: string): Promise<{ raw: unknown; model: string }> {
@@ -448,7 +533,14 @@ async function callOnce(model: string, request: VisionRequest, apiKey: string): 
       text: `学生补充的文字描述（与图片冲突时以文字为准）：\n${request.text}`,
     });
   }
-  userContent.push({ type: "text", text: "按 Skill 输出这一个 JSON 对象，不要任何额外文字。" });
+  if (request.repairContext) {
+    userContent.push({
+      type: "text",
+      text: formatRepairPrompt(request.repairContext),
+    });
+  } else {
+    userContent.push({ type: "text", text: "按 Skill 输出这一个 JSON 对象，不要任何额外文字。" });
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), limit);
@@ -461,7 +553,7 @@ async function callOnce(model: string, request: VisionRequest, apiKey: string): 
       body: JSON.stringify({
         model,
         temperature: 0,
-        max_tokens: 1200,
+        max_tokens: maxTokens(),
         messages: [
           { role: "system", content: [{ type: "text", text: SKILL_TEXT }] },
           { role: "user", content: userContent },
@@ -558,6 +650,92 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+function buildTutorSystemPrompt(context?: Record<string, unknown> | null): string {
+  const base = [
+    "你是 VisualLab 的高中物理 AI 助教，正在结合交互动画一步步辅导学生理解当前这道物理题。",
+    "要求：",
+    "1. 紧扣下面提供的「当前题目与物理引擎实算数据」作答：涉及时刻、速度、位置、支持力/张力、能量或反求半径等数值时，严格以实算数据为准，绝不编造与实算矛盾的数值。",
+    "2. 像有经验的高中物理老师一样讲清受力分析、运动过程拆分、守恒定律与临界条件；先给清晰结论，再分步列式推导。",
+    "3. 表达简洁易读，直接用中文自然段或「1. / 2.」分点；不要输出 # 标题、--- 分割线、Markdown 表格或 LaTeX 反斜杠命令（如 \\frac、\\sqrt、\\[...\\]），公式一律用直观符号写成纯文本（如 N + mg = mv²/R、v = √(gR)、ΔEk = W合）。",
+    "4. 必要时可提醒学生在时间轴点击对应关键事件观察，或在「查看原题」中修改参数做对比实验。",
+  ].join("\n");
+  if (!context || Object.keys(context).length === 0) return base;
+  let serialized = "";
+  try {
+    serialized = JSON.stringify(context, null, 2).slice(0, 6000);
+  } catch {
+    serialized = "";
+  }
+  return serialized ? `${base}\n\n【当前题目与物理引擎实算数据】\n${serialized}` : base;
+}
+
+async function callTutorChat(request: {
+  message: string;
+  context?: Record<string, unknown> | null;
+  history?: Array<{ role: "user" | "assistant"; text: string }>;
+}): Promise<{ reply: string; model: string }> {
+  const apiKey = env("DASHSCOPE_API_KEY");
+  if (!apiKey) throw new VisionError("upstream", "服务端未配置 DASHSCOPE_API_KEY");
+  const primary = env("DASHSCOPE_CHAT_MODEL") || env("DASHSCOPE_VISION_MODEL") || DEFAULT_MODEL;
+  const fallback = env("DASHSCOPE_FALLBACK_MODEL");
+
+  const runOnce = async (model: string): Promise<{ reply: string; model: string }> => {
+    const baseUrl = env("DASHSCOPE_BASE_URL") || DEFAULT_BASE_URL;
+    const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
+    const limit = timeoutMs();
+    const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+      { role: "system", content: buildTutorSystemPrompt(request.context) },
+    ];
+    for (const item of (request.history ?? []).slice(-8)) {
+      const content = typeof item.text === "string" ? item.text.trim().slice(0, 1200) : "";
+      if (!content) continue;
+      messages.push({ role: item.role === "assistant" ? "assistant" : "user", content });
+    }
+    messages.push({ role: "user", content: request.message.trim().slice(0, 2000) });
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), limit);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, temperature: 0.3, max_tokens: Math.min(maxTokens(), 1400), messages }),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw new VisionError("timeout", `助教回答超时（${limit} ms）`);
+      throw new VisionError("upstream", "无法连接 AI 助教服务，请检查网络或服务地址");
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!response.ok) {
+      const detail = (await response.text().catch(() => "")).slice(0, 300);
+      if (response.status === 401 || response.status === 403) throw new VisionError("upstream", "AI 服务鉴权失败，请检查 DASHSCOPE_API_KEY 是否有效");
+      if (response.status === 429) throw new VisionError("upstream", "AI 服务调用频率或额度受限，请稍后重试");
+      throw new VisionError("upstream", `AI 助教服务返回 ${response.status}：${detail || "无详细信息"}`);
+    }
+    const payload = (await response.json().catch(() => null)) as { choices?: Array<{ message?: { content?: unknown } }> } | null;
+    const content = payload?.choices?.[0]?.message?.content;
+    const reply =
+      typeof content === "string"
+        ? content.trim()
+        : Array.isArray(content)
+          ? content.map((part) => (typeof part === "string" ? part : typeof (part as { text?: unknown })?.text === "string" ? (part as { text: string }).text : "")).join("").trim()
+          : "";
+    if (!reply) throw new VisionError("parse", "AI 助教返回了空内容");
+    return { reply, model };
+  };
+
+  try {
+    return await runOnce(primary);
+  } catch (error) {
+    const retryable = error instanceof VisionError && (error.kind === "timeout" || error.kind === "upstream");
+    if (!retryable || !fallback || fallback === primary) throw error;
+    return runOnce(fallback);
+  }
+}
+
 export async function handler(request: Request): Promise<Response> {
   const startedAt = Date.now();
   const requestId = Math.random().toString(36).slice(2, 10);
@@ -577,6 +755,47 @@ export async function handler(request: Request): Promise<Response> {
     return json({ message: "无法解析上传内容，请重新选择图片" }, 400);
   }
 
+  const commandResult=dispatchStageCommand(form);
+  if(commandResult)return json(commandResult.body,commandResult.status);
+
+  const rawChat = form.get("chatMessage");
+  if (typeof rawChat === "string") {
+    const chatMessage = rawChat.trim().slice(0, MAX_TEXT_CHARS);
+    if (!chatMessage) return json({ message: "提问内容不能为空" }, 400);
+    if (form.get("image") instanceof Blob || form.get("command") !== null) {
+      return json({ message: "问答模式不能同时提交图片或阶段指令" }, 400);
+    }
+    let context: Record<string, unknown> | null = null;
+    let history: Array<{ role: "user" | "assistant"; text: string }> = [];
+    const rawContext = form.get("chatContext");
+    if (typeof rawContext === "string" && rawContext.trim()) {
+      try {
+        const parsed = JSON.parse(rawContext) as { history?: Array<{ role: "user" | "assistant"; text: string }>; [key: string]: unknown };
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          if (Array.isArray(parsed.history)) history = parsed.history;
+          const { history: _h, ...rest } = parsed;
+          context = rest;
+        }
+      } catch {
+        return json({ message: "chatContext 须为合法 JSON 字符串" }, 400);
+      }
+    }
+    try {
+      const chat = await callTutorChat({ message: chatMessage, context, history });
+      const elapsed = Date.now() - startedAt;
+      return json(
+        { status: "ok", reply: chat.reply },
+        200,
+        { "x-request-id": requestId, "x-elapsed-ms": String(elapsed), "x-vision-model": chat.model },
+      );
+    } catch (error) {
+      const elapsed = Date.now() - startedAt;
+      const failure = error instanceof VisionError ? error.kind : "upstream";
+      const message = error instanceof VisionError ? error.message : "AI 助教服务异常，请稍后重试";
+      const status = failure === "timeout" ? 504 : 502;
+      return json({ status: "error", message }, status, { "x-request-id": requestId, "x-elapsed-ms": String(elapsed) });
+    }
+  }
   const rawText = form.get("text");
   const text = typeof rawText === "string" ? rawText.trim().slice(0, MAX_TEXT_CHARS) : "";
 
@@ -601,16 +820,8 @@ export async function handler(request: Request): Promise<Response> {
   }
 
   let vision: { raw: unknown; model: string };
-  let internal: ReturnType<typeof buildPlanResponse>;
   try {
-    const visionInput = { imageBase64, mime, text };
-    vision = await callVisionModel(visionInput);
-    internal = buildPlanResponse(vision.raw);
-    // 已解析但结构损坏时，用同一输入再识别一次；缺项和超范围不重试。
-    if (internal.status === "invalid_reading") {
-      vision = await callVisionModel(visionInput);
-      internal = buildPlanResponse(vision.raw);
-    }
+    vision = await callVisionModel({ imageBase64, mime, text });
   } catch (error) {
     const elapsed = Date.now() - startedAt;
     const failure = error instanceof VisionError ? error.kind : "upstream";
@@ -626,6 +837,39 @@ export async function handler(request: Request): Promise<Response> {
 
   // 内部统一按 stage_plan 校验，对外形状由 API_CONTRACT_MODE 决定：
   // 默认 legacy（A 的前端尚未接入），设成 stage_plan 才吐新契约。
+  let internal = buildPlanResponse(vision.raw);
+  const repairContext = repairRetryEnabled() ? buildRepairContext(vision.raw, internal) : null;
+  if (repairContext) {
+    try {
+      const repairedVision = await callVisionModel({
+        imageBase64,
+        mime,
+        text,
+        repairContext,
+      });
+      const repairedInternal = buildPlanResponse(repairedVision.raw);
+      if (isRepairImproved(internal, repairedInternal)) {
+        vision = repairedVision;
+        internal = repairedInternal;
+      }
+    } catch (error) {
+      if (internal.status === "invalid_reading") {
+        const elapsed = Date.now() - startedAt;
+        const failure = error instanceof VisionError ? error.kind : "upstream";
+        const message = error instanceof VisionError ? error.message : "识别服务异常，请稍后重试";
+        const status = failure === "timeout" ? 504 : 502;
+
+        console.error(`[plan] ${requestId} ${failure} ${elapsed}ms ${message}`);
+        return json({ message }, status, {
+          "x-request-id": requestId,
+          "x-elapsed-ms": String(elapsed),
+        });
+      }
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(`[plan] ${requestId} repair_fallback ${reason}`);
+    }
+  }
+
   const result: ClientResult =
     isStagePlanResult(internal) && outputContractFromEnv(env("API_CONTRACT_MODE")) === "legacy"
       ? applyLegacyContract(internal, validateReading, UNSUPPORTED_PREFIX)

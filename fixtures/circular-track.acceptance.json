@@ -1,0 +1,303 @@
+{
+  "description": "契约预期，非现有运行时回包。闭式能量/法向力及独立Simpson时间，另以RK4交叉核对。",
+  "toleranceSI": 0.000001,
+  "boundarySideEpsilonSeconds": 1e-7,
+  "boundarySideToleranceSI": 1e-10,
+  "cases": [
+    {
+      "readingFile": "circular-track-critical.reading.json",
+      "entry": {
+        "xM": 0,
+        "yM": 0,
+        "vxMps": 4.47213595499958,
+        "vyMps": 0,
+        "normalForceN": 6.000000000000001
+      },
+      "top": {
+        "timeSeconds": 0.4037811639956823,
+        "angleDeg": 180,
+        "xM": 0,
+        "yM": 0.8,
+        "vxMps": -2,
+        "vyMps": 0,
+        "normalForceN": 0
+      },
+      "boundary": {
+        "timeSeconds": 0.8075623279913775,
+        "angleDeg": 360,
+        "xM": 0,
+        "yM": 0,
+        "vxMps": 4.47213595499958,
+        "vyMps": 0,
+        "normalForceN": 6.000000000000001
+      },
+      "flightSeconds": null,
+      "durationSeconds": 0.8075623279913775,
+      "final": {
+        "xM": 0,
+        "yM": 0,
+        "vxMps": 4.47213595499958,
+        "vyMps": 0,
+        "normalForceN": 6.000000000000001
+      },
+      "eventKinds": [
+        "release",
+        "arc_enter",
+        "arc_top",
+        "arc_lowest",
+        "arc_range_end"
+      ],
+      "hasConstraintAtBoundary": true,
+      "endReason": "prefix_end",
+      "motionStatusState": "range_end"
+    },
+    {
+      "readingFile": "circular-track-below.reading.json",
+      "entry": {
+        "xM": 0,
+        "yM": 0,
+        "vxMps": 4.471688719041163,
+        "vyMps": 0,
+        "normalForceN": 5.998999999999999
+      },
+      "top": null,
+      "boundary": {
+        "timeSeconds": 0.39872049376843305,
+        "angleDeg": 178.52058823754032,
+        "xM": 0.01032709489105782,
+        "yM": 0.7998666666666667,
+        "vxMps": -1.999000083337963,
+        "vyMps": 0.051626867825600956,
+        "normalForceN": 0
+      },
+      "flightSeconds": 0.405162670117745,
+      "durationSeconds": 0.8038831638861781,
+      "final": {
+        "xM": -0.7995931164397461,
+        "yM": 0,
+        "vxMps": -1.999000083337963,
+        "vyMps": -3.999999833351849,
+        "normalForceN": 0
+      },
+      "eventKinds": [
+        "release",
+        "arc_enter",
+        "arc_contact_lost",
+        "projectile_launch",
+        "apex",
+        "land"
+      ],
+      "hasConstraintAtBoundary": false,
+      "endReason": "landed",
+      "motionStatusState": "range_end"
+    },
+    {
+      "readingFile": "circular-track-above.reading.json",
+      "entry": {
+        "xM": 0,
+        "yM": 0,
+        "vxMps": 4.472583146236635,
+        "vyMps": 0,
+        "normalForceN": 6.001
+      },
+      "top": {
+        "timeSeconds": 0.4036758097677073,
+        "angleDeg": 180,
+        "xM": 0,
+        "yM": 0.8,
+        "vxMps": -2.0009997501249224,
+        "vyMps": 0,
+        "normalForceN": 0.001000000000000334
+      },
+      "boundary": {
+        "timeSeconds": 0.8073516195354263,
+        "angleDeg": 360,
+        "xM": 0,
+        "yM": 0,
+        "vxMps": 4.472583146236635,
+        "vyMps": 0,
+        "normalForceN": 6.001
+      },
+      "flightSeconds": null,
+      "durationSeconds": 0.8073516195354263,
+      "final": {
+        "xM": 0,
+        "yM": 0,
+        "vxMps": 4.472583146236635,
+        "vyMps": 0,
+        "normalForceN": 6.001
+      },
+      "eventKinds": [
+        "release",
+        "arc_enter",
+        "arc_top",
+        "arc_lowest",
+        "arc_range_end"
+      ],
+      "hasConstraintAtBoundary": true,
+      "endReason": "prefix_end",
+      "motionStatusState": "range_end"
+    },
+    {
+      "readingFile": "circular-track-offset.reading.json",
+      "entry": {
+        "xM": 2.2,
+        "yM": 0.053589838486224506,
+        "vxMps": 3.464101615137755,
+        "vyMps": 1.9999999999999998,
+        "normalForceN": 4.866025403784439
+      },
+      "top": null,
+      "boundary": {
+        "timeSeconds": 0.19768752426374964,
+        "angleDeg": 119.99999999999999,
+        "xM": 2.3464101615137753,
+        "yM": 0.6,
+        "vxMps": -1.126032500610494,
+        "vyMps": 1.9503455020312095,
+        "normalForceN": 0.7679491924311237
+      },
+      "flightSeconds": 0.5925750836999377,
+      "durationSeconds": 0.7902626079636874,
+      "final": {
+        "xM": 1.6791513582156616,
+        "yM": 0,
+        "vxMps": -1.126032500610494,
+        "vyMps": -3.9754053349681677,
+        "normalForceN": 0
+      },
+      "eventKinds": [
+        "release",
+        "arc_enter",
+        "arc_endpoint",
+        "projectile_launch",
+        "apex",
+        "land"
+      ],
+      "hasConstraintAtBoundary": false,
+      "endReason": "landed",
+      "motionStatusState": "range_end"
+    },
+    {
+      "readingFile": "circular-track-mirrored.reading.json",
+      "entry": {
+        "xM": -2.2,
+        "yM": 0.053589838486224506,
+        "vxMps": -3.464101615137755,
+        "vyMps": 1.9999999999999998,
+        "normalForceN": 4.866025403784439
+      },
+      "top": null,
+      "boundary": {
+        "timeSeconds": 0.1976875242637507,
+        "angleDeg": -119.99999999999999,
+        "xM": -2.3464101615137753,
+        "yM": 0.6,
+        "vxMps": 1.126032500610494,
+        "vyMps": 1.9503455020312095,
+        "normalForceN": 0.7679491924311237
+      },
+      "flightSeconds": 0.5925750836999377,
+      "durationSeconds": 0.7902626079636884,
+      "final": {
+        "xM": -1.6791513582156616,
+        "yM": 0,
+        "vxMps": 1.126032500610494,
+        "vyMps": -3.9754053349681677,
+        "normalForceN": 0
+      },
+      "eventKinds": [
+        "release",
+        "arc_enter",
+        "arc_endpoint",
+        "projectile_launch",
+        "apex",
+        "land"
+      ],
+      "hasConstraintAtBoundary": false,
+      "endReason": "landed",
+      "motionStatusState": "range_end"
+    },
+    {
+      "readingFile": "circular-track-observation.reading.json",
+      "entry": {
+        "xM": 2.2,
+        "yM": 0.053589838486224506,
+        "vxMps": 3.464101615137755,
+        "vyMps": 1.9999999999999998,
+        "normalForceN": 4.866025403784439
+      },
+      "top": null,
+      "boundary": {
+        "timeSeconds": 0.19768752426374964,
+        "angleDeg": 119.99999999999999,
+        "xM": 2.3464101615137753,
+        "yM": 0.6,
+        "vxMps": -1.126032500610494,
+        "vyMps": 1.9503455020312095,
+        "normalForceN": 0.7679491924311237
+      },
+      "flightSeconds": null,
+      "durationSeconds": 0.19768752426374964,
+      "final": {
+        "xM": 2.3464101615137753,
+        "yM": 0.6,
+        "vxMps": -1.126032500610494,
+        "vyMps": 1.9503455020312095,
+        "normalForceN": 0.7679491924311237
+      },
+      "eventKinds": [
+        "release",
+        "arc_enter",
+        "arc_range_end"
+      ],
+      "hasConstraintAtBoundary": true,
+      "endReason": "prefix_end",
+      "motionStatusState": "range_end"
+    },
+    {
+      "readingFile": "circular-track-incline.reading.json",
+      "arcEntryTimeSeconds": 0.8,
+      "entry": {
+        "xM": 0,
+        "yM": 0,
+        "vxMps": 3.464101615137755,
+        "vyMps": -1.9999999999999998,
+        "normalForceN": 4.866025403784439
+      },
+      "top": null,
+      "boundary": {
+        "timeSeconds": 0.9572439893176202,
+        "timeSinceArcEntrySeconds": 0.15724398931762018,
+        "angleDeg": 60,
+        "xM": 0.5464101615137755,
+        "yM": 0.1464101615137754,
+        "vxMps": 1.8077469934786572,
+        "vyMps": 3.131109639934917,
+        "normalForceN": 3.7679491924311233
+      },
+      "flightSeconds": 0.669930957933978,
+      "durationSeconds": 1.6271749472515982,
+      "final": {
+        "xM": 1.7574758365572012,
+        "yM": 0,
+        "vxMps": 1.8077469934786572,
+        "vyMps": -3.568199939404864,
+        "normalForceN": 0
+      },
+      "eventKinds": [
+        "release",
+        "reach_bottom",
+        "arc_enter",
+        "arc_lowest",
+        "arc_endpoint",
+        "projectile_launch",
+        "apex",
+        "land"
+      ],
+      "hasConstraintAtBoundary": false,
+      "endReason": "landed",
+      "motionStatusState": "range_end"
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 import type { StageMotion, StagePlanFailure } from "../physics";
 import type { ResolvedStagePlan, StageKind } from "../physics/stagePlan";
+import type { BodyState } from '../physics/multiBodyTypes';
+import type { BodyMotionSample } from '../types';
 import type {
   FieldError,
   Motion,
@@ -11,6 +13,17 @@ import type {
 } from "../types";
 
 const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "formula">> = {
+  horizontal_approach: {name:'水平接近',summary:'各物体按题给初位、带符号速度和各自摩擦同钟运动。',formula:'xᵢ = xᵢ₀ + vᵢ₀t + aᵢt²/2'},
+  block_plank: {name:'滑块与可移动木板',summary:'光滑地面双体按相对速度选摩擦方向，比较先共速与先到板边，共速后依静摩擦上限决定共动或重滑。',formula:'m·v块 + M·v板 = 常量；fₖ = μₖmg；|fₛ| ≤ μₛmg'},
+  pulley_system: {name:'轻绳与定滑轮连接体',summary:'轻质不可伸长绳绕过理想定滑轮，拉紧时两物体共加速度与同张力，着地或约束失效时张力归零。',formula:'a = (F驱动 − fₖ)/(m₁ + m₂)，T = m₂(g − a) ≥ 0'},
+  pendulum_swing: { name:'轻绳摆',summary:'按真实非线性方程计算摆动与张力；转折后继续反向。',formula:'q² = q₀² + 2gL(cosθ − cosθ₀)，T = M(q²/L + gcosθ)' },
+  collision_1d: { name:'水平正碰',summary:'带符号速度与总动量确定碰后状态。',formula:'m₁u₁ + m₂u₂ = m₁v₁ + m₂v₂' },
+  parallel_motion: { name:'同步运动',summary:'两物体使用同一条物理时间轴。',formula:'t₁ = t₂' },
+  spring_release: { name: "预压弹簧释放", summary: "弹簧推动滑块，释放阶段同时计入摩擦。", formula: "s = (c − μmg/k)(1 − cosωt)" },
+  vertical_arc: {
+    name: "竖直圆弧", summary: "光滑内轨上机械能守恒；法向力降为零时沿切线飞出，速度先降为零时沿轨回滑。",
+    formula: "v² = u² − 2gR(1 − cosφ)，N = m(v²/R + gcosφ)",
+  },
   incline_slide: {
     name: "斜面下滑",
     summary: "滑块沿斜面运动，重力沿坡分力与滑动摩擦共同决定加速度。",
@@ -26,6 +39,16 @@ const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "f
     summary: "滑块沿水平支撑面运动；若存在动摩擦，速度随时间线性减小。",
     formula: "v = v₀ − μgt",
   },
+  constant_force_1d: {
+    name: "常力匀变速",
+    summary: "由恒定合力与质量求加速度，继承上一段位置与带方向速度。",
+    formula: "a = F/m，v = v₀ + at，x = x₀ + v₀t + ½at²",
+  },
+  conveyor_belt: {
+    name: "传送带与滑块",
+    summary: "按相对带面速度确定摩擦方向；共速后依带面加速度与静摩擦上限决定随带或重新滑动。",
+    formula: "v相对 = v块 − v带，Δx相对 = x块 − x带；|a带| ≤ μₛg",
+  },
   spring_contact: {
     name: "压缩与反弹",
     summary: "弹簧压缩到最大后恢复原长，滑块在不连接前提下反向脱离。",
@@ -39,10 +62,13 @@ const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "f
 };
 
 function segmentKind(kind: StageKind): SegmentKind {
+  if(kind==='pendulum_swing')return 'pendulum';
   if (kind === "incline_slide") return "incline";
   if (kind === "horizontal_slide") return "horizontal";
   if (kind === "spring_contact") return "spring";
+  if (kind === "spring_release") return "spring";
   if (kind === "projectile") return "projectile";
+  if (kind === "vertical_arc") return "vertical_arc";
   return "horizontal";
 }
 
@@ -55,15 +81,18 @@ function legacyGeometry(source: StageMotion): SceneGeometry {
   const g = source.geometry;
   const first = source.sampleAt(0);
   const last = source.sampleAt(source.durationSeconds);
-  const inclineStart = g.incline?.start ?? { xM: first.xM, yM: first.yM };
-  const inclineEnd = g.incline?.end ?? { xM: first.xM, yM: first.yM };
-  const horizontalEnd = g.horizontal?.plannedEnd ?? g.spring?.contact ?? { xM: last.xM, yM: last.yM };
+  const firstIncline = g.incline ?? g.inclines?.[0];
+  const lastHorizontal = g.horizontal ?? g.horizontals?.[g.horizontals.length - 1];
+  const lastSpring = g.spring ?? g.springs?.[g.springs.length - 1];
+  const inclineStart = firstIncline?.start ?? { xM: first.xM, yM: first.yM };
+  const inclineEnd = firstIncline?.end ?? { xM: first.xM, yM: first.yM };
+  const horizontalEnd = lastHorizontal?.plannedEnd ?? lastSpring?.contact ?? { xM: last.xM, yM: last.yM };
   return {
     inclineTop: vec(inclineStart.xM, inclineStart.yM),
     inclineBottom: vec(inclineEnd.xM, inclineEnd.yM),
     horizontalEnd: vec(horizontalEnd.xM, horizontalEnd.yM),
-    springContactX: g.spring?.contact.xM ?? horizontalEnd.xM,
-    springAnchorX: g.spring?.anchor.xM ?? horizontalEnd.xM + 1,
+    springContactX: lastSpring?.contact.xM ?? horizontalEnd.xM,
+    springAnchorX: lastSpring?.anchor.xM ?? horizontalEnd.xM + 1,
     blockSizeM: g.blockSizeM,
   };
 }
@@ -80,6 +109,11 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
           ? "spring_contact"
           : "incline_slide";
     return {
+      collision:event.collision,
+      bodyIds:event.bodyIds,stagePath:event.stagePath,
+      bodyStatesBefore:event.bodyStatesBefore?mapBodies(event.bodyStatesBefore):undefined,
+      bodyStatesAfter:event.bodyStatesAfter?mapBodies(event.bodyStatesAfter):undefined,
+      constraintsBefore:event.constraintsBefore,constraintsAfter:event.constraintsAfter,
       id: event.id,
       eventKind: event.kind,
       stageIndex: event.stageIndex,
@@ -88,37 +122,59 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
       label: event.label,
       caption: event.explanation,
       detail: event.explanation,
-      segment: segmentKind(owner?.kind ?? fallback),
+      segment: segmentKind(owner?.kind ?? plan?.stages[event.stageIndex]?.kind ?? fallback),
       velocityBefore: vec(event.velocityBefore.vxMps, event.velocityBefore.vyMps),
       velocityAfter: vec(event.velocityAfter.vxMps, event.velocityAfter.vyMps),
+      ...(event.position ? { position: vec(event.position.xM, event.position.yM), normalForceBeforeN: event.normalForceBeforeN, normalForceAfterN: event.normalForceAfterN } : {}),
     };
   });
 
   return {
+    primaryBodyId:source.primaryBodyId,motionStatus:source.motionStatus,
+    timing: source.timing,
+    calculations: source.calculations,
     geometry: legacyGeometry(source),
     stageGeometry: source.geometry,
     stagePlan: plan,
     durationSeconds: source.durationSeconds,
     segments: source.segments.map((segment) => ({
+      bodyIds:segment.bodyIds,stagePath:segment.stagePath,
       kind: segmentKind(segment.kind),
       stageKind: segment.kind,
       stageIndex: segment.stageIndex,
       startSeconds: segment.startSeconds,
       endSeconds: segment.endSeconds,
       ...segmentText[segment.kind],
+      ...(segment.kind==='spring_contact'&&plan?.stages[segment.stageIndex]&&'kineticFrictionCoefficient' in plan.stages[segment.stageIndex]?{
+        name:'粗糙压缩与回弹',
+        summary:'按实际运动方向计动摩擦；在最大压缩处用静摩擦上限或题给事实判断保持或回弹，回弹可能脱离或带残余压缩静止。',
+        formula:'压缩 x″ = −(k/m)x − μₖg；回弹 x″ = −(k/m)x + μₖg；Q = μₖmg·s',
+      }:{}),
+      ...(segment.kind==='vertical_arc'&&(plan?.stages[segment.stageIndex] as {path?:unknown}|undefined)?.path?{
+        summary:'按真实入射角和切线运动；只有继续需要负支持力才脱轨，观察范围结束仍保持约束。',
+        formula:'q² = u² + 2gR(cosφ − cosφ₀)，N = m(q²/R + gcosφ)',
+      }:{}),
     })),
     events,
     endReason: source.endReason,
     termination: source.termination,
+    ...(source.energyAt ? { energyAt: (time: number) => source.energyAt!(Number.isNaN(time) ? 0 : time) } : {}),
+    ...(source.conveyorAt ? { conveyorAt: (time: number) => source.conveyorAt!(Number.isNaN(time) ? 0 : time) } : {}),
     sampleAt(timeSeconds) {
       const sample = source.sampleAt(Number.isNaN(timeSeconds) ? 0 : timeSeconds);
       return {
+        ...(sample.bodies?{bodies:mapBodies(sample.bodies),constraints:sample.constraints}:{}),
         position: vec(sample.xM, sample.yM),
         velocity: vec(sample.vxMps, sample.vyMps),
         springCompressionM: sample.springCompressionM,
+        ...(sample.constraint ? { constraint: { ...sample.constraint } } : {}),
       };
     },
   };
+}
+
+function mapBodies(bodies:Record<string,BodyState>):Record<string,BodyMotionSample>{
+  return Object.fromEntries(Object.entries(bodies).map(([id,b])=>{const{xM,yM,vxMps,vyMps,...rest}=b;return[id,{...rest,position:vec(xM,yM),velocity:vec(vxMps,vyMps)}];}));
 }
 
 export function stageFailureErrors(failure: StagePlanFailure): FieldError[] {

@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Motion } from "../../../types";
+import { displayEventAt } from './playback';
 
 interface Props {
   motion: Motion;
@@ -23,6 +24,7 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
   const [dragging, setDragging] = useState(false);
 
   const duration = Math.max(motion.durationSeconds, 0.001);
+  const zeroDuration = motion.durationSeconds === 0;
   const ratio = Math.min(1, Math.max(0, time / duration));
 
   const posToTime = useCallback(
@@ -37,6 +39,7 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
   );
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (zeroDuration) return;
     onScrubStart();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     setDragging(true);
@@ -60,15 +63,17 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (zeroDuration) return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
       if (e.key === "ArrowRight") onSeek(Math.min(duration, time + 0.05));
       if (e.key === "ArrowLeft") onSeek(Math.max(0, time - 0.05));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [duration, onSeek, time]);
+  }, [duration, onSeek, time, zeroDuration]);
 
-  const activeEvent = [...motion.events].reverse().find((e) => e.timeSeconds <= time + 1e-6);
+  const activeEvent = displayEventAt(motion,time);
+  const passedAt=(seconds:number)=>motion.primaryBodyId?seconds<=time:time>=seconds-1e-6;
 
   return (
     <div className="timeline">
@@ -80,7 +85,8 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         role="slider"
-        tabIndex={0}
+        tabIndex={zeroDuration ? -1 : 0}
+        aria-disabled={zeroDuration || undefined}
         aria-label="播放进度"
         aria-valuemin={0}
         aria-valuemax={Math.round(duration * 100) / 100}
@@ -89,7 +95,7 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
         <div className="track-fill" style={{ width: `${ratio * 100}%` }} />
         {motion.events.map((ev) => {
           const p = (ev.timeSeconds / duration) * 100;
-          const done = time >= ev.timeSeconds - 1e-6;
+          const done = passedAt(ev.timeSeconds);
           const current = activeEvent?.id === ev.id;
           return (
             <span
@@ -110,7 +116,7 @@ export function EventTimeline({ motion, time, onSeek, onSeekEvent, onScrubStart 
       <ol className="event-index" aria-label="关键事件">
         {motion.events.map((ev) => {
           const current = activeEvent?.id === ev.id;
-          const passed = time >= ev.timeSeconds - 1e-6;
+          const passed = passedAt(ev.timeSeconds);
           return (
             <li key={ev.id}>
               <button

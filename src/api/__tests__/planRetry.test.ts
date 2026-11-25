@@ -46,7 +46,7 @@ describe.each([['Node', handlePlan], ['Qoder', handler]] as const)('%s 识别入
   });
 
   for (const [name, broken] of [['schemaVersion 对象', brokenVersion], ['end.kind 布尔值', brokenEnd]] as const) {
-    it(`${name} 后得到好结果时成功，且第二次输入一致`, async () => {
+    it(`${name} 后得到好结果时成功，且第二次携带定向纠错上下文`, async () => {
       fetchMock.mockResolvedValueOnce(modelResponse(broken())).mockResolvedValueOnce(modelResponse(complete));
       const response = await entry(request());
       expect(response.status).toBe(200);
@@ -58,7 +58,12 @@ describe.each([['Node', handlePlan], ['Qoder', handler]] as const)('%s 识别入
       });
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(fetchMock.mock.calls[1][0]).toBe(fetchMock.mock.calls[0][0]);
-      expect(fetchMock.mock.calls[1][1]?.body).toBe(fetchMock.mock.calls[0][1]?.body);
+      const retryPayload = JSON.parse(String(fetchMock.mock.calls[1][1]?.body));
+      const retryText = retryPayload.messages[1].content
+        .filter((part: { type?: string }) => part.type === 'text')
+        .map((part: { text?: string }) => part.text ?? '')
+        .join('\n');
+      expect(retryText).toContain('INVALID_READING');
       expect(response.headers.get('x-vision-model')).toBe('mock-model');
     });
 
