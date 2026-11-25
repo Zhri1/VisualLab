@@ -58,7 +58,7 @@ export function WorkspaceLayout({ ws }: Props) {
   const [explainOpen, setExplainOpen] = useState(false);
   /** 自动慢放开关：默认开（只放慢不加速），可关回原始物理流速。 */
   const [paceEnabled, setPaceEnabled] = useState(true);
-  const [forcesOn, setForcesOn] = useState(false);
+const [forcesOn, setForcesOn] = useState(false);
   const [decomposeOn, setDecomposeOn] = useState(false);
   const [annotationMode, setAnnotationMode] = useState<AnnotationMode>("off");
   const [strokes, setStrokes] = useState<AnnotationStroke[]>([]);
@@ -118,7 +118,7 @@ export function WorkspaceLayout({ ws }: Props) {
     setSavedNote("已存入错题本");
     window.setTimeout(() => setSavedNote(null), 2400);
   };
-  const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primaryBodyId);
+const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primaryBodyId);
   useEffect(()=>setTrackedBodyId(motion?.primaryBodyId),[motion]);
   const rafRef = useRef<number | null>(null);
   const lastRef = useRef<number | null>(null);

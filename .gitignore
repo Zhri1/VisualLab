@@ -15,8 +15,9 @@ artifacts/
 
 # Qoder Sites 发布临时文件
 .sites-*
+# prepare_site 每次发布都会在项目根写站点绑定描述（含 projectId/siteId，不含密钥）
+*.qoder.site
 
 # 一次性 GitHub 操作脚本（不入库）
 .gh-*
 .pr-number
-.cdp*/
