@@ -24,6 +24,24 @@ function baselineY(motion: Motion): number {
   return minY;
 }
 
+const gravityFloorCache = new WeakMap<Motion, number>();
+/** 原生 energyAt 的重力势零点可能取在抛出点：平移到全程最低点，保证条与图例非负。 */
+export function nativeGravityFloor(motion: Motion): number {
+  const hit = gravityFloorCache.get(motion);
+  if (hit !== undefined) return hit;
+  let floor = 0;
+  if (motion.energyAt && Number.isFinite(motion.durationSeconds) && motion.durationSeconds > 0) {
+    floor = Infinity;
+    for (let i = 0; i <= 32; i += 1) {
+      const e = motion.energyAt((motion.durationSeconds * i) / 32);
+      floor = Math.min(floor, e?.gravitationalPotentialJ ?? 0);
+    }
+    if (!Number.isFinite(floor)) floor = 0;
+  }
+  gravityFloorCache.set(motion, floor);
+  return floor;
+}
+
 export function systemEnergyAt(motion: Motion, time: number): SystemEnergy | null {
   if (!Number.isFinite(motion.durationSeconds) || motion.durationSeconds <= 0) return null;
   const magneticOnly = (motion.stagePlan?.stages ?? []).length > 0 && (motion.stagePlan?.stages ?? []).every((st) => st.kind === "magnetic_deflection");

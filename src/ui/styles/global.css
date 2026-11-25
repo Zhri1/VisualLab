@@ -2049,43 +2049,60 @@ textarea {
   border: 1px solid var(--hair);
   border-radius: 4px;
 }
-/* 能量流向条 */
+/* 能量流向条：跟随设计系统——墨色灰阶、细线、不靠色块 */
 .energy-bar {
   margin-top: 8px;
 }
 .energy-bar-track {
   display: flex;
-  height: 10px;
-  border: 1px solid var(--hair);
-  border-radius: 5px;
+  height: 4px;
+  border-radius: 999px;
   overflow: hidden;
-  background: #fff;
+  background: var(--surface-secondary);
 }
 .energy-seg {
   height: 100%;
+  background: var(--tone);
 }
 .energy-kinetic {
-  background: #1c1c1c;
+  --tone: var(--ink);
 }
 .energy-gravity {
-  background: #386e8a;
+  --tone: #8e8e88;
 }
 .energy-elastic {
-  background: #059669;
+  --tone: #b4b4ae;
 }
 .energy-heat {
-  background: #d97706;
+  --tone: #d3d3ce;
 }
 .energy-bar-legend {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
   font-size: 11px;
   color: var(--text-secondary);
-  margin-top: 4px;
+  margin-top: 6px;
+}
+.energy-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.energy-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--tone);
+  flex: none;
 }
 .energy-bar-legend b {
+  font-weight: 600;
+  color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+}
+.energy-unit {
+  color: var(--text-tertiary);
 }
 /* 临界探索 */
 .critical-panel {

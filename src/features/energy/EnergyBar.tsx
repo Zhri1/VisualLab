@@ -1,18 +1,20 @@
 import type { Motion } from "../../types";
-import { systemEnergyAt } from "./systemEnergy";
+import { nativeGravityFloor, systemEnergyAt } from "./systemEnergy";
 
 const j = (v: number) => (Math.abs(v) < 5e-4 ? "0" : v.toFixed(2));
 
 /** 堆叠能量条：动能/重力势/弹性势/耗散，同钟实时；多物体用系统能量估算。 */
 export function EnergyBar({ motion, time }: { motion: Motion; time: number }) {
   const native = motion.energyAt?.(time);
+  const floor = native ? nativeGravityFloor(motion) : 0;
+  const gravityJ = (native?.gravitationalPotentialJ ?? 0) - floor;
   const sys = native
     ? {
         kineticJ: native.kineticJ,
-        gravityJ: native.gravitationalPotentialJ ?? 0,
+        gravityJ,
         elasticJ: native.elasticPotentialJ ?? 0,
         dissipatedJ: native.frictionHeatJ,
-        totalJ: native.kineticJ + (native.gravitationalPotentialJ ?? 0) + (native.elasticPotentialJ ?? 0) + native.frictionHeatJ,
+        totalJ: native.kineticJ + gravityJ + (native.elasticPotentialJ ?? 0) + native.frictionHeatJ,
       }
     : systemEnergyAt(motion, time);
   if (!sys) return null;
@@ -33,7 +35,8 @@ export function EnergyBar({ motion, time }: { motion: Motion; time: number }) {
       <div className="energy-bar-legend">
         {parts.map(([name, v, key]) => (
           <span key={key} className={`energy-key energy-${key}`}>
-            {name} <b>{j(v)}</b> J
+            <i className="energy-dot" aria-hidden="true" />
+            {name} <b>{j(v)}</b> <span className="energy-unit">J</span>
           </span>
         ))}
       </div>
