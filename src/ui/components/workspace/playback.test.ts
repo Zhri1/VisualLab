@@ -77,31 +77,31 @@ describe("默认观看节奏与统一取景", () => {
     return b.motion;
   };
 
-  it("2.39 s 斜面弹簧参考题默认节奏为原 0.55× 乘 1.5（0.825×），物理事件与时长不变", () => {
+  it("2.39 s 斜面弹簧参考题默认节奏放慢到 0.55×（只放慢不加速），物理事件与时长不变", () => {
     const motion = load("incline-spring.reading.json");
     const pace = computeDefaultPace(motion);
     const watch = motion.durationSeconds / pace;
-    expect(pace).toBe(0.825);
-    expect(watch).toBeCloseTo(motion.durationSeconds / 0.825, 6);
+    expect(pace).toBe(0.55);
+    expect(watch).toBeCloseTo(motion.durationSeconds / 0.55, 6);
     expect(motion.durationSeconds).toBeCloseTo(2.3932, 3);
-    expect(formatPace(pace)).toBe("0.825");
+    expect(formatPace(pace)).toBe("0.55");
   });
 
-  it("快例（0.5 s 木板到边 / 0.81 s 圆轨）为 0.225×；6 s 常力原 1× 乘 1.5 得 1.5× 不再裁回 1", () => {
+  it("快例（0.5 s 木板到边 / 0.81 s 圆轨）放慢到 0.15×；6 s 常力保持 1× 不加速", () => {
     const fastPlank = load("block-plank-edge.reading.json");
     const fastArc = load("circular-track-critical.reading.json");
     const longCf = load("constant-force-benchmark.reading.json");
-    expect(computeDefaultPace(fastPlank)).toBe(0.225);
-    expect(computeDefaultPace(fastArc)).toBe(0.225);
-    expect(computeDefaultPace(longCf)).toBe(1.5);
-    expect(formatPace(1.5)).toBe("1.5");
+    expect(computeDefaultPace(fastPlank)).toBe(0.15);
+    expect(computeDefaultPace(fastArc)).toBe(0.15);
+    expect(computeDefaultPace(longCf)).toBe(1);
+    expect(formatPace(1)).toBe("1");
   });
 
-  it("多物体碰撞接摆动原 0.25× 乘 1.5 得 0.375×，共用同一时间映射，采样与事件不受节奏系数影响", () => {
+  it("多物体碰撞接摆动放慢到 0.25×，共用同一时间映射，采样与事件不受节奏系数影响", () => {
     const motion = load("horizontal-collision-pendulum.reading.json");
     const pace = computeDefaultPace(motion);
-    expect(pace).toBe(0.375);
-    expect(formatPace(pace)).toBe("0.375");
+    expect(pace).toBe(0.25);
+    expect(formatPace(pace)).toBe("0.25");
     const col = motion.events.find((e) => e.eventKind === "collision")!;
     const step = advancePlayback(col.timeSeconds - 0.001, 0.05, 1 * pace, motion.durationSeconds, motion.events);
     expect(step.time).toBe(col.timeSeconds);

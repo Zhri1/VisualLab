@@ -15,6 +15,8 @@ interface Props {
   onScrubStart: () => void;
   playbackRate: number;
   defaultPace?: number;
+  paceEnabled?: boolean;
+  onPaceEnabledChange?: (enabled: boolean) => void;
   onRateChange: (rate: number) => void;
   autoPauseEvents: boolean;
   onAutoPauseChange: (enabled: boolean) => void;
@@ -35,6 +37,8 @@ export function PlaybackControls({
   onScrubStart,
   playbackRate,
   defaultPace = 1,
+  paceEnabled = true,
+  onPaceEnabledChange,
   onRateChange,
   autoPauseEvents,
   onAutoPauseChange,
@@ -43,8 +47,8 @@ export function PlaybackControls({
   onExitSegment,
 }: Props) {
   const unavailable=motion.timing?.mode==='state_only'||!!motion.primaryBodyId&&motion.durationSeconds===0;
-  const effectivePace = playbackRate * defaultPace;
-  const paceAdjusted = Math.abs(defaultPace - 1) > 1e-6;
+  const effectivePace = playbackRate * (paceEnabled ? defaultPace : 1);
+  const paceAdjusted = paceEnabled && Math.abs(defaultPace - 1) > 1e-6;
   return (
     <div className="transport">
       <div className="transport-row">
@@ -108,6 +112,12 @@ export function PlaybackControls({
             <input type="checkbox" checked={autoPauseEvents} onChange={(event) => onAutoPauseChange(event.target.checked)} />
             关键点自动暂停
           </label>
+          {onPaceEnabledChange && (
+            <label className="auto-pause-control auto-slow-control" title="统一缩放时间轴，各物体相对速度不变；只放慢不加速">
+              <input type="checkbox" checked={paceEnabled} onChange={(event) => onPaceEnabledChange(event.target.checked)} />
+              自动慢放
+            </label>
+          )}
         </div>
         <p className="playback-mode" role="status">
           {segmentName

@@ -43,6 +43,8 @@ export function WorkspaceLayout({ ws }: Props) {
   const [mobileTab, setMobileTab] = useState<MobileTab>("player");
   const [metaOpen, setMetaOpen] = useState(false);
   const [explainOpen, setExplainOpen] = useState(false);
+  /** 自动慢放开关：默认开（只放慢不加速），可关回原始物理流速。 */
+  const [paceEnabled, setPaceEnabled] = useState(true);
   const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primaryBodyId);
   useEffect(()=>setTrackedBodyId(motion?.primaryBodyId),[motion]);
   const rafRef = useRef<number | null>(null);
@@ -116,7 +118,7 @@ export function WorkspaceLayout({ ws }: Props) {
       lastRef.current = ts;
 
       const next = advancePlayback(
-        clockTimeRef.current, dt, ws.playbackRate * defaultPace,
+        clockTimeRef.current, dt, ws.playbackRate * (paceEnabled ? defaultPace : 1),
         ws.segmentPlayback?.endSeconds ?? motion.durationSeconds,
         ws.autoPauseEvents ? motion.events : []
       );
@@ -132,7 +134,7 @@ export function WorkspaceLayout({ ws }: Props) {
       rafRef.current = null;
       lastRef.current = null;
     };
-  }, [motion, isPlaying, ws.playbackRate, defaultPace, ws.autoPauseEvents, ws.segmentPlayback]);
+  }, [motion, isPlaying, ws.playbackRate, paceEnabled, defaultPace, ws.autoPauseEvents, ws.segmentPlayback]);
 
   return (
     <>
@@ -291,6 +293,8 @@ export function WorkspaceLayout({ ws }: Props) {
                 onScrubStart={() => ws.setIsPlaying(false)}
                 playbackRate={ws.playbackRate}
                 defaultPace={defaultPace}
+                paceEnabled={paceEnabled}
+                onPaceEnabledChange={setPaceEnabled}
                 onRateChange={ws.setPlaybackRate}
                 autoPauseEvents={ws.autoPauseEvents}
                 onAutoPauseChange={ws.setAutoPauseEvents}
