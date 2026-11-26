@@ -523,16 +523,18 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
         const uy = angleDeg === 0 ? 0 : dirSign * Math.sin(rad);
         const originXM = state.xM;
         const originYM = state.yM;
-        // 水平带保持与旧契约一致（沿 x 坐标求解）；倾斜带沿带坐标 s 从 0 开始并投影到世界 (x, y)。
-        // 首段 initial.vxMps 本身即为沿带初速；仅非首段继承时才将二维速度投影到带切向。
-        const sStart = angleDeg === 0 ? originXM : 0;
+        // 统一在传送带局部坐标 s ∈ [0, L] 内求解，再按 (originXM, originYM) 投影到世界坐标，
+        // 保证传送带接续在斜面/水平/圆弧/预压弹簧之后时位置与出口边界 100% 连续。
         const vAlong = angleDeg === 0 || index === 0 ? state.vxMps : state.vxMps * ux + state.vyMps * uy;
-        const solved = solveConveyorBelt(stage, sStart, vAlong, plan.gravityMps2!);
-        geometry.conveyor = { ...solved.geometry, ...(angleDeg > 0 ? { originXM, originYM } : {}) };
+        const solved = solveConveyorBelt(stage, 0, vAlong, plan.gravityMps2!);
+        geometry.conveyor = {
+          ...solved.geometry,
+          ...(originXM !== 0 || originYM !== 0 || angleDeg > 0 ? { originXM, originYM } : {}),
+        };
         const toWorld = (s: number, v: number) =>
           angleDeg === 0
-            ? moving(s, originYM, v, 0)
-            : moving(originXM + (s - sStart) * ux, originYM + (s - sStart) * uy, v * ux, v * uy);
+            ? moving(originXM + s, originYM, v, 0)
+            : moving(originXM + s * ux, originYM + s * uy, v * ux, v * uy);
         const startTime = time;
         conveyorEval = (q) => {
           const r = solved.evalAt(q - startTime);
