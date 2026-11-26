@@ -1,10 +1,10 @@
 /**
- * 单条消息。支持极简 Markdown 子集（段落、**粗体**、`代码`、$公式$）
- * 与内嵌操作入口，不引入第三方解析库。
+ * 单条消息。支持极简 Markdown 子集（段落、**粗体**、`代码`、$公式$）、
+ * 参数修改卡片、相似变式题卡片与内嵌操作入口，不引入第三方解析库。
  */
-import type { ReactNode } from "react";
-import { ArrowRight, ChevronRight, CornerDownRight, Sparkles } from "lucide-react";
-import type { ChatMessage as ChatMessageType } from "../../../types";
+import { useState, type ReactNode } from "react";
+import { ArrowRight, ChevronDown, ChevronRight, CornerDownRight, Lightbulb, Play, Sparkles } from "lucide-react";
+import type { ChatMessage as ChatMessageType, SimilarProblem } from "../../../types";
 import { ParameterChangeCard } from "./ParameterChangeCard";
 import { CONDITION_META } from "../../../types";
 
@@ -12,6 +12,7 @@ interface Props {
   message: ChatMessageType;
   onUndo: (id: string) => void;
   onSeekEvent: (eventId: string) => void;
+  onTrySimilar?: (stem: string) => void;
 }
 
 /** 把 **x**、`x`、$x$ 转成 React 节点 */
@@ -129,7 +130,74 @@ function AssumptionChip({ items }: { items: string[] }) {
   );
 }
 
-export function ChatMessageRow({ message, onUndo, onSeekEvent }: Props) {
+function SimilarProblemCard({
+  item,
+  onTrySimilar,
+}: {
+  item: SimilarProblem;
+  onTrySimilar?: (stem: string) => void;
+}) {
+  const [hintOpen, setHintOpen] = useState(false);
+
+  return (
+    <div className="similar-card">
+      <div className="similar-head">
+        <span className="similar-title">{item.title}</span>
+        {item.difficulty && <span className="similar-diff">{item.difficulty}</span>}
+      </div>
+
+      {item.tags.length > 0 && (
+        <div className="similar-tags">
+          {item.tags.map((tag) => (
+            <span className="similar-tag" key={tag}>
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <p className="similar-stem">{item.stem}</p>
+      <p className="similar-focus">
+        <span>变式亮点：</span>
+        {item.focus}
+      </p>
+
+      <div className="similar-actions">
+        {onTrySimilar && (
+          <button
+            type="button"
+            className="similar-btn similar-btn-primary"
+            onClick={() => onTrySimilar(item.stem)}
+          >
+            <Play size={12} strokeWidth={2.2} />
+            生成动画试做
+          </button>
+        )}
+        <button
+          type="button"
+          className="similar-btn"
+          onClick={() => setHintOpen((prev) => !prev)}
+          aria-expanded={hintOpen}
+        >
+          <Lightbulb size={12} strokeWidth={2} />
+          {hintOpen ? "收起思路" : "看思路"}
+          <ChevronDown
+            size={12}
+            strokeWidth={2}
+            style={{
+              transform: hintOpen ? "rotate(180deg)" : "none",
+              transition: "transform 0.16s ease",
+            }}
+          />
+        </button>
+      </div>
+
+      {hintOpen && <div className="similar-hint">{renderText(item.hint)}</div>}
+    </div>
+  );
+}
+
+export function ChatMessageRow({ message, onUndo, onSeekEvent, onTrySimilar }: Props) {
   if (message.role === "user") {
     return (
       <div className="msg user">
@@ -157,16 +225,33 @@ export function ChatMessageRow({ message, onUndo, onSeekEvent }: Props) {
           <ParameterChangeCard
             messageId={message.id}
             change={message.change}
-            label={(key) =>
-              CONDITION_META.find((m) => m.key === key)?.label ?? String(key)
-            }
-            unit={(key) => CONDITION_META.find((m) => m.key === key)?.unit ?? ""}
+            label={(key) => {
+              const found = message.change?.changes.find((c) => c.key === key);
+              if (found?.label) return found.label;
+              return CONDITION_META.find((m) => m.key === key)?.label ?? String(key);
+            }}
+            unit={(key) => {
+              const found = message.change?.changes.find((c) => c.key === key);
+              if (found?.unit !== undefined) return found.unit;
+              return CONDITION_META.find((m) => m.key === key)?.unit ?? "";
+            }}
             onUndo={onUndo}
           />
         ) : (
           <>
             {message.text ? renderText(message.text) : null}
             {message.assumptions?.length ? <AssumptionChip items={message.assumptions} /> : null}
+            {message.similarProblems?.length ? (
+              <div className="similar-list">
+                {message.similarProblems.map((item, idx) => (
+                  <SimilarProblemCard
+                    key={`${item.title}-${idx}`}
+                    item={item}
+                    onTrySimilar={onTrySimilar}
+                  />
+                ))}
+              </div>
+            ) : null}
             {message.action?.type === "seek" && (
               <div className="msg-action">
                 <button onClick={() => onSeekEvent(message.action!.eventId)}>

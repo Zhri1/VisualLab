@@ -1348,6 +1348,237 @@ textarea {
   justify-content: space-between;
   margin-top: 2px;
 }
+
+/* ---- 快捷入口（Antigravity 风格极简纵向列表） ---- */
+.quick-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--hair);
+  background: var(--paper);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.quick-toggle-btn:hover,
+.quick-toggle-btn.active {
+  background: var(--surface-secondary);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.quick-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+  margin-top: 2px;
+}
+.quick-actions.compact {
+  padding: 0;
+  margin-top: 0;
+}
+
+.quick-actions-drawer {
+  flex: none;
+  margin: 0 12px;
+  padding: 6px;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.quick-action-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 450;
+  text-align: left;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.quick-action-row:hover,
+.quick-action-row.active {
+  background: var(--surface-secondary);
+}
+.quick-action-row:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.quick-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--text-secondary);
+  flex: none;
+}
+.quick-action-row:hover .quick-action-icon,
+.quick-action-row.active .quick-action-icon {
+  color: var(--text-primary);
+}
+
+.quick-action-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.param-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 10px 8px 40px;
+}
+
+.param-suggestion-chip {
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--hair);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+.param-suggestion-chip:hover {
+  background: var(--surface-secondary);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+.param-suggestion-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ---- 相似变式题推荐卡片 ---- */
+.similar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.similar-card {
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-md);
+  padding: 11px 12px;
+  background: var(--paper);
+}
+
+.similar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.similar-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.similar-diff {
+  flex: none;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--hair);
+  background: var(--surface);
+  color: var(--text-secondary);
+}
+
+.similar-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.similar-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-secondary);
+  color: var(--text-secondary);
+}
+
+.similar-stem {
+  margin: 8px 0 0 !important;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-primary);
+}
+
+.similar-focus {
+  margin: 6px 0 0 !important;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+.similar-focus span {
+  color: var(--text-tertiary);
+}
+
+.similar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.similar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.2;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+.similar-btn:hover {
+  background: var(--surface-secondary);
+  border-color: var(--border-strong);
+}
+
+.similar-btn-primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #ffffff;
+}
+.similar-btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #ffffff;
+}
+
+.similar-hint {
+  margin-top: 9px;
+  padding: 9px 10px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--hair);
+  background: var(--surface);
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+}
 .chat-input-row .attach-button {
   width: 30px;
   height: 30px;

@@ -36,6 +36,25 @@ export interface Notice {
 let seq = 0;
 const uid = () => `m${++seq}`;
 
+/**
+ * 判断用户输入是否为明确的「阶段截断」指令。
+ * 包含疑问语义或物理提问关键词时绝不拦截，避免误杀「到坡底的速度怎么算」「前两段机械能守恒吗」等正常提问。
+ */
+export function isStageTruncateCommand(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (/为什么|怎么|多少|求|是否|吗|呢|什么|哪些|推导|解析|讲解|分析|守恒|速度|能量|受力|支持力|压力|张力|？|\?/.test(trimmed)) {
+    return false;
+  }
+  if (/^(?:请|帮我)?(?:只看|只算|只播|只显示|截断|截到|保留前|截取前)/.test(trimmed)) {
+    return true;
+  }
+  if (trimmed.length <= 14 && /(?:为止|停到|截到|到坡底|到桌沿|^前[一二两三四五六1-6]段$)/.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
 export function useWorkspace() {
   const [phase, setPhase] = useState<Phase>("home");
 
@@ -421,7 +440,7 @@ export function useWorkspace() {
   }, []);
 
   const sendChat = useCallback(
-    async (text: string) => {
+    async (text: string, opts?: { mode?: "tutor" | "similar" }) => {
       const trimmed = text.trim();
       if (!trimmed || isChatLoading) return;
 
@@ -431,7 +450,7 @@ export function useWorkspace() {
       setIsChatLoading(true);
 
       const dropPending = () => setMessages((prev) => prev.filter((m) => m.id !== pendingId));
-      const isTruncateCommand = /只看|只算|只播|只显示|截断|截到|为止|停到|到坡底|到桌沿|前[一二两三四五六1-6]段/.test(trimmed);
+      const isTruncateCommand = opts?.mode !== "similar" && isStageTruncateCommand(trimmed);
       if (isStageReading(reading) && isTruncateCommand) {
         const base = latestAppliedRef.current;
         if (!isStageReading(base)) {
@@ -473,13 +492,15 @@ export function useWorkspace() {
         )
         .slice(-8)
         .map((m) => ({ role: m.role, text: m.text }));
+      const activeReading = latestAppliedRef.current ?? reading;
       const intent = await mockChatService.send(trimmed, {
         motion,
-        reading: latestAppliedRef.current ?? reading,
+        reading: activeReading,
         problemText,
         currentTime,
         history,
-        conditions: (isStageReading(reading) ? {} : (reading?.conditions ?? {})) as Record<string, number | null>,
+        mode: opts?.mode,
+        conditions: (isStageReading(activeReading) ? {} : (activeReading?.conditions ?? {})) as Record<string, number | null>,
       });
 
       setIsChatLoading(false);
@@ -491,6 +512,7 @@ export function useWorkspace() {
           role: "assistant",
           text: intent.text,
           action: intent.action,
+          similarProblems: intent.similarProblems,
         });
         return;
       }
@@ -532,6 +554,47 @@ export function useWorkspace() {
         return;
       }
 
+      if (intent.type === "update_stage_plan") {
+        dropPending();
+        const base = latestAppliedRef.current;
+        if (!base || !isStageReading(base)) {
+          pushMessage({
+            id: uid(),
+            role: "assistant",
+            text: "当前还没有可修改的阶段计划题目，请先上传题目或选择内置示例。",
+          });
+          return;
+        }
+        const res = applyReading(intent.nextReading, { silent: true });
+        if (!res.ok) {
+          pushMessage({
+            id: uid(),
+            role: "assistant",
+            text: `这个修改无法应用：${formatErrors(res.errors)}。动画保持在原条件。`,
+            error: true,
+          });
+          return;
+        }
+        const revisionId = `r${++revRef.current}`;
+        pushMessage({
+          id: uid(),
+          role: "assistant",
+          text: "",
+          change: {
+            changes: intent.changes,
+            applied: true,
+            revisionId,
+            previousReading: base,
+          },
+        });
+        pushMessage({
+          id: uid(),
+          role: "assistant",
+          text: `${intent.text} 动画与时间轴已同步更新。`,
+        });
+        return;
+      }
+
       // update_conditions
       dropPending();
       const base = latestAppliedRef.current;
@@ -547,7 +610,7 @@ export function useWorkspace() {
         pushMessage({
           id: uid(),
           role: "assistant",
-          text: "阶段计划的数值请在「查看原题」中修改；对话截断可输入「只看斜面」。",
+          text: "请直接说明要修改的物理量与数值，例如「把质量改为 2 kg」「把半径改为 1 m」，或在「查看原题」中修改。",
         });
         return;
       }
@@ -594,17 +657,29 @@ export function useWorkspace() {
     [applyReading, currentTime, isChatLoading, messages, motion, problemText, pushMessage, reading, replay, seekEvent, isPlaying, togglePlay]
   );
 
-  /** 撤销某次参数修改：回到该次修改前的 conditions */
+  const recommendSimilar = useCallback(() => {
+    void sendChat("推荐几道与当前题目相似的变式题", { mode: "similar" });
+  }, [sendChat]);
+
+  /** 撤销某次参数修改：支持旧模板 conditions 与新版 stage_plan */
   const undoChange = useCallback(
     (messageId: string) => {
       const msg = messages.find((m) => m.id === messageId);
       const current = latestAppliedRef.current;
-      if (!msg?.change || !current || isStageReading(current)) return;
+      if (!msg?.change || !current) return;
 
-      // 撤销只回退这一张卡片改动的字段，其余保持当前值
-      const target = { ...current, conditions: { ...current.conditions } };
-      for (const ch of msg.change.changes) {
-        target.conditions[ch.key] = ch.from;
+      let target: WorkspaceReading;
+      if (msg.change.previousReading) {
+        target = msg.change.previousReading;
+      } else {
+        if (isStageReading(current)) return;
+        const nextConditions = { ...current.conditions };
+        for (const ch of msg.change.changes) {
+          if (ch.key in nextConditions) {
+            nextConditions[ch.key as keyof Conditions] = ch.from;
+          }
+        }
+        target = { ...current, conditions: nextConditions };
       }
 
       const res = applyReading(target, { silent: true, keepTime: true });
@@ -687,6 +762,7 @@ export function useWorkspace() {
       replay,
       setIsPlaying,
       sendChat,
+      recommendSimilar,
       undoChange,
       applyConditions,
       setNotice,
@@ -700,7 +776,7 @@ export function useWorkspace() {
       phase, reading, appliedReading, motion, currentTime, isPlaying, playbackRate, autoPauseEvents, segmentPlayback, messages,
       isRecognizing, isChatLoading, imageUrl, imageFile, problemText, notice, missingKeys, sampleId, sampleCompare, compareOn,
       recognize, loadSample, applyReadingOverride, toggleSampleCompare, restartHome, seek, seekEvent, nextEvent, togglePlay,
-      replay, sendChat, undoChange, applyConditions, slowCurrentSegment, exitSegmentPlayback,
+      replay, sendChat, recommendSimilar, undoChange, applyConditions, slowCurrentSegment, exitSegmentPlayback,
     ]
   );
 }

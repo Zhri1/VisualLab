@@ -234,8 +234,22 @@ export type PlanResponse =
 
 export type ChatRole = "user" | "assistant" | "system";
 
+export interface SimilarProblem {
+  title: string;
+  tags: string[];
+  difficulty?: string;
+  stem: string;
+  focus: string;
+  hint: string;
+}
+
 export interface ConditionChange {
-  key: ConditionKey;
+  key: ConditionKey | string;
+  /** 阶段计划参数修改时的展示名与单位 */
+  label?: string;
+  unit?: string;
+  /** 阶段计划中的参数路径，如 /massKg 或 /stages/0/radiusM */
+  path?: string;
   from: number | null;
   to: number | null;
 }
@@ -252,16 +266,21 @@ export interface ChatMessage {
     changes: ConditionChange[];
     applied: boolean;
     revisionId: string;
+    /** 阶段计划改参前的完整 reading，用于一键撤销 */
+    previousReading?: WorkspaceReading;
   };
   /** AI 回复内嵌的跳转入口 */
   action?: { type: "seek"; eventId: string; label: string };
   /** AI 这次计算采用的假设条目，来自识别回包 */
   assumptions?: string[];
+  /** 相似变式题推荐列表 */
+  similarProblems?: SimilarProblem[];
 }
 
 export type ChatIntent =
-  | { type: "answer"; text: string; action?: ChatMessage["action"] }
+  | { type: "answer"; text: string; action?: ChatMessage["action"]; similarProblems?: SimilarProblem[] }
   | { type: "update_conditions"; changes: Partial<Record<ConditionKey, number>>; text: string }
+  | { type: "update_stage_plan"; nextReading: StagePlanDraft; changes: ConditionChange[]; text: string }
   | { type: "seek_event"; event: EventId | string; text?: string }
   | { type: "play" }
   | { type: "pause" }
