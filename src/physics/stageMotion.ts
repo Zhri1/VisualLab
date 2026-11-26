@@ -155,11 +155,10 @@ function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: Motion
       ? stage.kineticFrictionCoefficient * mass * gravity * cos
       : 0;
 
-    // 分支 A：定长斜面且上滑最大距离超过斜面长度 → 冲出坡顶
-    if (stage.lengthM != null && sMax > stage.lengthM + 1e-9) {
-      const L = stage.lengthM;
-      const vTop = Math.sqrt(Math.max(0, speed * speed - 2 * aUp * L));
-      const tTop = (2 * L) / (speed + vTop);
+    // 定长斜面只有正速到达坡顶才允许离开。
+    const boundary = stage.lengthM == null ? undefined : travel(speed, -aUp, stage.lengthM);
+    if (boundary && boundary.reason === undefined) {
+      const { speed: vTop, duration: tTop } = boundary;
       const end = moving(endPoint.xM, endPoint.yM, vTop * ux, vTop * uy);
       return {
         duration: tTop, end, reason: undefined,
@@ -170,16 +169,18 @@ function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: Motion
       };
     }
 
-    // 分支 B：足够长斜面，或上滑最高点在斜面内
+    // 上滑减速到零后，由斜面静摩擦决定保持静止还是回滑。
     const t1 = speed / aUp;
-    const apexPos = { xM: start.xM + sMax * ux, yM: start.yM + sMax * uy };
+    const atTop = boundary?.reason === "stop_at_target";
+    const ascentDistance = boundary?.distance ?? sMax;
+    const apexPos = atTop ? endPoint : { xM: start.xM + ascentDistance * ux, yM: start.yM + ascentDistance * uy };
     const apexState = moving(apexPos.xM, apexPos.yM, 0, 0);
     const muS = stage.staticFrictionCoefficient ?? stage.kineticFrictionCoefficient;
     if (sin <= muS * cos + 1e-9) {
       return {
-        duration: t1, end: apexState, reason: "stopped",
+        duration: t1, end: apexState, reason: atTop && fliesFromEnd ? "stop_at_target" : "stopped",
         events: [event("stop", t1, apexState, apexState, "斜面最高点静止",
-          `上滑至最大距离 ${sMax.toFixed(4)} m 处速度降为零，静摩擦足以维持静止。`)],
+          `上滑至最大距离 ${ascentDistance.toFixed(4)} m 处速度降为零，静摩擦足以维持静止。`)],
         sampleAt(time) { return linearState(start.xM, start.yM, speed * ux, speed * uy, -aUp * ux, -aUp * uy, Math.min(time, t1)); },
         ...(frictionForce > 0 ? { heatAt: (t: number) => { const tc = Math.min(t, t1); return frictionForce * (speed * tc - 0.5 * aUp * tc * tc); } } : {}),
       };
@@ -187,14 +188,14 @@ function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: Motion
 
     // 最高点折返并沿原斜面滑回坡底
     const aDown = gravity * (sin - stage.kineticFrictionCoefficient * cos);
-    const t2 = Math.sqrt((2 * sMax) / aDown);
+    const t2 = Math.sqrt((2 * ascentDistance) / aDown);
     const vBack = aDown * t2;
     const end = moving(start.xM, start.yM, -horizDir * vBack * cos, -vBack * sin);
     return {
-      duration: t1 + t2, end, reason: undefined,
+      duration: t1 + t2, end, reason: fliesFromEnd ? "returned_to_entry" : undefined,
       events: [
         event("incline_turn", t1, apexState, apexState, "到达最高点折返",
-          `上滑至最高点（沿坡距离 ${sMax.toFixed(4)} m），速度降为零后沿原斜面折返下滑。`),
+          `上滑至最高点（沿坡距离 ${ascentDistance.toFixed(4)} m），速度降为零后沿原斜面折返下滑。`),
         event("reach_bottom", t1 + t2, end, end, "返回坡底",
           `沿原斜面滑回坡底，末速率约 ${vBack.toFixed(4)} m/s。`),
       ],
@@ -203,7 +204,7 @@ function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: Motion
         return linearState(apexPos.xM, apexPos.yM, 0, 0, -aDown * ux, -aDown * uy, time - t1);
       },
       ...(frictionForce > 0
-        ? { heatAt: (t: number) => frictionForce * (t <= t1 ? speed * t - 0.5 * aUp * t * t : sMax + 0.5 * aDown * (t - t1) * (t - t1)) }
+        ? { heatAt: (t: number) => frictionForce * (t <= t1 ? speed * t - 0.5 * aUp * t * t : ascentDistance + 0.5 * aDown * (t - t1) * (t - t1)) }
         : {}),
     };
   }

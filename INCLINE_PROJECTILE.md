@@ -4,30 +4,32 @@
 
 ## 1. 范围与输入
 
-新增合法接续 `incline_slide → projectile`，表示题面明确的物体沿斜面下滑，到末端失去支撑后沿实际切向抛出。例如屋顶积雪从檐口滑落。仍使用 `kind: "stage_plan"`、`schemaVersion: 1`，不增加整题模板、阶段种类、可调发射速度或转向参数。
+接续 `incline_slide → projectile` 表示物体正速到达斜面末端后沿切向抛出，例如屋顶积雪滑离檐口或物块沿定长斜面上滑冲出坡顶。沿用 `kind: "stage_plan"`、`schemaVersion: 1`。
 
-- 本批斜面仍沿右下方向，`lengthM > 0`、`0 < angleDeg < 90`、`kineticFrictionCoefficient >= 0`，均为有限数。首段 `initial: { speedMps }` 为沿下坡方向的非负速率；后续速度由前段继承，不能在抛体段另填一套 `vx/vy`。
+- 下滑斜面默认沿右下方向，`lengthM > 0`、`0 < angleDeg < 90`、`kineticFrictionCoefficient >= 0`，均为有限数。首段 `initial: { speedMps }` 为沿运动方向的速率，下滑允许零，上滑需要正初速。后续速度由前段继承，不能在抛体段另填一套 `vx/vy`。
 - `gravityMps2` 必需、有限且大于零。此组合没有需质量的计算，`massKg` 可省略；若题面提供则沿用原有限正值校验。静止释放仍须 `slidesAfterRelease: true`，且斜面加速度须支持实际起动。缺事实不能猜，已知不能起动时沿用当前前提冲突，不新增静摩擦模型。
-- 到达斜面末端且沿坡速度严格为正才执行抛体。提前停止和恰停末端都以停止结束。没有几何转向，不插入 `lossless_turn`、水平段或 `leave_table`。
-- 本批不新增左向坡、上坡运动、曲面、斜面中途脱离、积雪变形、转动或空气阻力模型；这些条件按现有缺项/超范围口径处理。
+- 到达斜面末端且沿运动方向的速率严格为正才执行抛体。下滑时，提前停止和恰停末端都以停止结束。接续直接继承斜面切向速度。
+- 上滑使用 `direction: "up"`。以坡底为入口，有限的 `lengthM` 指定计划发射端。以 `aUp = g(sinθ + μk cosθ)` 计算最大上滑距离 `sMax = u0²/(2aUp)`，仅在 `sMax > lengthM` 时正速离开坡顶。上滑零速点在坡内或恰在坡顶时，按当前斜面静摩擦与折返规则处理。能保持静止时以 `stop` 结束，恰停坡顶为 `stop_at_target`。物块若折返回坡底，则以 `reach_bottom` 结束，结局为 `returned_to_entry`，末帧保留返程速度。未指定有限斜长的上滑段沿用足够长斜面规则。
 - 沿用 `validateStagePlan → assembleScene → buildMotion → sampleAt`。校验失败保留已识别草稿，缺项与字段错误分开，使用零基 JSON Pointer。停止分支也须校验输入中已识别后段的必填值和非法数，不能因预计不飞行而吞掉字段错误。
 
 ## 2. 坐标、地面及绘图参考点
 
-斜面末端（檐口）仍是世界原点 B = `(0, 0)`，x 向右、y 向上。给定斜长 L、倾角 θ 时，起点 A = `(-L cosθ, L sinθ)`。它们是同一运动参考点的轨迹坐标，不以方块尺寸修正离檐位置或飞行高度。
+下滑斜面的末端（檐口）是世界原点 B = `(0, 0)`，x 向右、y 向上。给定斜长 L、倾角 θ 时，起点 A = `(-L cosθ, L sinθ)`。它们是同一运动参考点的轨迹坐标，不以方块尺寸修正离檐位置或飞行高度。
 
 斜面后可选以下一种现有抛体输入，不新增高度字段：
 
 | 输入 | 含义与编辑行为 |
 |---|---|
 | `{ kind: "projectile", dropHeightM: H }` | H 是檐口到地面的非负落差，单位 m；实际地面 `y = launch.yM - H = -H`。修改斜长、倾角或摩擦时，檐口坐标仍为原点，H 保持给定值，不从屋顶起点量高度。 |
-| `{ kind: "projectile", landingPlaneYM: yG }` | yG 是该世界坐标系的固定地面，须有限，沿用现有不高于实际发射点的装配前提；本组合有实际发射时为 `yG <= 0`。若修改题设使轨迹变化，仍使用原 yG，不能从当前物体高度重新量落差。 |
+| `{ kind: "projectile", landingPlaneYM: yG }` | yG 是该世界坐标系的固定地面，须有限且不高于实际发射点。修改题设使轨迹变化时仍使用原 yG。 |
 
 两个键互斥，包括一键为 `null` 的情况；同时提供定位 `/stages/1` 为 `PRECONDITION_CONFLICT`。两个键都没有时，沿用非圆弧抛体的默认待补路径 `/stages/1/dropHeightM`；显式选固定平面而值未知时提示 `/stages/1/landingPlaneYM`。非法类型、非有限数及负落差沿用现有规则。圆弧后必须固定平面的规则不变。
 
 含本直接接续的完整计划全程使用已有 `positionReference: "particle"`。包括因斜面停止而未执行抛体的同一计划，仍用质点参考点；画面不得在离檐瞬间因方块朝向/前下沿角切换产生位置跳变。独立斜面前缀、旧转向/桌面/弹簧路径的 `front_bottom` 不变，其计算坐标仍可与完整计划逐点比较。
 
-`geometry.incline.start/end` 保留计划完整斜面；`end` 一直是 `(0,0)`，提前停止不把它改成停止点。只有实际发射后才输出 `geometry.projectile = { launch, landingPlane: { yM } }`，并沿用上述地面口径。停止分支无实际抛体几何。A 用斜面 end 标檐口，用取样末态标真实停止点；不能为未发生的飞行绘制实际轨迹或飞行事件。
+`geometry.incline.start/end` 保留计划完整斜面。下滑时 `end` 是檐口 `(0,0)`，停止点由末态取样给出。实际发射后才输出 `geometry.projectile = { launch, landingPlane: { yM } }`，并沿用上述地面口径。
+
+首段上滑的坡底为 `(0,0)`，坡顶为 `(L cosθ, L sinθ)`。正速到达坡顶时，同刻依序记录 `reach_top → projectile_launch`，抛体继承向上的速度分量。若未从坡顶飞出，计划斜面保持完整，事件和取样给出实际静止或返回的位置。
 
 ## 3. 分段计算与边界
 
@@ -90,6 +92,7 @@ vy = vyB − gτ
 - [等价固定地面输入](fixtures/incline-projectile-fixed-plane.reading.json)。
 - [斜面提前停止](fixtures/incline-projectile-stop-before.reading.json)。
 - [恰停檐口](fixtures/incline-projectile-stop-at.reading.json)。
+- [定长上滑接斜抛](fixtures/incline-projectile-uphill.reading.json)。初速度从 8 改为 4 m/s 时，物块只上滑约 0.9982 m，小于 2.5 m，约 1.2036 s 回到坡底，速率约 2.8335 m/s、方向沿坡向下。临界初速由 `√(2aUp L)` 给出，恰在坡顶降为零。
 - [机器可读验收数据](fixtures/incline-projectile.acceptance.json)。这是契约期望，不是本 PR 已实现入口的输出。
 
 正常样例取 `L=2.5 m`、`θ=atan(3/4)=36.86989764584402°`、`μ=.125`、`g=10`、H=1.95 m、静止下滑。由 3–4–5 三角形得 sinθ=.6、cosθ=.8，a=5 m/s²，A=(-2,1.5)。1 s 到 B=(0,0)，uB=5 m/s，离檐速度=(4,-3) m/s。
