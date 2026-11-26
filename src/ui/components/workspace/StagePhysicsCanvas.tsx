@@ -78,7 +78,16 @@ export function stageWorldBounds(motion: Motion): WorldBounds {
     points.push({ x: g.linearTrack.minXM, y: g.linearTrack.yM }, { x: g.linearTrack.maxXM, y: g.linearTrack.yM });
   }
   if (g.conveyor) {
-    points.push({ x: g.conveyor.minXM, y: 0 }, { x: g.conveyor.maxXM, y: 0 });
+    const rad = ((g.conveyor.angleDeg ?? 0) * Math.PI) / 180;
+    const dirSign = g.conveyor.inclineDirection === "down" ? -1 : 1;
+    const ux = Math.cos(rad);
+    const uy = dirSign * Math.sin(rad);
+    const ox = g.conveyor.originXM ?? 0;
+    const oy = g.conveyor.originYM ?? 0;
+    points.push(
+      { x: ox + g.conveyor.minXM * ux, y: oy + g.conveyor.minXM * uy },
+      { x: ox + g.conveyor.maxXM * ux, y: oy + g.conveyor.maxXM * uy },
+    );
   }
   for (const mg of g.magnetics ?? (g.magnetic ? [g.magnetic] : [])) {
     points.push(
@@ -309,36 +318,79 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.strokeStyle = INK; ctx.lineWidth = 1.6;
     ctx.beginPath(); ctx.moveTo(X(worldBounds.minX), Y(pair.yM)); ctx.lineTo(X(worldBounds.maxX), Y(pair.yM)); ctx.stroke();
     const contacting = time >= pair.contactTimeSeconds && time <= pair.separateTimeSeconds && ps.compressionM > 1e-9;
-    const springLeft = ps.x2M + 0.04;
-    const springRight = contacting ? Math.max(springLeft + 0.02, sample.position.x - 0.04) : ps.x2M + 0.44;
+    // 弹簧固定在靶球朝向入射球的一侧：incomingDir = -1（球向左来）在右侧，= 1 在左侧。
+    const sideSign = -(pair.incomingDir ?? -1);
+    const restLen = Math.min(0.44, Math.max(0.2, pair.gapM * 0.7));
+    const maxComp = Math.max(pair.maxCompressionM ?? 0.2, 1e-6);
+    const curLen = contacting ? Math.max(0.06, restLen * (1 - 0.72 * Math.min(1, ps.compressionM / maxComp))) : restLen;
+    const springAnchor = ps.x2M + sideSign * 0.04;
+    const springTip = springAnchor + sideSign * curLen;
     ctx.strokeStyle = SOFT; ctx.lineWidth = 1.4;
-    ctx.beginPath(); ctx.moveTo(X(springLeft), Y(pair.yM));
-    for (let i = 1; i <= 12; i += 1) ctx.lineTo(X(springLeft + (springRight - springLeft) * i / 12), Y(pair.yM) + (i % 2 ? -5 : 5));
-    ctx.lineTo(X(springRight), Y(pair.yM)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(X(springAnchor), Y(pair.yM));
+    for (let i = 1; i <= 12; i += 1) ctx.lineTo(X(springAnchor + (springTip - springAnchor) * i / 12), Y(pair.yM) + (i % 2 ? -5 : 5));
+    ctx.lineTo(X(springTip), Y(pair.yM)); ctx.stroke();
     ctx.save(); ctx.beginPath(); ctx.arc(X(ps.x2M), Y(pair.yM), 6, 0, 2 * Math.PI); ctx.fillStyle = "#8e8e88"; ctx.fill(); ctx.restore();
     ctx.fillStyle = SOFT; ctx.font = `500 12px ${SANS}`; ctx.textAlign = "center"; ctx.textBaseline = "top";
     ctx.fillText(`m₂ = ${pair.mass2Kg} kg`, X(ps.x2M), Y(pair.yM) + 10);
   }
   if (g.conveyor) {
-    const xL = X(g.conveyor.minXM - size), xR = X(g.conveyor.maxXM + size), y0 = Y(0);
+    const angleDeg = g.conveyor.angleDeg ?? 0;
+    const rad = (angleDeg * Math.PI) / 180;
+    const dirSign = g.conveyor.inclineDirection === "down" ? -1 : 1;
+    const ux = Math.cos(rad);
+    const uy = dirSign * Math.sin(rad);
+    const ox = g.conveyor.originXM ?? 0;
+    const oy = g.conveyor.originYM ?? 0;
+    const sMin = g.conveyor.minXM - size;
+    const sMax = g.conveyor.maxXM + size;
+    const p1x = X(ox + sMin * ux), p1y = Y(oy + sMin * uy);
+    const p2x = X(ox + sMax * ux), p2y = Y(oy + sMax * uy);
+    const beltLenPx = Math.max(24, Math.hypot(p2x - p1x, p2y - p1y));
     const beltH = 14, r = beltH / 2;
+    const canvasRot = Math.atan2(p2y - p1y, p2x - p1x);
     ctx.save();
+    ctx.translate(p1x, p1y);
+    ctx.rotate(canvasRot);
     ctx.fillStyle = FILL;
     ctx.strokeStyle = INK;
     ctx.lineWidth = 1.6;
     ctx.beginPath();
-    ctx.roundRect(xL, y0, Math.max(24, xR - xL), beltH, r);
+    ctx.roundRect(0, 0, beltLenPx, beltH, r);
     ctx.fill();
     ctx.stroke();
+    // 两端滚轮
+    ctx.fillStyle = PAPER;
+    for (const cx of [r, beltLenPx - r]) {
+      ctx.beginPath(); ctx.arc(cx, r, Math.max(3, r - 2), 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+    }
     // 随带面位移移动的刻度线，直观体现带面参考系
     const cState = motion.conveyorAt?.(time);
     const shiftPx = ((cState?.beltDisplacementM ?? 0) * S) % 24;
     ctx.strokeStyle = SOFT;
     ctx.lineWidth = 1;
-    for (let px = xL + r + ((shiftPx % 24) + 24) % 24; px < xR - r; px += 24) {
-      ctx.beginPath(); ctx.moveTo(px, y0 + 2); ctx.lineTo(px, y0 + beltH - 2); ctx.stroke();
+    for (let px = r + ((shiftPx % 24) + 24) % 24; px < beltLenPx - r; px += 24) {
+      ctx.beginPath(); ctx.moveTo(px, 2); ctx.lineTo(px, beltH - 2); ctx.stroke();
     }
     ctx.restore();
+    // 倾斜传送带绘制水平参考线与倾角标注
+    if (angleDeg > 0) {
+      const lowX = p1y >= p2y ? p1x : p2x;
+      const lowY = Math.max(p1y, p2y) + beltH / 2;
+      ctx.save();
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = HAIR;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(Math.min(p1x, p2x), lowY);
+      ctx.lineTo(Math.max(p1x, p2x), lowY);
+      ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = SOFT;
+      ctx.font = `12px ${SANS}`;
+      ctx.textAlign = p1y >= p2y ? "left" : "right";
+      ctx.textBaseline = "bottom";
+      ctx.fillText(`θ = ${Number(angleDeg.toFixed(1))}°`, lowX + (p1y >= p2y ? 14 : -14), lowY - 3);
+    }
   }
   if (g.linearTrack) {
     const { minXM, maxXM, yM } = g.linearTrack;
@@ -354,18 +406,50 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   const isSchematicArc = !g.verticalArc && !g.verticalArcs?.length;
   for (const arc of verticalArcs) {
     const arcExplicit = arc.direction !== undefined;
+    const isRodArc = "side" in arc && arc.side === "rod";
     const isCurrentArc = currentArc === arc;
     ctx.save(); if (isSchematicArc) ctx.setLineDash([5, 5]);
-    ctx.strokeStyle = INK;
-    ctx.lineWidth = isCurrentArc ? 2.4 : 1.6;
-    ctx.beginPath();
-    for (let i = 0; i <= 80; i++) {
-      const phi = ((arc.startAngleDeg ?? 0) + (arc.endAngleDeg - (arc.startAngleDeg ?? 0)) * i / 80) * Math.PI / 180;
-      const x = X(arc.center.xM + arc.radiusM * Math.sin(phi));
-      const y = Y(arc.center.yM - arc.radiusM * Math.cos(phi));
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    if (isRodArc) {
+      // 双轨/光滑管样式：内外两条平行圆弧 + 当前受约束时绘制轻杆与支点。
+      const halfGap = 4 / S;
+      ctx.strokeStyle = SOFT;
+      ctx.lineWidth = 1.2;
+      for (const dr of [-halfGap, halfGap]) {
+        const rr = Math.max(0.02, arc.radiusM + dr);
+        ctx.beginPath();
+        for (let i = 0; i <= 80; i++) {
+          const phi = ((arc.startAngleDeg ?? 0) + (arc.endAngleDeg - (arc.startAngleDeg ?? 0)) * i / 80) * Math.PI / 180;
+          const x = X(arc.center.xM + rr * Math.sin(phi));
+          const y = Y(arc.center.yM - rr * Math.cos(phi));
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      if (isCurrentArc) {
+        ctx.strokeStyle = INK;
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.moveTo(X(arc.center.xM), Y(arc.center.yM));
+        ctx.lineTo(X(sample.position.x), Y(sample.position.y));
+        ctx.stroke();
+        ctx.fillStyle = INK;
+        ctx.beginPath();
+        ctx.arc(X(arc.center.xM), Y(arc.center.yM), 3.5, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+    } else {
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = isCurrentArc ? 2.4 : 1.6;
+      ctx.beginPath();
+      for (let i = 0; i <= 80; i++) {
+        const phi = ((arc.startAngleDeg ?? 0) + (arc.endAngleDeg - (arc.startAngleDeg ?? 0)) * i / 80) * Math.PI / 180;
+        const x = X(arc.center.xM + arc.radiusM * Math.sin(phi));
+        const y = Y(arc.center.yM - arc.radiusM * Math.cos(phi));
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
     }
-    ctx.stroke(); ctx.restore();
+    ctx.restore();
     const fullCircle = arcExplicit && Math.abs(Math.abs(arc.endAngleDeg - (arc.startAngleDeg ?? 0)) - 360) < 1e-9;
     if (verticalArcs.length === 1 || isCurrentArc) {
       const radiusRad = (!arcExplicit || fullCircle ? 90 : ((arc.startAngleDeg ?? 0) + arc.endAngleDeg) / 2) * Math.PI / 180;
@@ -487,7 +571,11 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     ? Math.atan2(activeIncline.start.yM - activeIncline.end.yM, activeIncline.end.xM - activeIncline.start.xM)
     : 0;
   const onIncline = active?.kind === "incline";
-  const rotation = onIncline ? inclineAngle : 0;
+  const conveyorAngleRad = g.conveyor?.angleDeg
+    ? (g.conveyor.inclineDirection === "down" ? 1 : -1) * ((g.conveyor.angleDeg * Math.PI) / 180)
+    : 0;
+  const onConveyor = !!g.conveyor && (active?.kind === "horizontal" || motion.stagePlan?.stages[active?.stageIndex ?? 0]?.kind === "conveyor_belt");
+  const rotation = onIncline ? inclineAngle : onConveyor ? conveyorAngleRad : 0;
   const half = size / 2;
   const tx = Math.cos(rotation);
   const ty = -Math.sin(rotation);
@@ -532,9 +620,11 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   block(first.position, true);
   const center = block(sample.position, false);
 
-  if (currentArc && sample.constraint?.normalDirection && sample.constraint.normalForceN > 0) {
+  if (currentArc && sample.constraint?.normalDirection && Math.abs(sample.constraint.normalForceN) > 1e-9) {
     const n = sample.constraint.normalDirection, len = 30, sx = X(center.x) + n.x * 10, sy = Y(center.y) - n.y * 10, ex = sx + n.x * len, ey = sy - n.y * len, a = Math.atan2(ey - sy, ex - sx);
-    ctx.save(); ctx.strokeStyle = "#386e8a"; ctx.fillStyle = "#386e8a"; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.moveTo(ex - 6 * Math.cos(a - 0.45), ey - 6 * Math.sin(a - 0.45)); ctx.lineTo(ex, ey); ctx.lineTo(ex - 6 * Math.cos(a + 0.45), ey - 6 * Math.sin(a + 0.45)); ctx.stroke(); ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillText("N", ex + 7, ey); ctx.restore();
+    const isRodCurrent = "side" in currentArc && currentArc.side === "rod";
+    const arrowLabel = isRodCurrent ? (sample.constraint.normalForceN < 0 ? "支持力" : "拉力") : "N";
+    ctx.save(); ctx.strokeStyle = "#386e8a"; ctx.fillStyle = "#386e8a"; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.moveTo(ex - 6 * Math.cos(a - 0.45), ey - 6 * Math.sin(a - 0.45)); ctx.lineTo(ex, ey); ctx.lineTo(ex - 6 * Math.cos(a + 0.45), ey - 6 * Math.sin(a + 0.45)); ctx.stroke(); ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillText(arrowLabel, ex + 7, ey); ctx.restore();
   }
 
   // 末帧停止点与 plannedEnd 分开标记。
@@ -625,16 +715,24 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   if(!explicitArc){ctx.fillStyle = PAPER; ctx.fillRect(labelX - labelWidth / 2 - 3, labelY - 15, labelWidth + 6, sample.constraint ? 35 : 18);}
   ctx.fillStyle = INK; ctx.fillText(label, labelX, labelY);
   if (sample.constraint) {
-    ctx.fillStyle = SOFT; ctx.fillText(`N = ${normalText(sample.constraint.normalForceN,explicitArc)} N`, labelX, labelY + 18);
+    const isRodCurrent = currentArc && "side" in currentArc && currentArc.side === "rod";
+    const nVal = sample.constraint.normalForceN;
+    const forceLabel = isRodCurrent
+      ? (nVal < -1e-9 ? `支持力 ${normalText(Math.abs(nVal), explicitArc)} N` : nVal > 1e-9 ? `拉力 ${normalText(nVal, explicitArc)} N` : "杆力 0.00 N")
+      : `N = ${normalText(nVal, explicitArc)} N`;
+    ctx.fillStyle = SOFT; ctx.fillText(forceLabel, labelX, labelY + 18);
   }
   if (inclineLaunch||explicitArc) {
     ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = SOFT;
     ctx.fillText(`vₓ = ${componentText(sample.velocity.x)}，vᵧ = ${componentText(sample.velocity.y)} m/s`, 12, 12);
   } else if (g.conveyor) {
     const cState = motion.conveyorAt?.(time);
+    const rad = ((g.conveyor.angleDeg ?? 0) * Math.PI) / 180;
+    const dirSign = g.conveyor.inclineDirection === "down" ? -1 : 1;
+    const vBlockAlong = g.conveyor.angleDeg ? sample.velocity.x * Math.cos(rad) + sample.velocity.y * dirSign * Math.sin(rad) : sample.velocity.x;
     ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = SOFT;
-    ctx.fillText(`对地 x = ${componentText(sample.position.x)} m，相对带面 Δx = ${componentText(cState?.relativeDisplacementM ?? 0)} m`, 12, 12);
-    ctx.fillText(`v块 = ${componentText(sample.velocity.x)} m/s，v带 = ${componentText(cState?.beltSpeedMps ?? 0)} m/s`, 12, 28);
+    ctx.fillText(`对地 x = ${componentText(sample.position.x)} m，相对带面 Δs = ${componentText(cState?.relativeDisplacementM ?? 0)} m${g.conveyor.angleDeg ? `（θ=${g.conveyor.angleDeg}°）` : ""}`, 12, 12);
+    ctx.fillText(`v块 = ${componentText(vBlockAlong)} m/s，v带 = ${componentText(cState?.beltSpeedMps ?? 0)} m/s`, 12, 28);
   } else if (g.linearTrack) {
     ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = SOFT;
     ctx.fillText(`x = ${componentText(sample.position.x)} m，vₓ = ${componentText(sample.velocity.x)} m/s`, 12, 12);

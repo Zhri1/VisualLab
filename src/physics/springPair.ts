@@ -11,9 +11,12 @@
 export type SpringPairStage = {
   kind: "spring_pair";
   targetMassKg?: number | null;
-  springConstantNpm: number;
+  /** 弹簧劲度系数（N/m）；题面未给时默认 100，仅影响动画过程时长，不影响分离速度与最大弹性势能。 */
+  springConstantNpm?: number | null;
   gapM?: number | null;
   separationSpeedMps?: number | null;
+  /** 接续 movable_arc 时：true 表示「恰好不能再次滑上圆弧槽」，自动取前段槽速作为分离速率反求 m₂。 */
+  matchGrooveSpeed?: boolean | null;
 };
 
 export interface SpringPairSample {
@@ -42,7 +45,7 @@ export interface SpringPairSolution {
     explanation: string;
   }>;
   at(t: number): SpringPairSample;
-  geometry: { gapM: number; springConstantNpm: number; mass2Kg: number; targetEntryXM: number };
+  geometry: { gapM: number; springConstantNpm: number; mass2Kg: number; targetEntryXM: number; incomingDir: -1 | 1; maxCompressionM: number };
 }
 
 export function solveSpringPair(
@@ -51,10 +54,10 @@ export function solveSpringPair(
   ballMassKg: number,
 ): SpringPairSolution {
   const m1 = ballMassKg;
-  const k = stage.springConstantNpm;
+  const k = stage.springConstantNpm ?? 100;
   const gap = stage.gapM ?? 0.5;
   const u = Math.abs(entry.vxMps);
-  const d = entry.vxMps >= 0 ? 1 : -1;
+  const d: -1 | 1 = entry.vxMps >= 0 ? 1 : -1;
   if (!Number.isFinite(m1) || m1 <= 0) throw new RangeError("ballMassKg 须为正有限数。");
   if (!Number.isFinite(k) || k <= 0) throw new RangeError("springConstantNpm 须为正有限数。");
   if (!Number.isFinite(gap) || gap < 0) throw new RangeError("gapM 须为非负有限数。");
@@ -166,6 +169,6 @@ export function solveSpringPair(
       },
     ],
     at,
-    geometry: { gapM: gap, springConstantNpm: k, mass2Kg: m2, targetEntryXM },
+    geometry: { gapM: gap, springConstantNpm: k, mass2Kg: m2, targetEntryXM, incomingDir: d, maxCompressionM: amp },
   };
 }

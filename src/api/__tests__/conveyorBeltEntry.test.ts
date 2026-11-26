@@ -70,4 +70,32 @@ describe("传送带与滑块：Node 与 Qoder 真实图文入口（模拟上游�
     expect(assembled.ok).toBe(true);
     expect(buildMotion(assembled.scene).motion.events.some((e: any) => e.kind === "conveyor_reslide")).toBe(true);
   });
+
+  it("倾斜传送带（μ < tanθ）：两端同源返回 ok 且公开计算入口得到 2s 离带与摩擦力反向事件", async () => {
+    const inclined = {
+      kind: "stage_plan",
+      schemaVersion: 1,
+      gravityMps2: 10,
+      initial: { vxMps: 0 },
+      stages: [{
+        kind: "conveyor_belt",
+        angleDeg: Math.atan2(3, 4) * (180 / Math.PI),
+        inclineDirection: "down",
+        initialBeltSpeedMps: 10,
+        segments: [{ accelerationMps2: 0, durationSeconds: 10 }],
+        kineticFrictionCoefficient: 0.5,
+        beltLengthM: 16,
+      }],
+    };
+    upstream.mockResolvedValueOnce(answer(inclined)).mockResolvedValueOnce(answer(inclined));
+    const nodeBody = await (await handlePlan(makeReq("http://local/api/animation/plan", false))).json();
+    const qoderBody = await (await handler(makeReq("http://local/functions/v1/app", false))).json();
+    expect(nodeBody.status).toBe("ok");
+    expect(qoderBody).toEqual(nodeBody);
+    const assembled: any = assembleScene(nodeBody.reading);
+    expect(assembled.ok).toBe(true);
+    const motion: any = buildMotion(assembled.scene).motion;
+    expect(motion.durationSeconds).toBeCloseTo(2, 6);
+    expect(motion.events.some((e: any) => e.kind === "conveyor_reslide")).toBe(true);
+  });
 });

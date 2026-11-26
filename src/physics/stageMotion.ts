@@ -25,7 +25,7 @@ export type StageGeometry = BodyGeometry & {
   magnetic?: MagneticGeometry;
   magnetics?: MagneticGeometry[];
   movableArc?: { stageIndex: number; radiusM: number; grooveMassKg: number; exitDirection: -1 | 1; entryXM: number; entryYM: number; exitTimeSeconds: number; exitGrooveXM: number; exitGrooveVX: number };
-  springPair?: { stageIndex: number; yM: number; gapM: number; mass2Kg: number; targetEntryXM: number; contactTimeSeconds: number; separateTimeSeconds: number; springConstantNpm: number };
+  springPair?: { stageIndex: number; yM: number; gapM: number; mass2Kg: number; targetEntryXM: number; contactTimeSeconds: number; separateTimeSeconds: number; springConstantNpm: number; incomingDir?: -1 | 1; maxCompressionM?: number };
   spring?: { contact: Point; anchor: Point };
   springs?: Array<{ stageIndex: number; contact: Point; anchor: Point }>;
   projectile?: { launch: Point; landingPlane: { yM: number } };
@@ -309,8 +309,10 @@ function arc(stage: Extract<Stage, { kind: "vertical_arc" }>, start: MotionSampl
     const make=(kind:string,t:number,before:MotionSample,after:MotionSample,label:string,explanation:string):EventState=>({
       ...event(kind,t,before,after,label,explanation),position:point(after),normalForceBeforeN:before.constraint?.normalForceN??0,normalForceAfterN:after.constraint?.normalForceN??0,
     });
-    const events=[make('arc_enter',0,index===0?solved.entry:start,solved.entry,'进入圆弧','按实际入口位置和带方向的切线速度进入内轨。')];
-    for(const marker of solved.markers)events.push(make(marker.kind,marker.time,marker.state,marker.state,marker.kind==='arc_top'?'经过圆轨最高点':'经过圆轨最低点','仍按圆轨约束运动，支持力由当前速度与位置计算。'));
+    const isRod = stage.side === "rod";
+    const rodForceText = (n: number) => n > 1e-9 ? `拉力 ${n.toFixed(4)} N（指向圆心）` : n < -1e-9 ? `支持力 ${Math.abs(n).toFixed(4)} N（背离圆心）` : "作用力 0.0000 N";
+    const events=[make('arc_enter',0,index===0?solved.entry:start,solved.entry,'进入圆弧',isRod?'按实际入口位置和切线速度进入轻杆/双轨约束。':'按实际入口位置和带方向的切线速度进入内轨。')];
+    for(const marker of solved.markers)events.push(make(marker.kind,marker.time,marker.state,marker.state,marker.kind==='arc_top'?'经过圆轨最高点':'经过圆轨最低点',isRod?`轻杆/双轨约束：${rodForceText(marker.state.constraint?.normalForceN??0)}。`:'仍按圆轨约束运动，支持力由当前速度与位置计算。'));
     const reason=solved.geometry.actualExit.reason;
     if(reason==='stationary'){events.push(make('stop',0,solved.entry,solved.end,'最低点静止','重力与支持力平衡。'));return{...solved,events,reason:'stopped'};}
     if(solved.returns){
@@ -331,20 +333,27 @@ function arc(stage: Extract<Stage, { kind: "vertical_arc" }>, start: MotionSampl
     normalForceBeforeN: before.constraint?.normalForceN ?? 0,
     normalForceAfterN: after.constraint?.normalForceN ?? 0,
   });
-  const events = [arcEvent("arc_enter", 0, index === 0 ? solved.entry : start, solved.entry, "进入圆弧", `从最低点沿切线入弧，圆轨道法向力约 ${solved.entry.constraint!.normalForceN.toFixed(4)} N。`)];
+  const isRod = stage.side === "rod";
+  const rodForceDesc = (n: number) => n > 1e-9 ? `拉力 ${n.toFixed(4)} N（指向圆心）` : n < -1e-9 ? `支持力 ${Math.abs(n).toFixed(4)} N（背离圆心）` : "作用力 0.0000 N";
+  const events = [arcEvent("arc_enter", 0, index === 0 ? solved.entry : start, solved.entry, "进入圆弧",
+    isRod ? `从最低点沿切线进入轻杆/双轨约束，${rodForceDesc(solved.entry.constraint!.normalForceN)}。` : `从最低点沿切线入弧，圆轨道法向力约 ${solved.entry.constraint!.normalForceN.toFixed(4)} N。`)];
   if (solved.geometry.actualExit.reason === "stationary") {
     events.push(arcEvent("stop", 0, solved.entry, solved.end, "最低点静止", "最低点初速度为零，重力与支持力平衡。"));
     return { ...solved, events, reason: "stopped" };
   }
   if (solved.returns) {
-    events.push(arcEvent("arc_turn", solved.ascentSeconds, solved.boundary, solved.boundary, "停下并回滑", "此刻速度为零，沿切线的重力分量使滑块反向，随后沿圆弧返回。"));
+    events.push(arcEvent("arc_turn", solved.ascentSeconds, solved.boundary, solved.boundary, "停下并回滑",
+      isRod ? `速度降为零，${rodForceDesc(solved.boundary.constraint!.normalForceN)}，随后沿原圆周返回。` : "此刻速度为零，沿切线的重力分量使滑块反向，随后沿圆弧返回。"));
     const before = { ...solved.end, constraint: { ...solved.entry.constraint!, angularVelocityRadps: -start.vxMps / stage.radiusM } };
     events.push(arcEvent("arc_return_entry", solved.duration, before, solved.end, "返回圆弧入口", "沿原轨道返回最低点，速度水平向左；本次计算在入口结束，保留返回速度。"));
     return { ...solved, events, reason: "returned_to_entry" };
   }
   const lost = solved.geometry.actualExit.reason === "contact_lost";
   events.push(arcEvent(lost ? "arc_contact_lost" : "arc_endpoint", solved.duration, solved.boundary, solved.end,
-    lost ? "失去接触" : "到达圆弧端点", lost ? "圆轨道法向力降为零，滑块沿此处的实际切线飞出。" : "到达计划端点，离开轨道后保持切向速度。"));
+    lost ? "失去接触" : "到达圆弧端点",
+    lost ? "圆轨道法向力降为零，滑块沿此处的实际切线飞出。"
+      : isRod ? `到达计划端点，${rodForceDesc(solved.boundary.constraint!.normalForceN)}，离开约束后保持切向速度。`
+      : "到达计划端点，离开轨道后保持切向速度。"));
   const canContinue = nextKind === "projectile" ? true : nextKind !== undefined && !lost;
   return { ...solved, events, reason: canContinue ? undefined : "arc_detached" };
 }
@@ -412,6 +421,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   let conveyorEval: ((timeSeconds: number) => ConveyorReading) | null = null;
   let movableArcEval: ((timeSeconds: number) => { grooveXM: number; grooveVX: number }) | null = null;
   let springPairEval: ((timeSeconds: number) => { x2M: number; vx2Mps: number; compressionM: number }) | null = null;
+  let lastMovableArcGrooveVX: number | null = null;
   let heatBase = 0;
   function append(item: EventState, stageIndex: number, startTime: number) {
     const order = events.length;
@@ -506,25 +516,40 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       case "horizontal_slide": run = horizontal(stage, state, plan.gravityMps2 ?? 0, geometry, index); break;
       case "constant_force_1d": run = constantForce(stage, state, plan.massKg!, geometry, index + 1 < plan.stages.length); break;
       case "conveyor_belt": {
-        const solved = solveConveyorBelt(stage, state.xM, state.vxMps, plan.gravityMps2!);
-        geometry.conveyor = solved.geometry;
+        const angleDeg = stage.angleDeg ?? 0;
+        const rad = (angleDeg * Math.PI) / 180;
+        const dirSign = stage.inclineDirection === "down" ? -1 : 1;
+        const ux = angleDeg === 0 ? 1 : Math.cos(rad);
+        const uy = angleDeg === 0 ? 0 : dirSign * Math.sin(rad);
+        const originXM = state.xM;
+        const originYM = state.yM;
+        // 水平带保持与旧契约一致（沿 x 坐标求解）；倾斜带沿带坐标 s 从 0 开始并投影到世界 (x, y)。
+        // 首段 initial.vxMps 本身即为沿带初速；仅非首段继承时才将二维速度投影到带切向。
+        const sStart = angleDeg === 0 ? originXM : 0;
+        const vAlong = angleDeg === 0 || index === 0 ? state.vxMps : state.vxMps * ux + state.vyMps * uy;
+        const solved = solveConveyorBelt(stage, sStart, vAlong, plan.gravityMps2!);
+        geometry.conveyor = { ...solved.geometry, ...(angleDeg > 0 ? { originXM, originYM } : {}) };
+        const toWorld = (s: number, v: number) =>
+          angleDeg === 0
+            ? moving(s, originYM, v, 0)
+            : moving(originXM + (s - sStart) * ux, originYM + (s - sStart) * uy, v * ux, v * uy);
         const startTime = time;
         conveyorEval = (q) => {
           const r = solved.evalAt(q - startTime);
           return { beltSpeedMps: r.beltSpeedMps, beltDisplacementM: r.beltDisplacementM, relativeDisplacementM: r.relativeDisplacementM, relativeSpeedMps: r.relativeSpeedMps };
         };
-        const endSample = moving(solved.endX, state.yM, solved.endVx);
+        const endSample = toWorld(solved.endX, solved.endVx);
         run = {
           duration: solved.duration,
           end: endSample,
           reason: solved.exited && index + 1 >= plan.stages.length ? "conveyor_exit" : undefined,
           events: solved.events.map((ev) => {
-            const st = moving(ev.xM, state.yM, ev.vxMps);
+            const st = toWorld(ev.xM, ev.vxMps);
             return event(ev.kind, ev.time, st, st, ev.label, ev.explanation);
           }),
           sampleAt: (dt) => {
             const r = solved.evalAt(dt);
-            return moving(r.xM, state.yM, r.vxMps);
+            return toWorld(r.xM, r.vxMps);
           },
         };
         break;
@@ -552,6 +577,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       }
       case "movable_arc": {
         const solved = solveMovableArc(stage, { xM: state.xM, yM: state.yM }, plan.massKg!, plan.gravityMps2!);
+        lastMovableArcGrooveVX = solved.exit.grooveVX;
         const startTime = time;
         geometry.movableArc = { stageIndex: index, ...solved.geometry, exitTimeSeconds: startTime + solved.durationSeconds, exitGrooveXM: solved.exit.grooveXM, exitGrooveVX: solved.exit.grooveVX };
         movableArcEval = (q) => {
@@ -580,10 +606,18 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       }
       case "spring_pair": {
         if (state.vyMps !== 0 || state.vxMps === 0) return failure("弹簧双球段需要非零水平速度入口。", "/stages/" + index, "PRECONDITION_CONFLICT");
-        const solved = solveSpringPair(stage, { xM: state.xM, yM: state.yM, vxMps: state.vxMps }, plan.massKg!);
+        const resolvedStage = stage.matchGrooveSpeed && stage.targetMassKg == null && stage.separationSpeedMps == null && lastMovableArcGrooveVX !== null
+          ? { ...stage, separationSpeedMps: Math.abs(lastMovableArcGrooveVX) }
+          : stage;
+        const solved = solveSpringPair(resolvedStage, { xM: state.xM, yM: state.yM, vxMps: state.vxMps }, plan.massKg!);
         const startTime = time;
         const gap = stage.gapM ?? 0.5;
-        geometry.springPair = { stageIndex: index, yM: state.yM, gapM: gap, mass2Kg: solved.mass2Kg, targetEntryXM: solved.geometry.targetEntryXM, contactTimeSeconds: startTime + gap / Math.abs(state.vxMps), separateTimeSeconds: startTime + solved.durationSeconds, springConstantNpm: stage.springConstantNpm };
+        geometry.springPair = {
+          stageIndex: index, yM: state.yM, gapM: gap, mass2Kg: solved.mass2Kg,
+          targetEntryXM: solved.geometry.targetEntryXM, contactTimeSeconds: startTime + gap / Math.abs(state.vxMps),
+          separateTimeSeconds: startTime + solved.durationSeconds, springConstantNpm: solved.geometry.springConstantNpm,
+          incomingDir: solved.geometry.incomingDir, maxCompressionM: solved.geometry.maxCompressionM,
+        };
         springPairEval = (q) => {
           const r = solved.at(Math.min(solved.durationSeconds, Math.max(0, q - startTime)));
           return { x2M: r.x2M, vx2Mps: r.vx2Mps, compressionM: r.compressionM };

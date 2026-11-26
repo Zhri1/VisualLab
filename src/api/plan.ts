@@ -207,12 +207,20 @@ export async function handlePlan(request: Request): Promise<Response> {
         return json({ message: 'chatContext 须为合法 JSON 字符串' }, 400, base);
       }
     }
+    const rawMode = form.get('chatMode');
+    const chatMode =
+      (typeof rawMode === 'string' && rawMode.trim().toLowerCase() === 'similar') ||
+      (context && typeof context.mode === 'string' && context.mode.trim().toLowerCase() === 'similar')
+        ? 'similar'
+        : 'tutor';
     try {
-      const chat = await callTutorChat({ message: chatMessage, context, history });
+      const chat = await callTutorChat({ message: chatMessage, context, history, mode: chatMode });
       const elapsed = Date.now() - startedAt;
-      console.log(`[chat] ${requestId} ok ${elapsed}ms model=${chat.model} len=${chatMessage.length}`);
+      console.log(`[chat] ${requestId} ok ${elapsed}ms model=${chat.model} mode=${chatMode} len=${chatMessage.length}`);
       return json(
-        { status: 'ok', reply: chat.reply },
+        chatMode === 'similar'
+          ? { status: 'ok', reply: chat.reply, similarProblems: chat.similarProblems ?? [] }
+          : { status: 'ok', reply: chat.reply },
         200,
         { ...base, 'x-request-id': requestId, 'x-elapsed-ms': String(elapsed), 'x-vision-model': chat.model },
       );

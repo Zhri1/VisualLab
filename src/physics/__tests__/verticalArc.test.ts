@@ -222,3 +222,86 @@ describe("圆弧输入与固定平面", () => {
     expect(assembleScene({ ...endpoint, initial: { speedMps } })).toMatchObject({ ok: false, code: "INCONSISTENT_CONDITIONS", fieldErrors: [{ path: "/stages/0", code: "RANGE" }] });
   });
 });
+
+describe("轻杆 / 双轨竖直圆周运动（side: rod）", () => {
+  const rodPlan = (speedMps: number, extraStage: Record<string, unknown> = {}) => ({
+    kind: "stage_plan",
+    schemaVersion: 1,
+    gravityMps2: 10,
+    massKg: 0.1,
+    initial: { speedMps },
+    stages: [{ kind: "vertical_arc", radiusM: 0.4, endAngleDeg: 180, side: "rod", frictionless: true, ...extraStage }],
+  });
+
+  it("最高点临界速度 v_min = 0（v0 = 2√(gR) = 4 m/s）：不脱轨，最高点速度为 0、受向上支持力 mg = 1 N", () => {
+    const motion = build(rodPlan(4));
+    expect(motion.events.some(e => e.kind === "arc_contact_lost")).toBe(false);
+    const endEv = motion.events.find(e => e.kind === "arc_endpoint")!;
+    expect(endEv).toBeDefined();
+    expect(endEv.normalForceBeforeN).toBeCloseTo(-1, 6);
+    expect(motion.sampleAt(endEv.timeSeconds).vxMps).toBeCloseTo(0, 6);
+    expect(motion.geometry.verticalArc?.side).toBe("rod");
+  });
+
+  it("最高点 0 < v < √(gR)（v0² = 4.5gR）：杆提供向上支持力（N < 0，方向向上）", () => {
+    const motion = build(rodPlan(Math.sqrt(18)));
+    const endEv = motion.events.find(e => e.kind === "arc_endpoint")!;
+    expect(endEv.normalForceBeforeN).toBeCloseTo(-0.5, 6);
+    expect(endEv.explanation).toContain("支持力");
+    const nearTop = motion.sampleAt(endEv.timeSeconds - 1e-6);
+    expect(nearTop.constraint?.forceRole).toBe("support");
+    expect(nearTop.constraint?.normalDirection?.y).toBeGreaterThan(0.99);
+  });
+
+  it("最高点 v > √(gR)（v0² = 6gR）：杆提供向下拉力（N > 0，方向向下）", () => {
+    const motion = build(rodPlan(Math.sqrt(24)));
+    const endEv = motion.events.find(e => e.kind === "arc_endpoint")!;
+    expect(endEv.normalForceBeforeN).toBeCloseTo(1, 6);
+    expect(endEv.explanation).toContain("拉力");
+    const nearTop = motion.sampleAt(endEv.timeSeconds - 1e-6);
+    expect(nearTop.constraint?.forceRole).toBe("pull");
+    expect(nearTop.constraint?.normalDirection?.y).toBeLessThan(-0.99);
+  });
+
+  it("2gR < v0² < 4gR（v0² = 3gR）：单内轨会脱轨，但轻杆在 120° 处零速平滑折返且不脱轨", () => {
+    const motion = build(rodPlan(Math.sqrt(12)));
+    expect(motion.endReason).toBe("returned_to_entry");
+    expect(motion.events.some(e => e.kind === "arc_contact_lost")).toBe(false);
+    const turn = motion.events.find(e => e.kind === "arc_turn")!;
+    expect(turn.normalForceBeforeN).toBeCloseTo(-0.5, 6);
+    expect(motion.sampleAt(turn.timeSeconds).constraint?.angleDeg).toBeCloseTo(120, 6);
+    expect(motion.sampleAt(turn.timeSeconds).constraint?.forceRole).toBe("support");
+  });
+
+  it("显式 path 整圆轻杆（360°）：v0² = 4.5gR 完整绕行一圈，最高点支持力 -0.5 N、最低点拉力 5.5 N", () => {
+    const motion = build({
+      kind: "stage_plan", schemaVersion: 1, gravityMps2: 10, massKg: 0.1,
+      initial: { speedMps: Math.sqrt(18) },
+      stages: [{
+        kind: "vertical_arc", radiusM: 0.4, side: "rod", frictionless: true,
+        path: { startAngleDeg: 0, direction: "positive", end: { kind: "observation", sweepAngleDeg: 360 } },
+      }],
+    });
+    expect(motion.events.some(e => e.kind === "arc_contact_lost")).toBe(false);
+    const topEv = motion.events.find(e => e.kind === "arc_top")!;
+    expect(topEv).toBeDefined();
+    expect(topEv.normalForceBeforeN).toBeCloseTo(-0.5, 6);
+    expect(topEv.explanation).toContain("支持力");
+    expect(motion.sampleAt(0).constraint?.normalForceN).toBeCloseTo(5.5, 6);
+    expect(motion.sampleAt(0).constraint?.forceRole).toBe("pull");
+  });
+
+  it("critical_arc_top 约束配合 side: rod 按 v_top = 0 反求 R = u²/(4g)", () => {
+    const res = validateStagePlan({
+      kind: "stage_plan", schemaVersion: 1, gravityMps2: 10, massKg: 0.1,
+      initial: { speedMps: 4 },
+      constraints: [{ kind: "critical_arc_top", stageIndex: 0 }],
+      stages: [{ kind: "vertical_arc", radiusM: null, endAngleDeg: 180, side: "rod", frictionless: true }],
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      const st = res.reading.stages[0] as Extract<typeof res.reading.stages[0], { kind: "vertical_arc" }>;
+      expect(st.radiusM).toBeCloseTo(0.4, 9);
+    }
+  });
+});
