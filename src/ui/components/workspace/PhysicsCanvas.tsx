@@ -19,6 +19,8 @@ const SOFT = "#8e8e88";
 const HAIR = "#d6d6d1";
 const PAPER = "#fbfbf9";
 const FILL = "#eaeae6";
+/** 速度箭头与读数共用的墨绿色（与 StagePhysicsCanvas 一致）。 */
+const VELOCITY = "#2e6b5e";
 
 /* 线宽：几何 / 尺寸线 / 弹簧 */
 const W_EDGE = 1.6;
@@ -93,13 +95,22 @@ function drawRich(
   x: number,
   y: number,
   px: number,
-  align: "left" | "center" | "right" = "center"
+  align: "left" | "center" | "right" = "center",
+  halo = false
 ) {
   const total = measureRich(ctx, segs, px);
   let cur = align === "center" ? x - total / 2 : align === "right" ? x - total : x;
   ctx.textAlign = "left";
   for (const s of segs) {
     ctx.font = fontOf(s, px);
+    if (halo) {
+      ctx.save();
+      ctx.lineJoin = "round";
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(251,251,249,0.9)";
+      ctx.strokeText(s.t, cur, y);
+      ctx.restore();
+    }
     ctx.fillText(s.t, cur, y);
     cur += ctx.measureText(s.t).width;
   }
@@ -462,7 +473,7 @@ function drawScene(
     const p1x = X(bx);
     const p1y = Y(by);
 
-    ctx.strokeStyle = "#3a3a36";
+    ctx.strokeStyle = VELOCITY;
     ctx.lineWidth = W_EDGE;
     ctx.lineCap = "butt";
     ctx.beginPath();
@@ -471,7 +482,7 @@ function drawScene(
     ctx.stroke();
 
     const ang = Math.atan2(p1y - p0y, p1x - p0x);
-    ctx.fillStyle = "#3a3a36";
+    ctx.fillStyle = VELOCITY;
     arrowHead(ctx, p1x, p1y, ang, Math.max(7, S * 0.08), Math.max(3.2, S * 0.035));
 
   }
@@ -511,11 +522,10 @@ function drawScene(
   }
   labelX = Math.min(W - insetX, Math.max(insetX, labelX));
   labelY = Math.min(H - 8, Math.max(insetTop, labelY));
-  ctx.fillStyle = PAPER;
-  ctx.fillRect(labelX - labelHalfWidth - 4, labelY - speedLabelPx - 2, 2 * labelHalfWidth + 8, speedLabelPx + 5);
-  ctx.fillStyle = INK;
+  // 不铺实心底块，改为速度同色 + 纸色描边光晕，避免遮住下方几何。
+  ctx.fillStyle = VELOCITY;
   ctx.textBaseline = "bottom";
-  drawRich(ctx, speedLabel, labelX, labelY, speedLabelPx);
+  drawRich(ctx, speedLabel, labelX, labelY, speedLabelPx, "center", true);
 }
 
 export function PhysicsCanvas(props: Props) {
