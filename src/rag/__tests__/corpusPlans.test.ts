@@ -57,7 +57,7 @@ describe("母题提示的阶段组合可通过正式装配和求解", () => {
     const launchXM = motion.sampleAt(launch.timeSeconds).xM;
     expect(motion.sampleAt(exit.timeSeconds).xM).toBeCloseTo(-0.4, 10);
     expect(launchXM).toBeCloseTo(-0.75, 10);
-    expect(motion.movableArcAt!(0).grooveXM - launchXM).toBeCloseTo(0.15, 10);
+    expect(motion.movableArcAt?.(0)?.grooveXM).toBeCloseTo(launchXM + 0.15, 10);
     expect(launch.timeSeconds - exit.timeSeconds).toBeCloseTo(slideDistanceM / (2 * Math.SQRT2), 10);
     expect(motion.durationSeconds - exit.timeSeconds).toBeCloseTo(slideDistanceM / (2 * Math.SQRT2) + 0.5, 10);
     expect(launchXM - motion.sampleAt(Infinity).xM).toBeCloseTo(Math.SQRT2, 10);
