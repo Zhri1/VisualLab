@@ -1,12 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { isStageTruncateCommand } from "../../hooks/useWorkspace";
 import {
   buildTutorPayload,
+  getLocalFollowupSuggestions,
   getLocalSimilarProblems,
   getQuickParamSuggestions,
   tryParseStagePlanUpdate,
 } from "../chatService";
 import type { StagePlanDraft } from "../../physics/stagePlan";
+import type { Motion } from "../../types";
 
 const MOVABLE_ARC_PLAN: StagePlanDraft = {
   kind: "stage_plan",
@@ -216,5 +218,208 @@ describe("getQuickParamSuggestions 与 getLocalSimilarProblems", () => {
     expect(collList[0].stem).toContain("μ = 0.2");
     expect(collList[1].stem).toContain("x = 0");
     expect(collList[1].stem).toContain("x = 6 m");
+  });
+});
+
+const SAMPLE_MOTION: Motion = {
+  geometry: {
+    inclineTop: { x: -3.2, y: 2.4 },
+    inclineBottom: { x: 0, y: 0 },
+    horizontalEnd: { x: 3, y: 0 },
+    springContactX: 1,
+    springAnchorX: 2.5,
+    blockSizeM: 0.3,
+  },
+  durationSeconds: 2.4,
+  segments: [
+    {
+      kind: "incline",
+      startSeconds: 0,
+      endSeconds: 1.2,
+      name: "斜面匀加速下滑",
+      summary: "沿斜面下滑",
+      formula: "a = g(sinθ - μcosθ)",
+    },
+    {
+      kind: "spring",
+      startSeconds: 1.4,
+      endSeconds: 2.4,
+      name: "弹簧压缩与反弹",
+      summary: "压缩弹簧至速度为零",
+      formula: "½mv² = ½kx²",
+    },
+  ],
+  events: [
+    {
+      id: "release",
+      eventKind: "release",
+      timeSeconds: 0,
+      label: "静止释放",
+      caption: "滑块从斜面顶端静止释放",
+      segment: "incline",
+    },
+    {
+      id: "reach_bottom",
+      timeSeconds: 1.2,
+      label: "滑到坡底",
+      caption: "经无损转向进入水平面",
+      segment: "incline",
+    },
+    {
+      id: "max_compression",
+      timeSeconds: 1.9,
+      label: "最大压缩",
+      caption: "滑块速度减为零，弹性势能最大",
+      segment: "spring",
+    },
+    {
+      id: "detach_spring",
+      timeSeconds: 2.4,
+      label: "脱离弹簧",
+      caption: "弹簧恢复原长，滑块向左离开",
+      segment: "spring",
+    },
+  ],
+  sampleAt: () => ({
+    position: { x: 0, y: 0 },
+    velocity: { x: 4, y: 0 },
+    springCompressionM: 0,
+  }),
+};
+
+describe("socratic 分步带练模式与局部答疑辅助", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("buildTutorPayload 仅在指定 mode 时透传 mode 字段", () => {
+    const withoutMode = buildTutorPayload({
+      motion: null,
+      reading: MOVABLE_ARC_PLAN,
+      conditions: {},
+    });
+    expect("mode" in withoutMode).toBe(false);
+
+    const withSocratic = buildTutorPayload({
+      motion: null,
+      reading: MOVABLE_ARC_PLAN,
+      conditions: {},
+      mode: "socratic",
+    });
+    expect(withSocratic.mode).toBe("socratic");
+  });
+
+  it("生产模式发送 socratic 请求时在 FormData 与 chatContext 中双通道透传 chatMode=socratic", async () => {
+    vi.stubEnv("VITE_USE_MOCK_API", "false");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ status: "ok", reply: "我们先看第 1 阶段，物体受哪些力？" })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.resetModules();
+
+    const { chatService } = await import("../chatService");
+    const intent = await chatService.send("请带我一步步做这道题", {
+      motion: SAMPLE_MOTION,
+      reading: INCLINE_PLAN,
+      conditions: {},
+      mode: "socratic",
+    });
+
+    expect(intent.type).toBe("answer");
+    if (intent.type === "answer") {
+      expect(intent.text).toContain("第 1 阶段");
+    }
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const form = fetchMock.mock.calls[0][1].body as FormData;
+    expect(form.get("chatMode")).toBe("socratic");
+    const ctxJson = JSON.parse(String(form.get("chatContext"))) as Record<string, unknown>;
+    expect(ctxJson.mode).toBe("socratic");
+  });
+
+  it("离线 Mock 模式下 socratic 兜底基于第 1 阶段与首事件生成启发式提问", async () => {
+    vi.stubEnv("VITE_USE_MOCK_API", "true");
+    vi.resetModules();
+
+    const { chatService } = await import("../chatService");
+    const intent = await chatService.send("请像老师一样带我一步步做这道题", {
+      motion: SAMPLE_MOTION,
+      reading: INCLINE_PLAN,
+      conditions: {},
+      mode: "socratic",
+    });
+
+    expect(intent.type).toBe("answer");
+    if (intent.type === "answer") {
+      expect(intent.text).toContain("斜面匀加速下滑");
+      expect(intent.text).toContain("静止释放");
+      expect(intent.text).toContain("？");
+    }
+  });
+
+  it("getLocalFollowupSuggestions 跳过初始释放事件并提取最多 3 个关键事件追问", () => {
+    const list = getLocalFollowupSuggestions(SAMPLE_MOTION);
+    expect(list).toHaveLength(3);
+    expect(list.join(" ")).not.toContain("静止释放");
+    expect(list[0]).toContain("滑到坡底");
+    expect(list[1]).toContain("最大压缩");
+    expect(list[2]).toContain("脱离弹簧");
+
+    const fallback = getLocalFollowupSuggestions(null);
+    expect(fallback.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("requestPlan AbortSignal 中断能力", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("Mock 模式下触发 AbortController.abort() 立即以 AbortError 拒绝", async () => {
+    vi.stubEnv("VITE_USE_MOCK_API", "true");
+    vi.resetModules();
+
+    const { requestPlan, isAbortError } = await import("../imageRecognition");
+    const controller = new AbortController();
+    const promise = requestPlan({ text: "相似变式题" }, { signal: controller.signal });
+    controller.abort();
+
+    let caught: unknown = null;
+    try {
+      await promise;
+    } catch (err) {
+      caught = err;
+    }
+    expect(isAbortError(caught)).toBe(true);
+  });
+
+  it("生产模式将 AbortSignal 透传给 fetch 并在中断时抛出 AbortError", async () => {
+    vi.stubEnv("VITE_USE_MOCK_API", "false");
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          const err = new DOMException("Aborted", "AbortError");
+          reject(err);
+        });
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.resetModules();
+
+    const { requestPlan, isAbortError } = await import("../imageRecognition");
+    const controller = new AbortController();
+    const promise = requestPlan({ text: "可动圆弧槽相似题" }, { signal: controller.signal });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal);
+
+    controller.abort();
+    let caught: unknown = null;
+    try {
+      await promise;
+    } catch (err) {
+      caught = err;
+    }
+    expect(isAbortError(caught)).toBe(true);
   });
 });

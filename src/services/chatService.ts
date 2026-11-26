@@ -8,6 +8,7 @@ import { ENDPOINT, USE_MOCK_API } from "./imageRecognition";
 import { isStageReading } from "../types";
 import type {
   ChatIntent,
+  ChatMode,
   ConditionChange,
   ConditionKey,
   Motion,
@@ -25,7 +26,7 @@ export interface ChatContext {
   currentTime?: number;
   history?: Array<{ role: "user" | "assistant"; text: string }>;
   conditions: Record<string, number | null>;
-  mode?: "tutor" | "similar";
+  mode?: ChatMode;
 }
 
 export interface ChatService {
@@ -124,6 +125,7 @@ export function buildTutorPayload(ctx: ChatContext): Record<string, unknown> {
   const energy = m?.energyAt?.(currentTime) ?? null;
 
   const raw: Record<string, unknown> = {
+    mode: ctx.mode ?? undefined,
     problemText: ctx.problemText?.trim() || undefined,
     currentTimeSeconds: Number(currentTime.toFixed(4)),
     durationSeconds: m ? Number(m.durationSeconds.toFixed(4)) : undefined,
@@ -581,6 +583,53 @@ export function getQuickParamSuggestions(reading: WorkspaceReading | null | unde
   return suggestions.slice(0, 3);
 }
 
+/** 基于当前运动的关键事件动态生成 2~3 条局部追问建议（优先跳过初始释放事件）。 */
+export function getLocalFollowupSuggestions(motion: Motion | null | undefined): string[] {
+  const events = motion?.events ?? [];
+  if (events.length === 0) {
+    return [
+      "这一段为什么满足机械能或动量守恒？",
+      "这道题的关键临界条件应该怎么列？",
+    ];
+  }
+
+  const nonRelease = events.filter(
+    (ev) =>
+      ev.id !== "release" &&
+      ev.eventKind !== "release" &&
+      !/^(?:释放|初态|开始)$/.test(ev.label.trim()),
+  );
+  const pool = nonRelease.length > 0 ? nonRelease : events;
+  const out: string[] = [];
+  const seenLabels = new Set<string>();
+
+  for (const ev of pool) {
+    const label = ev.label.trim();
+    if (!label || seenLabels.has(label)) continue;
+    seenLabels.add(label);
+
+    if (
+      ev.normalForceAfterN != null ||
+      ev.normalForceBeforeN != null ||
+      /压力|支持力|最高点|最低点|脱轨|张力|松绳/.test(label)
+    ) {
+      out.push(`为什么在「${label}」处受力/约束是这样？`);
+    } else if (/压缩|弹性|共速|分离|脱离/.test(label)) {
+      out.push(`为什么在「${label}」处速度和能量是这样？`);
+    } else {
+      out.push(`为什么在「${label}」处速度/受力是这样？`);
+    }
+    if (out.length >= 3) break;
+  }
+
+  return out.length > 0
+    ? out
+    : [
+        "这一段为什么满足机械能或动量守恒？",
+        "这道题的关键临界条件应该怎么列？",
+      ];
+}
+
 /* ==================== 相似变式题本地精选兜底题库 ==================== */
 
 const SIMILAR_BANK: Record<string, SimilarProblem[]> = {
@@ -860,6 +909,60 @@ function ragHitsToSimilarProblems(hits: RagHit[]): SimilarProblem[] {
   }));
 }
 
+/** 离线或服务异常时的分步带练（socratic）启发式兜底：按当前第 1 个关键事件提问，绝不直接给完整答案。 */
+function buildSocraticFallback(
+  ctx: ChatContext,
+  userText: string,
+  reason?: string,
+  ragHits: RagHit[] = [],
+): string {
+  const m = ctx.motion;
+  const prefix = reason ? `（实时 AI 助教暂不可用：${reason}；以下为本地分步引导）\n\n` : "";
+  const pitfallTip = ragHits[0]?.entry.pitfalls[0]
+    ? `\n\n小提示：思考时可以重点留意「${ragHits[0].entry.pitfalls[0]}」。`
+    : "";
+
+  if (!m) {
+    return `${prefix}请先上传题目或选择内置示例，加载动画后我会从第 1 阶段开始一步步带你分析受力与守恒规律。`;
+  }
+
+  const events = m.events ?? [];
+  const firstEvent = events[0];
+  const firstSegment = m.segments?.[0];
+  const stageNames = (m.segments ?? [])
+    .slice(0, 5)
+    .map((s, idx) => `${idx + 1}. ${s.name}`)
+    .join(" → ");
+
+  const userTurns = (ctx.history ?? []).filter((h) => h.role === "user").length;
+  const isOpening = userTurns === 0 || /一步步|第一阶段|先不要直接给/.test(userText);
+
+  if (isOpening) {
+    const stageLine = stageNames ? `我们先不急着算最终答案，把整道题拆成几个阶段：${stageNames}。\n\n` : "";
+    const focusLabel = firstSegment?.name ?? firstEvent?.label ?? "第 1 阶段";
+    const eventHint = firstEvent
+      ? `（起点事件：${firstEvent.timeSeconds.toFixed(2)} s「${firstEvent.label}」）`
+      : "";
+    return (
+      `${prefix}${stageLine}先聚焦第 1 阶段「${focusLabel}」${eventHint}：` +
+      `请你先想一想，物体在这一阶段受到哪些力？哪些力在做功，应该优先列牛顿第二定律、动能定理，还是动量/机械能守恒方程？` +
+      `${pitfallTip}`
+    );
+  }
+
+  const nextIdx = Math.min(userTurns, Math.max(events.length - 1, 0));
+  const targetEvent = events[nextIdx] ?? firstEvent;
+  const eventLine = targetEvent
+    ? `我们核对到关键节点「${targetEvent.label}」（t = ${targetEvent.timeSeconds.toFixed(2)} s）：${targetEvent.caption}`
+    : "我们结合当前阶段的受力与速度变化继续核对。";
+
+  return (
+    `${prefix}你的思路很有方向！${eventLine}\n\n` +
+    `顺着这一步继续往前推：经过这个节点前后，速度或受力有没有发生突变？下一步你打算用哪两个物理量把下一阶段衔接起来？` +
+    `${pitfallTip}`
+  );
+}
+
 /** 离线或服务异常时，根据当前真实 motion 与本地物理知识库动态生成可读摘要，绝不返回 NULL。 */
 function buildDynamicFallback(ctx: ChatContext, reason?: string, ragHits: RagHit[] = []): string {
   const m = ctx.motion;
@@ -998,11 +1101,18 @@ export const chatService: ChatService = {
       });
 
     // 5. 真实 AI 物理助教对话（非 Mock 模式，复用同域 ENDPOINT）
+    const chatMode: ChatMode = ctx.mode ?? "tutor";
+    const buildFallback = (reason?: string, hits: RagHit[] = []) =>
+      chatMode === "socratic"
+        ? buildSocraticFallback(ctx, t, reason, hits)
+        : buildDynamicFallback(ctx, reason, hits);
+
     if (!USE_MOCK_API) {
       try {
         const form = new FormData();
         form.append("chatMessage", t);
-        form.append("chatContext", JSON.stringify(buildTutorPayload(ctx)));
+        form.append("chatMode", chatMode);
+        form.append("chatContext", JSON.stringify(buildTutorPayload({ ...ctx, mode: chatMode })));
         const res = await fetch(ENDPOINT, { method: "POST", body: form });
         const data = (await res.json().catch(() => null)) as
           | { status?: string; reply?: string; ragReferences?: unknown; message?: string }
@@ -1017,8 +1127,7 @@ export const chatService: ChatService = {
         const localHits = runLocalTutorRag();
         return {
           type: "answer",
-          text: buildDynamicFallback(
-            ctx,
+          text: buildFallback(
             data?.message || (res.ok ? "助教返回了空内容" : `服务返回 ${res.status}`),
             localHits,
           ),
@@ -1028,7 +1137,7 @@ export const chatService: ChatService = {
         const localHits = runLocalTutorRag();
         return {
           type: "answer",
-          text: buildDynamicFallback(ctx, "网络请求失败", localHits),
+          text: buildFallback("网络请求失败", localHits),
           ragReferences: localHits.length > 0 ? toRagReferences(localHits) : undefined,
         };
       }
@@ -1039,7 +1148,7 @@ export const chatService: ChatService = {
     const localHits = runLocalTutorRag();
     return {
       type: "answer",
-      text: buildDynamicFallback(ctx, undefined, localHits),
+      text: buildFallback(undefined, localHits),
       ragReferences: localHits.length > 0 ? toRagReferences(localHits) : undefined,
     };
   },
