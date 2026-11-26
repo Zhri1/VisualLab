@@ -1,8 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bookmark, ChevronDown, Image as ImageIcon, Repeat, Share2 } from "lucide-react";
+import {
+  ArrowUpRight,
+  Bookmark,
+  Check,
+  ChevronDown,
+  ClipboardCheck,
+  GitFork,
+  Image as ImageIcon,
+  Pencil,
+  Pointer,
+  Repeat,
+  Share2,
+  Trash2,
+  Volume2,
+} from "lucide-react";
 import type { Workspace } from "../../../hooks/useWorkspace";
 import { isStageReading } from "../../../types";
-import type { Motion } from "../../../types";
 import { ChatPanel } from "../chat/ChatPanel";
 import { PhysicsCanvas } from "./PhysicsCanvas";
 import { MultiBodyReadouts } from "./MultiBodyPhysicsCanvas";
@@ -11,17 +24,13 @@ import { MultiBodyExplanation } from './MultiBodyExplanation';
 import { PlaybackControls } from "./PlaybackControls";
 import { OriginalProblemViewer } from "./OriginalProblemViewer";
 import { advancePlayback, computeDefaultPace, segmentAt } from "./playback";
-import { CriticalPanel } from "../../../features/critical/CriticalPanel";
-import { buildFromReading, paramLabel, pickScanPath, withParam } from "../../../features/critical/scanner";
-import { EnergyBar } from "../../../features/energy/EnergyBar";
-import { QuestionPanel } from "../../../features/questions/QuestionPanel";
 import { getSample } from "../../../data/samples";
 import { AnnotationLayer } from "../../../features/annotate/AnnotationLayer";
 import type { AnnotationMode, AnnotationStroke } from "../../../features/annotate/types";
 import { useEventSpeech } from "../../../features/speech/useEventSpeech";
 import { ExportMenu } from "../../../features/export/ExportMenu";
 import { PracticePanel } from "../../../features/practice/PracticePanel";
-import { saveFavorite } from "../../../features/share/favorites";
+import { isFavorite, removeFavorite, saveFavorite } from "../../../features/share/favorites";
 import { buildShareUrl } from "../../../features/share/shareLink";
 import "./player.css";
 
@@ -58,14 +67,35 @@ export function WorkspaceLayout({ ws }: Props) {
   const [explainOpen, setExplainOpen] = useState(false);
   /** 自动慢放开关：默认开（只放慢不加速），可关回原始物理流速。 */
   const [paceEnabled, setPaceEnabled] = useState(true);
-const [forcesOn, setForcesOn] = useState(false);
+  const [forcesOn, setForcesOn] = useState(false);
   const [decomposeOn, setDecomposeOn] = useState(false);
   const [annotationMode, setAnnotationMode] = useState<AnnotationMode>("off");
   const [strokes, setStrokes] = useState<AnnotationStroke[]>([]);
   const [speechOn, setSpeechOn] = useState(false);
-  const [variant, setVariant] = useState<{ value: number; motion: Motion } | null>(null);
+  const [practiceOn, setPracticeOn] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [copiedShare, setCopiedShare] = useState(false);
   const frameBoxRef = useRef<HTMLDivElement | null>(null);
   const [frameSize, setFrameSize] = useState({ w: 0, h: 0 });
+
+  const activeReading = (ws.appliedReading ?? ws.reading) as unknown;
+  const samplePractice = useMemo(() => (ws.sampleId ? getSample(ws.sampleId).practice ?? [] : []), [ws.sampleId]);
+  const sampleTitle = ws.sampleId ? getSample(ws.sampleId).title : ws.problemText?.slice(0, 24) || "VisualLab 题目";
+  const favoriteId = useMemo(() => {
+    if (ws.sampleId) return ws.sampleId;
+    const raw = ws.problemText?.trim() || JSON.stringify(activeReading ?? "").slice(0, 120);
+    let hash = 0;
+    for (let i = 0; i < raw.length; i++) hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
+    return `custom-${Math.abs(hash)}`;
+  }, [ws.sampleId, ws.problemText, activeReading]);
+  const [favorited, setFavorited] = useState(() => isFavorite(favoriteId));
+  useEffect(() => {
+    setFavorited(isFavorite(favoriteId));
+  }, [favoriteId]);
+
+  const speech = useEventSpeech(motion?.events ?? [], currentTime, speechOn);
+  const masked = practiceOn && !revealed && samplePractice.length > 0;
+
   useEffect(() => {
     const box = frameBoxRef.current;
     if (!box) return;
@@ -75,20 +105,29 @@ const [forcesOn, setForcesOn] = useState(false);
     observer.observe(box);
     return () => observer.disconnect();
   }, [motion]);
+
   useEffect(() => {
-    setVariant(null);
     setRevealed(false);
+    setPracticeOn(false);
+    setStrokes([]);
+    setAnnotationMode("off");
   }, [motion]);
-  const [practiceOn, setPracticeOn] = useState(false);
-  const [revealed, setRevealed] = useState(false);
-  const [savedNote, setSavedNote] = useState<string | null>(null);
-  const speech = useEventSpeech(motion?.events ?? [], currentTime, speechOn);
-  const sampleQuestions = useMemo(() => (ws.sampleId ? getSample(ws.sampleId).questions ?? [] : []), [ws.sampleId]);
-  const samplePractice = useMemo(() => (ws.sampleId ? getSample(ws.sampleId).practice ?? [] : []), [ws.sampleId]);
-  const activeReading = (ws.appliedReading ?? ws.reading) as unknown;
-  const scanPath = useMemo(() => pickScanPath(activeReading), [activeReading]);
-  const sampleTitle = ws.sampleId ? getSample(ws.sampleId).title : ws.problemText?.slice(0, 24) || "VisualLab 题目";
-  const masked = practiceOn && !revealed && samplePractice.length > 0;
+
+  const toggleFavorite = () => {
+    if (favorited) {
+      removeFavorite(favoriteId);
+      setFavorited(false);
+    } else {
+      saveFavorite({
+        id: favoriteId,
+        title: sampleTitle,
+        savedAt: Date.now(),
+        sampleId: ws.sampleId ?? undefined,
+        reading: activeReading,
+      });
+      setFavorited(true);
+    }
+  };
 
   const copyShare = () => {
     const url = buildShareUrl(`${window.location.origin}${window.location.pathname}`, {
@@ -97,28 +136,18 @@ const [forcesOn, setForcesOn] = useState(false);
       timeSeconds: currentTime,
       playbackRate: ws.playbackRate,
     });
+    const markCopied = () => {
+      setCopiedShare(true);
+      window.setTimeout(() => setCopiedShare(false), 2000);
+    };
     if (navigator.clipboard?.writeText) {
-      void navigator.clipboard.writeText(url).then(
-        () => setSavedNote("分享链接已复制"),
-        () => window.prompt("复制此链接", url)
-      );
+      void navigator.clipboard.writeText(url).then(markCopied, () => window.prompt("复制此链接", url));
     } else {
       window.prompt("复制此链接", url);
     }
-    window.setTimeout(() => setSavedNote(null), 2400);
   };
-  const saveCurrent = () => {
-    saveFavorite({
-      id: ws.sampleId ?? `custom-${Date.now()}`,
-      title: sampleTitle,
-      savedAt: Date.now(),
-      sampleId: ws.sampleId ?? undefined,
-      reading: activeReading,
-    });
-    setSavedNote("已存入错题本");
-    window.setTimeout(() => setSavedNote(null), 2400);
-  };
-const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primaryBodyId);
+
+  const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primaryBodyId);
   useEffect(()=>setTrackedBodyId(motion?.primaryBodyId),[motion]);
   const rafRef = useRef<number | null>(null);
   const lastRef = useRef<number | null>(null);
@@ -286,30 +315,46 @@ const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primar
                 </span>
               </button>
             )}
-            <button className="ghost-button" onClick={saveCurrent} aria-label="收藏到错题本">
-              <Bookmark size={14} strokeWidth={1.8} />
-              <span className="btn-label">收藏</span>
-            </button>
-            <button className="ghost-button" onClick={copyShare} aria-label="复制分享链接">
-              <Share2 size={14} strokeWidth={1.8} />
-              <span className="btn-label">分享</span>
-            </button>
             {motion && (
               <ExportMenu
                 getCanvas={() => frameBoxRef.current?.querySelector("canvas") ?? null}
                 motion={motion}
                 title={sampleTitle}
                 problemText={ws.problemText ?? ""}
-                wallMs={(motion.durationSeconds / Math.max(0.05, ws.playbackRate * (paceEnabled ? defaultPace : 1))) * 1000}
+                wallMs={Math.round((motion.durationSeconds / Math.max(0.1, ws.playbackRate * (paceEnabled ? defaultPace : 1))) * 1000)}
                 onSeek={ws.seek}
               />
+            )}
+            {motion && (
+              <button
+                type="button"
+                className="ghost-button favorite-btn"
+                onClick={toggleFavorite}
+                aria-pressed={favorited}
+                aria-label={favorited ? "取消收藏" : "收藏到错题本"}
+                title={favorited ? "已收藏（点击取消）" : "收藏到错题本"}
+              >
+                <Bookmark size={14} strokeWidth={1.8} fill={favorited ? "currentColor" : "none"} />
+                <span className="btn-label">{favorited ? "已收藏" : "收藏"}</span>
+              </button>
+            )}
+            {motion && (
+              <button
+                type="button"
+                className={`ghost-button share-btn${copiedShare ? " is-copied" : ""}`}
+                onClick={copyShare}
+                aria-label="分享链接"
+                title="复制包含当前条件与时刻的分享链接"
+              >
+                {copiedShare ? <Check size={14} strokeWidth={2.2} /> : <Share2 size={14} strokeWidth={1.8} />}
+                <span className="btn-label">{copiedShare ? "已复制" : "分享"}</span>
+              </button>
             )}
             <button className="ghost-button" onClick={() => setViewerOpen(true)} aria-label="查看原题">
               <ImageIcon size={14} strokeWidth={1.8} />
               <span className="btn-label">查看原题</span>
             </button>
           </div>
-          {savedNote && <div className="save-note" role="status">{savedNote}</div>}
 
           <button
             type="button"
@@ -356,25 +401,103 @@ const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primar
             </ul>
           )}
           {motion && (
-            <div className="view-tools" role="group" aria-label="视图工具">
-              <button type="button" className="tool-toggle" aria-pressed={forcesOn} onClick={() => setForcesOn((v) => !v)}>受力</button>
-              <button type="button" className="tool-toggle" aria-pressed={decomposeOn} disabled={!forcesOn} onClick={() => setDecomposeOn((v) => !v)}>分解</button>
-              <button type="button" className="tool-toggle" aria-pressed={annotationMode === "draw"} onClick={() => setAnnotationMode((m) => (m === "draw" ? "off" : "draw"))}>标注</button>
-              <button type="button" className="tool-toggle" aria-pressed={annotationMode === "laser"} onClick={() => setAnnotationMode((m) => (m === "laser" ? "off" : "laser"))}>教鞭</button>
-              <button type="button" className="tool-toggle" aria-pressed={speechOn} disabled={!speech.supported} onClick={() => setSpeechOn((v) => !v)} title={speech.supported ? "朗读关键事件讲解" : "当前浏览器不支持语音合成"}>朗读</button>
-              <button type="button" className="tool-toggle" aria-pressed={practiceOn} disabled={samplePractice.length === 0} onClick={() => { setPracticeOn((v) => !v); setRevealed(false); }} title="先预测再播放">练习</button>
+            <div className="view-tools" role="toolbar" aria-label="画布辅助工具">
+              <button
+                type="button"
+                className="tool-toggle"
+                aria-pressed={forcesOn}
+                onClick={() => {
+                  setForcesOn((v) => {
+                    if (v) setDecomposeOn(false);
+                    return !v;
+                  });
+                }}
+                title="在画布上显示物体受力矢量"
+              >
+                <ArrowUpRight size={13} strokeWidth={2} />
+                <span>受力</span>
+              </button>
+              <button
+                type="button"
+                className="tool-toggle"
+                aria-pressed={decomposeOn}
+                disabled={!forcesOn}
+                onClick={() => setDecomposeOn((v) => !v)}
+                title={forcesOn ? "正交分解受力矢量" : "请先开启「受力」"}
+              >
+                <GitFork size={13} strokeWidth={2} />
+                <span>分解</span>
+              </button>
+              <button
+                type="button"
+                className="tool-toggle"
+                aria-pressed={annotationMode === "draw"}
+                onClick={() => setAnnotationMode((m) => (m === "draw" ? "off" : "draw"))}
+                title="在画布上自由标注"
+              >
+                <Pencil size={13} strokeWidth={2} />
+                <span>标注{strokes.length > 0 ? ` (${strokes.length})` : ""}</span>
+              </button>
+              {strokes.length > 0 && (
+                <button
+                  type="button"
+                  className="tool-toggle tool-clear"
+                  onClick={() => setStrokes([])}
+                  title="清空画布标注"
+                >
+                  <Trash2 size={12} strokeWidth={2} />
+                  <span>清空</span>
+                </button>
+              )}
+              <button
+                type="button"
+                className="tool-toggle"
+                aria-pressed={annotationMode === "laser"}
+                onClick={() => setAnnotationMode((m) => (m === "laser" ? "off" : "laser"))}
+                title="激光教鞭指示"
+              >
+                <Pointer size={13} strokeWidth={2} />
+                <span>教鞭</span>
+              </button>
+              <button
+                type="button"
+                className="tool-toggle"
+                aria-pressed={speechOn}
+                disabled={!speech.supported}
+                onClick={() => setSpeechOn((v) => !v)}
+                title={speech.supported ? "语音朗读关键事件讲解" : "当前浏览器不支持语音合成"}
+              >
+                <Volume2 size={13} strokeWidth={2} />
+                <span>朗读</span>
+              </button>
+              <button
+                type="button"
+                className="tool-toggle"
+                aria-pressed={practiceOn}
+                disabled={samplePractice.length === 0}
+                onClick={() => {
+                  setPracticeOn((v) => !v);
+                  setRevealed(false);
+                }}
+                title={samplePractice.length > 0 ? "先预测再播放动画验证" : "当前题目暂无预测练习"}
+              >
+                <ClipboardCheck size={13} strokeWidth={2} />
+                <span>练习</span>
+              </button>
             </div>
           )}
           <div className={'canvas-frame'+(motion?.primaryBodyId?' body-canvas-frame':'')} ref={frameBoxRef}>
             {motion ? (
-              <div className={'canvas-stack'+(variant ? ' is-dual' : '')+(masked ? ' is-blinded' : '')}>
-                <PhysicsCanvas motion={motion} time={currentTime} isPlaying={isPlaying} trackedBodyId={trackedBodyId} readouts={false} forces={forcesOn} decompose={decomposeOn} />
-                {variant && (
-                  <div className="dual-pane">
-                    <span className="dual-label">对照 {paramLabel(scanPath ?? [])} = {variant.value.toFixed(2)}</span>
-                    <PhysicsCanvas motion={variant.motion} time={Math.min(currentTime, variant.motion.durationSeconds)} isPlaying={isPlaying} readouts={false} forces={forcesOn} decompose={decomposeOn} />
-                  </div>
-                )}
+              <div className={'canvas-stack'+(masked ? ' is-blinded' : '')}>
+                <PhysicsCanvas
+                  motion={motion}
+                  time={currentTime}
+                  isPlaying={isPlaying}
+                  trackedBodyId={trackedBodyId}
+                  readouts={false}
+                  forces={forcesOn}
+                  decompose={decomposeOn}
+                />
               </div>
             ) : (
               <div
@@ -390,7 +513,14 @@ const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primar
               </div>
             )}
             {motion && (
-              <AnnotationLayer width={frameSize.w} height={frameSize.h} time={currentTime} mode={annotationMode} strokes={strokes} onChange={setStrokes} />
+              <AnnotationLayer
+                width={frameSize.w}
+                height={frameSize.h}
+                time={currentTime}
+                mode={annotationMode}
+                strokes={strokes}
+                onChange={setStrokes}
+              />
             )}
             {masked && (
               <div className="practice-mask">
@@ -408,7 +538,6 @@ const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primar
             const cue = [...motion.events].reverse().find((e) => e.timeSeconds <= currentTime);
             return cue ? <div className="speech-caption" role="status"><b>{cue.label}</b>{cue.caption}</div> : null;
           })()}
-          {motion && <EnergyBar motion={motion} time={currentTime} />}
 
           {motion ? (
             <>
@@ -433,20 +562,6 @@ const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primar
                 onSlowSegment={ws.slowCurrentSegment}
                 onExitSegment={ws.exitSegmentPlayback}
               />
-              <CriticalPanel
-                reading={activeReading}
-                path={scanPath}
-                variantValue={variant?.value ?? null}
-                onApply={(value) => {
-                  if (!scanPath) return;
-                  ws.applyReadingOverride(withParam(activeReading, scanPath, value) as Parameters<typeof ws.applyReadingOverride>[0]);
-                }}
-                onVariant={(value) => {
-                  const next = scanPath ? buildFromReading(withParam(activeReading, scanPath, value)) : null;
-                  if (next) setVariant({ value, motion: next });
-                }}
-                onClearVariant={() => setVariant(null)}
-              />
               {motion.timing?.mode !== "state_only" && (
                 <>
                   <button
@@ -460,7 +575,6 @@ const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primar
                     <ChevronDown size={15} strokeWidth={2} className="chev" />
                   </button>
                   <div id="explain-slot" className={`explanation-slot${explainOpen ? "" : " is-collapsed"}`}>
-                    {sampleQuestions.length > 0 && <QuestionPanel questions={sampleQuestions} motion={motion} onSeek={ws.seek} />}
                     <Explanation motion={motion} time={currentTime} />
                     <div className="explanation-reserve" aria-hidden="true">
                       {explanationTimes.map((time, index) => (
