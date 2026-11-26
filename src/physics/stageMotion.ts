@@ -397,6 +397,8 @@ function spring(stage: Extract<Stage, { kind: "spring_contact" }>, start: Motion
   };
 }
 
+const CRITICAL_ROD_OBSERVATION = "物体仍受轻杆或双轨约束，有限时间内只会趋近最高点。最高点的速度极限为零，观察末帧保留当时的速度和约束力。";
+
 function arc(stage: Extract<Stage, { kind: "vertical_arc" }>, start: MotionSample, gravity: number, mass: number, geometry: StageGeometry, index: number, nextKind: StageKind | undefined): Run {
   if (stage.path) {
     const solved=solveCircularArc({...stage,path:stage.path},start,gravity,mass,index);
@@ -414,7 +416,7 @@ function arc(stage: Extract<Stage, { kind: "vertical_arc" }>, start: MotionSampl
     if(solved.returns){
       events.push(make('arc_turn',solved.ascentSeconds,solved.boundary,solved.boundary,'圆轨转折','瞬时速度为零，随后沿原轨反向，保持真实支持力。'));
       events.push(make('arc_return_entry',solved.duration,solved.end,solved.end,'返回圆弧入口','原路返回入口，保留反向速度与约束；未计算前序轨道的返程。'));
-    }else if(reason==='range_end')events.push(make('arc_range_end',solved.duration,solved.end,solved.end,'圆轨观察终点','仅结束观察范围，物体仍沿轨道运动并保持支持力。'));
+    }else if(reason==='range_end')events.push(make('arc_range_end',solved.duration,solved.end,solved.end,'圆轨观察终点',solved.approachingTop ? CRITICAL_ROD_OBSERVATION : '仅结束观察范围，物体仍沿轨道运动并保持支持力。'));
     else events.push(make(reason==='contact_lost'?'arc_contact_lost':'arc_endpoint',solved.duration,solved.boundary,solved.end,reason==='contact_lost'?'失去接触':'到达圆弧端点',`从真实位置沿实际切线离开圆轨；离轨前支持力约 ${solved.boundary.constraint!.normalForceN.toFixed(4)} N，之后不再受圆轨约束。`));
     // 同刻极值在边界前，返回途中极值与转折按真实时间归位。
     events.sort((a,b)=>a.time-b.time);
@@ -436,6 +438,10 @@ function arc(stage: Extract<Stage, { kind: "vertical_arc" }>, start: MotionSampl
   if (solved.geometry.actualExit.reason === "stationary") {
     events.push(arcEvent("stop", 0, solved.entry, solved.end, "最低点静止", "最低点初速度为零，重力与支持力平衡。"));
     return { ...solved, events, reason: "stopped" };
+  }
+  if (solved.approachingTop) {
+    events.push(arcEvent("arc_range_end", solved.duration, solved.end, solved.end, "圆轨观察终点", CRITICAL_ROD_OBSERVATION));
+    return { ...solved, events, reason: "prefix_end" };
   }
   if (solved.returns) {
     events.push(arcEvent("arc_turn", solved.ascentSeconds, solved.boundary, solved.boundary, "停下并回滑",
@@ -810,6 +816,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     if(s?.kind==='vertical_arc'&&s.path){const fallbackEntry=geometry.horizontal?.plannedEnd??geometry.incline?.end;const {stageIndex:_,actualExit:__,...planned}=circularGeometry({...s,path:s.path},i,fallbackEntry);geometry.schematic={...geometry.schematic,stageIndices:[i],reason:'题设圆弧尚未到达，仅作示意。',verticalArc:planned};}}
   const last = events[events.length - 1];
   const termination = { reason, eventId: last.id, stageIndex: last.stageIndex };
+  const arcObservation = last.kind === "arc_range_end" ? last.explanation : undefined;
   const calculations: NonNullable<StageMotion["calculations"]> = [
     ...(plan.energy ? [{ quantity: "initial_elastic_energy", value: plan.energy.elasticEnergyJ, unit: "J", source: (plan.energy.origin === "given" || plan.energy.origin === "user" ? plan.energy.origin : "derived") as "given" | "user" | "derived", rule: plan.energy.origin, inputPaths: ["/energy"] }] : []),
     ...(plan.derivedCalculations ?? []).map((c) => ({ quantity: c.quantity, value: c.value, unit: c.unit, source: c.source, rule: c.rule, inputPaths: c.inputPaths })),
@@ -829,7 +836,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     calculations.push({ quantity: e.kind === "spring_release_end" ? "release_speed" : "arc_entry_speed", value: Math.hypot(e.velocityAfter.vxMps, e.velocityAfter.vyMps), unit: "m/s", source: "derived", rule: "energy_with_friction", inputPaths });
   }
   return {
-    ...(plan.stages.some(s=>s.kind==='vertical_arc'&&s.path)?{motionStatus:{state:['stopped','stop_at_target','stop_before_target'].includes(reason)?'complete' as const:'range_end' as const,reason,bodyIds:[],message:reason==='prefix_end'?'观察范围结束，仍保持真实速度与支持力。':reason==='returned_to_entry'?'返回入口的已求范围结束，保留反向速度和约束。':reason==='landed'?'首次接地，保留入射速度。':reason==='arc_detached'?'实际离轨，保留切向速度。':'物体真实静止。'}}:{}),
+    ...(arcObservation||plan.stages.some(s=>s.kind==='vertical_arc'&&s.path)?{motionStatus:{state:['stopped','stop_at_target','stop_before_target'].includes(reason)?'complete' as const:'range_end' as const,reason,bodyIds:[],message:arcObservation??(reason==='prefix_end'?'观察范围结束，仍保持真实速度与支持力。':reason==='returned_to_entry'?'返回入口的已求范围结束，保留反向速度和约束。':reason==='landed'?'首次接地，保留入射速度。':reason==='arc_detached'?'实际离轨，保留切向速度。':'物体真实静止。')}}:{}),
     ...(scope ? { timing: { ...scope, anchor: { label: scope.mode === "full" ? "A" : scope.mode === "suffix" || scope.stopReason === "prefix_end" ? "B" : "静止点", position: scope.mode === "full" ? { xM: 0, yM: 0 } : { xM: scope.xM!, yM: 0 } }, absoluteStartSeconds: scope.mode === "full" ? 0 : null, excludedStageIndices: scope.mode === "full" ? [] : scope.mode === "suffix" ? Array.from({ length: from }, (_, i) => i) : plan.stages.map((_, i) => i) } } : {}),
     ...(calculations.length ? { calculations } : {}),
     geometry, durationSeconds: time, segments, events, termination,

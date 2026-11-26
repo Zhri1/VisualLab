@@ -19,6 +19,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 /** 源文件 → 云函数文件。顺序即依赖顺序，便于阅读。 */
 const FILES = [
   { from: "src/physics/arcTypes.ts", to: "functions/arcTypes.ts" },
+  { from: "src/physics/criticalRodArc.ts", to: "functions/criticalRodArc.ts" },
   { from: "src/physics/circularArc.ts", to: "functions/circularArc.ts" },
   { from: "src/physics/bodyPlanError.ts", to: "functions/bodyPlanError.ts" },
   { from: "src/physics/horizontalKinematics.ts", to: "functions/horizontalKinematics.ts" },

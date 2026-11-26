@@ -1,7 +1,8 @@
 import type { MotionSample } from "./motion.ts";
 import type { Point } from "./scene.ts";
 import type { Stage } from "./stagePlan.ts";
-import { integrate } from './quadrature.ts';
+import { criticalRodArc, rodLimitSpeedRatio } from './criticalRodArc.ts';
+import { integrate, integrateAdaptive } from './quadrature.ts';
 
 import type {StageSample,VerticalArcGeometry} from './arcTypes.ts';
 export type {StageSample,ArcConstraint,VerticalArcGeometry} from './arcTypes.ts';
@@ -23,14 +24,13 @@ export function solveVerticalArc(stage: Extract<Stage, { kind: "vertical_arc" }>
   for (const boundary of isRod ? [2, 4] : [2, 5]) if (Math.abs(ratio - boundary) <= 16 * Number.EPSILON * Math.max(ratio, boundary)) ratio = boundary;
   const plannedPhi = stage.endAngleDeg! * Math.PI / 180;
   const turnPhi = isRod
-    ? (ratio < 4 ? 2 * Math.asin(Math.sqrt(ratio) / 2) : Infinity)
+    ? (ratio >= 4 ? Infinity : ratio > 2 ? Math.PI - 2 * Math.asin(Math.sqrt(4 - ratio) / 2) : 2 * Math.asin(Math.sqrt(ratio) / 2))
     : (ratio <= 2 ? 2 * Math.asin(Math.sqrt(ratio) / 2) : Infinity);
   const lossPhi = isRod ? Infinity : (ratio > 2 && ratio < 5 ? Math.acos((2 - ratio) / 3) : Infinity);
   const angleTolerance = 16 * Number.EPSILON * Math.PI;
   const returns = turnPhi <= plannedPhi + angleTolerance && speed > 0;
   const loses = !returns && lossPhi < plannedPhi - angleTolerance;
   const phiEnd = returns ? turnPhi : loses ? lossPhi : plannedPhi;
-  const rodCriticalTop = isRod && ratio === 4 && plannedPhi >= Math.PI - angleTolerance;
   const at = (phi: number, signedSpeed: number, constrained: boolean): StageSample => {
     const { sin, cos } = trig(phi);
     const rawN = mass * gravity * ((signedSpeed / Math.sqrt(gravity) / Math.sqrt(radius)) ** 2 + cos);
@@ -62,22 +62,43 @@ export function solveVerticalArc(stage: Extract<Stage, { kind: "vertical_arc" }>
   };
   if (speed === 0) return { geometry, entry, boundary: entry, end: entry, duration: 0, ascentSeconds: 0, returns: false, sampleAt: () => ({ ...entry }) };
 
+  const speedUnit = Math.sqrt(gravity) * Math.sqrt(radius);
+  if (isRod && ratio === 4) {
+    const critical = criticalRodArc(0, plannedPhi, scale, speedUnit);
+    const { approachingTop, duration, endAngle } = critical;
+    if (!(duration > 0) || !Number.isFinite(duration)) throw new RangeError("圆弧时长无法表示。");
+    const boundary = at(endAngle, critical.speedAt(endAngle), true);
+    const end = approachingTop ? boundary : at(endAngle, critical.speedAt(endAngle), false);
+    geometry.actualExit = { position: { xM: end.xM, yM: end.yM }, angleDeg: endAngle * 180 / Math.PI, reason: approachingTop ? "range_end" : "endpoint" };
+    return {
+      geometry, entry, boundary, end, duration, ascentSeconds: duration, returns: false, approachingTop,
+      sampleAt(time: number) {
+        if (time <= 0) return { ...entry };
+        if (time >= duration) return { ...end };
+        const phi = critical.angleAt(time);
+        return at(phi, critical.speedAt(phi), true);
+      },
+    };
+  }
+
   // ratio < 4 时令 φ = 2asin(k sinψ)，转折点的 1/v 奇异性被消去。
-  // 轻杆恰达最高点（ratio = 4, v_top = 0）时对数发散，用微扰 4+1e-6 正则化时间积分，边界仍保留精确 v=0、N=-mg。
-  const effRatio = rodCriticalTop ? 4 + 1e-6 : ratio;
-  const transformed = effRatio < 4, k = Math.sqrt(effRatio) / 2;
+  const transformed = ratio < 4, k = Math.sqrt(ratio) / 2;
   const parameterEnd = transformed ? returns ? Math.PI / 2 : Math.asin(Math.min(1, Math.sin(phiEnd / 2) / k)) : phiEnd;
+  const speedRatio = (phi: number) => isRod && phi > Math.PI / 2
+    ? ratio - 4 + rodLimitSpeedRatio(phi)
+    : ratio - 4 * Math.sin(phi / 2) ** 2;
   const integrand = transformed
-    ? (p: number) => 1 / Math.sqrt(1 - k * k * Math.sin(p) ** 2)
-    : (p: number) => 1 / Math.sqrt(effRatio - 4 * Math.sin(p / 2) ** 2);
+    ? (p: number) => 1 / Math.sqrt(Math.cos(p) ** 2 + (1 - ratio / 4) * Math.sin(p) ** 2)
+    : (p: number) => 1 / Math.sqrt(speedRatio(p));
+  const integrateRange = isRod ? integrateAdaptive : integrate;
   const cells = 64, step = parameterEnd / cells;
   const cumulative = [0];
-  for (let i = 0; i < cells; i++) cumulative.push(cumulative[i] + integrate(integrand, i * step, (i + 1) * step));
+  for (let i = 0; i < cells; i++) cumulative.push(cumulative[i] + integrateRange(integrand, i * step, (i + 1) * step));
   const ascentSeconds = scale * cumulative[cells];
   const duration = ascentSeconds * (returns ? 2 : 1);
   if (!(ascentSeconds > 0) || !Number.isFinite(duration)) throw new RangeError("圆弧时长无法表示。");
-  const boundarySpeed = returns || rodCriticalTop ? 0 : loses ? Math.sqrt(gravity) * Math.sqrt(radius) * Math.sqrt(Math.max(0, -trig(phiEnd).cos))
-    : Math.sqrt(gravity) * Math.sqrt(radius) * Math.sqrt(Math.max(0, ratio - 4 * Math.sin(phiEnd / 2) ** 2));
+  const boundarySpeed = returns ? 0 : loses ? speedUnit * Math.sqrt(Math.max(0, -trig(phiEnd).cos))
+    : speedUnit * Math.sqrt(Math.max(0, speedRatio(phiEnd)));
   const boundary = at(phiEnd, boundarySpeed, true);
   if (!isRod && (loses || (ratio === 5 && phiEnd === Math.PI))) boundary.constraint!.normalForceN = 0;
   const end = returns ? at(0, -speed, false) : { ...boundary };
@@ -97,11 +118,11 @@ export function solveVerticalArc(stage: Extract<Stage, { kind: "vertical_arc" }>
       let a = base, b = hi * step;
       for (let iteration = 0; iteration < 40; iteration++) {
         const p = (a + b) / 2;
-        if (cumulative[lo] + integrate(integrand, base, p) < target) a = p; else b = p;
+        if (cumulative[lo] + integrateRange(integrand, base, p) < target) a = p; else b = p;
       }
       const p = (a + b) / 2;
       const phi = transformed ? 2 * Math.asin(Math.min(1, k * Math.sin(p))) : p;
-      const magnitude = transformed ? speed * Math.cos(p) : Math.sqrt(gravity) * Math.sqrt(radius) * Math.sqrt(Math.max(0, effRatio - 4 * Math.sin(phi / 2) ** 2));
+      const magnitude = transformed ? speed * Math.cos(p) : speedUnit * Math.sqrt(Math.max(0, speedRatio(phi)));
       return at(phi, backwards ? -magnitude : magnitude, true);
     },
   };

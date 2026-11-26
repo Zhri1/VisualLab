@@ -1,0 +1,11 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "massKg": 0.1,
+  "initial": { "speedMps": 4 },
+  "stages": [
+    { "kind": "vertical_arc", "radiusM": 0.4, "endAngleDeg": 180, "side": "rod", "frictionless": true },
+    { "kind": "projectile", "landingPlaneYM": 0 }
+  ]
+}

@@ -6,6 +6,7 @@ import endpoint from '../../../fixtures/vertical-arc-endpoint.reading.json';
 import loss from '../../../fixtures/vertical-arc-contact-loss.reading.json';
 import returning from '../../../fixtures/vertical-arc-return.reading.json';
 import composition from '../../../fixtures/vertical-arc-composition.reading.json';
+import rodCritical from '../../../fixtures/vertical-arc-rod-critical.reading.json';
 
 describe.each([['Node', handlePlan], ['Qoder', handler]] as const)('%s 圆弧正常识别入口', (_name, entry) => {
   const fetchMock = vi.fn<typeof fetch>();
@@ -20,6 +21,7 @@ describe.each([['Node', handlePlan], ['Qoder', handler]] as const)('%s 圆弧正
   it.each([
     ['到端点', endpoint, 'landed'], ['提前脱轨', loss, 'landed'],
     ['回滑', returning, 'returned_to_entry'], ['水平组合', composition, 'landed'],
+    ['轻杆零速极限', rodCritical, 'prefix_end'],
   ] as const)('%s 模型回包经真实校验和播放器入口可播放', async (_label, raw, reason) => {
     fetchMock.mockResolvedValueOnce(Response.json({ choices: [{ message: { content: JSON.stringify(raw) } }] }));
     const form = new FormData(); form.set('text', '共享圆弧题');
@@ -30,6 +32,11 @@ describe.each([['Node', handlePlan], ['Qoder', handler]] as const)('%s 圆弧正
     const built = motionLibrary.buildMotion(scene.scene); if (!built.ok) throw new Error(built.message);
     expect(built.motion.endReason).toBe(reason);
     expect(built.motion.stageGeometry?.verticalArc).toBeDefined();
+    if (raw === rodCritical) {
+      expect(built.motion.stageGeometry?.projectile).toBeUndefined();
+      expect(built.motion.events.some(e => e.id.includes('arc_range_end'))).toBe(true);
+      expect(built.motion.sampleAt(built.motion.durationSeconds).constraint?.forceRole).toBe('support');
+    }
     expect(built.motion.sampleAt(0).constraint?.normalForceN ?? built.motion.sampleAt(.5).constraint?.normalForceN).toBeGreaterThan(0);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).messages[0].content[0].text).toContain('vertical_arc');
