@@ -5,7 +5,7 @@ import { formatSpeed } from "./playback";
 import { EnergyReadout, energyText, showsEnergy } from "./EnergyReadout";
 import { forcesAt } from "../../../features/forces/forceModel";
 import { drawForceArrows } from "../../../features/forces/drawForces";
-import { computeWorldBounds, fitViewport, type WorldBounds } from "./canvasViewport";
+import { computeWorldBounds, fitViewport, type ViewportTransform, type WorldBounds } from "./canvasViewport";
 
 type DisplayArc = VerticalArcGeometry | NonNullable<NonNullable<StageGeometry["schematic"]>["verticalArc"]>;
 
@@ -51,6 +51,276 @@ interface Props {
   isPlaying?: boolean;
   forces?: boolean;
   decompose?: boolean;
+  annotationPaletteOpen?: boolean;
+}
+
+export type HudCorner = "top-right" | "top-left" | "bottom-left" | "bottom-right";
+
+export interface HudRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface PickHudCornerOptions {
+  canvasW: number;
+  canvasH: number;
+  hudW: number;
+  hudH: number;
+  motion?: Motion;
+  vp?: ViewportTransform;
+  obstacles?: HudRect[];
+  annotationPaletteOpen?: boolean;
+  padding?: number;
+}
+
+const HUD_CORNER_PRIORITY: readonly HudCorner[] = [
+  "top-right",
+  "top-left",
+  "bottom-left",
+  "bottom-right",
+];
+
+function hudOverlapArea(a: HudRect, b: HudRect): number {
+  const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+  if (ox <= 0) return 0;
+  const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+  if (oy <= 0) return 0;
+  return ox * oy;
+}
+
+const hudObstacleCache = new WeakMap<Motion, { w: number; h: number; s: number; rects: HudRect[] }>();
+
+/** 采集整段运动与静态场景几何在屏幕上的占用矩形，用于稳定选择无重叠 HUD 角落。 */
+export function collectHudObstacles(
+  motion: Motion,
+  W: number,
+  H: number,
+  vp: ViewportTransform,
+  options?: { annotationPaletteOpen?: boolean },
+): HudRect[] {
+  const g = motion.stageGeometry;
+  if (!g) return [];
+  const { S, X, Y } = vp;
+  const cached = hudObstacleCache.get(motion);
+  let baseRects: HudRect[];
+  if (cached && cached.w === W && cached.h === H && Math.abs(cached.s - S) < 1e-6) {
+    baseRects = cached.rects;
+  } else {
+    const rects: HudRect[] = [];
+  const size = g.blockSizeM;
+  const halfPx = g.positionReference === "particle" ? 6 : Math.max(9, Math.min(22, (size / 2) * S));
+
+  const addPoint = (px: number, py: number, padX: number, padTop: number, padBot = padX) => {
+    if (!Number.isFinite(px) || !Number.isFinite(py)) return;
+    rects.push({ x: px - padX, y: py - padTop, w: padX * 2, h: padTop + padBot });
+  };
+  const addSegment = (x1: number, y1: number, x2: number, y2: number, padX = 10, padY = padX, steps = 8) => {
+    for (let i = 0; i <= steps; i += 1) {
+      const r = i / steps;
+      addPoint(x1 + (x2 - x1) * r, y1 + (y2 - y1) * r, padX, padY, padY);
+    }
+  };
+
+  // 1. 沿整段运动均匀采样 32 个时刻及所有路段端点，保证播放期间 HUD 位置稳定不跳动。
+  const sampleTimes: number[] = [];
+  const dur = Math.max(0, motion.durationSeconds);
+  const sampleCount = 32;
+  for (let i = 0; i < sampleCount; i += 1) {
+    sampleTimes.push(sampleCount > 1 ? (dur * i) / (sampleCount - 1) : 0);
+  }
+  for (const seg of motion.segments) {
+    sampleTimes.push(seg.startSeconds, seg.endSeconds);
+  }
+  for (const t of sampleTimes) {
+    const pt = motion.sampleAt(t).position;
+    addPoint(X(pt.x), Y(pt.y), halfPx + 12, halfPx + 28, halfPx + 12);
+  }
+
+  // 2. 静态几何采样矩形
+  if (g.conveyor) {
+    const rad = ((g.conveyor.angleDeg ?? 0) * Math.PI) / 180;
+    const dirSign = g.conveyor.inclineDirection === "down" ? -1 : 1;
+    const ux = Math.cos(rad);
+    const uy = dirSign * Math.sin(rad);
+    const ox = g.conveyor.originXM ?? 0;
+    const oy = g.conveyor.originYM ?? 0;
+    const sMin = g.conveyor.minXM - size;
+    const sMax = g.conveyor.maxXM;
+    addSegment(X(ox + sMin * ux), Y(oy + sMin * uy), X(ox + sMax * ux), Y(oy + sMax * uy), 12, 16, 10);
+  }
+
+  for (const inc of getInclines(g)) {
+    const high = inc.start.yM >= inc.end.yM ? inc.start : inc.end;
+    const low = inc.start.yM >= inc.end.yM ? inc.end : inc.start;
+    addSegment(X(low.xM), Y(low.yM), X(high.xM), Y(high.yM), 10, 10, 8);
+    addSegment(X(high.xM), Y(high.yM), X(high.xM), Y(low.yM), 8, 8, 6);
+    addSegment(X(low.xM), Y(low.yM), X(high.xM), Y(low.yM), 8, 8, 6);
+  }
+
+  const lastPos = motion.sampleAt(dur).position;
+  for (const hor of getHorizontals(g)) {
+    const horSeg = hor.stageIndex >= 0
+      ? motion.segments.find((s) => s.kind === "horizontal" && s.stageIndex === hor.stageIndex)
+      : undefined;
+    const endX = hor.plannedEnd?.xM
+      ?? (horSeg ? motion.sampleAt(horSeg.endSeconds).position.x : lastPos.x);
+    addSegment(X(hor.start.xM), Y(hor.start.yM), X(endX), Y(hor.start.yM), 10, 10, 8);
+  }
+
+  if (g.linearTrack) {
+    addSegment(X(g.linearTrack.minXM - size), Y(g.linearTrack.yM), X(g.linearTrack.maxXM + size), Y(g.linearTrack.yM), 10, 10, 8);
+  }
+
+  for (const sp of getSprings(g)) {
+    addSegment(X(sp.contact.xM), Y(sp.contact.yM), X(sp.anchor.xM), Y(sp.anchor.yM), 12, 16, 6);
+  }
+  if (g.springRelease) {
+    addSegment(
+      X(g.springRelease.start.xM),
+      Y(g.springRelease.start.yM),
+      X(g.springRelease.naturalContact.xM),
+      Y(g.springRelease.naturalContact.yM),
+      12,
+      14,
+      6,
+    );
+  }
+
+  const verticalArcs = getVerticalArcs(g);
+  const explicitArc = verticalArcs.some((arc) => arc.direction !== undefined);
+  for (const arc of verticalArcs) {
+    const startDeg = arc.startAngleDeg ?? 0;
+    for (let i = 0; i <= 12; i += 1) {
+      const phi = (startDeg + ((arc.endAngleDeg - startDeg) * i) / 12) * (Math.PI / 180);
+      addPoint(
+        X(arc.center.xM + arc.radiusM * Math.sin(phi)),
+        Y(arc.center.yM - arc.radiusM * Math.cos(phi)),
+        14,
+        14,
+      );
+    }
+  }
+  if (explicitArc) {
+    // explicitArc 模式下右上角固定显示速度与法向力读数
+    rects.push({ x: Math.max(0, W - 130), y: 0, w: 130, h: 42 });
+  }
+
+  for (const mg of g.magnetics ?? (g.magnetic ? [g.magnetic] : [])) {
+    const x0 = mg.entry.xM;
+    const x1 = mg.entry.xM + mg.regionWidthM;
+    const yTop = mg.center.yM + mg.radiusM;
+    const yBot = mg.center.yM - mg.radiusM;
+    rects.push({ x: X(x0), y: Y(yTop), w: Math.max(1, (x1 - x0) * S), h: Math.max(1, (yTop - yBot) * S) });
+    // 顶部 B ⊗ R = ... 文字区
+    rects.push({ x: X(x0), y: Y(yTop) - 22, w: 150, h: 22 });
+  }
+
+  if (g.movableArc) {
+    const ma = g.movableArc;
+    const initCx = ma.entryXM + ma.exitDirection * ma.radiusM;
+    const endState = motion.movableArcAt?.(dur);
+    const centers = endState ? [initCx, endState.grooveXM] : [initCx];
+    for (const cx of centers) {
+      for (let i = 0; i <= 8; i += 1) {
+        const th = (Math.PI / 2) * (i / 8);
+        addPoint(
+          X(cx - ma.exitDirection * ma.radiusM * Math.cos(th)),
+          Y(ma.entryYM - ma.radiusM * Math.sin(th)),
+          12,
+          12,
+        );
+      }
+    }
+    addSegment(X(vp.bounds.minX), Y(0), X(vp.bounds.maxX), Y(0), 10, 10, 8);
+  }
+
+  if (g.springPair) {
+    const pair = g.springPair;
+    const d = pair.incomingDir ?? -1;
+    const restLen = pair.restLengthM ?? 0.36;
+    const initX2 = pair.targetEntryXM + d * restLen;
+    const endTarget = motion.springPairAt?.(dur);
+    const minX = Math.min(pair.targetEntryXM, initX2, endTarget?.x2M ?? initX2);
+    const maxX = Math.max(pair.targetEntryXM, initX2, endTarget?.x2M ?? initX2);
+    addSegment(X(minX), Y(pair.yM), X(maxX), Y(pair.yM), 14, 18, 8);
+  }
+
+  for (const proj of getProjectiles(g)) {
+    const projSeg = proj.stageIndex >= 0
+      ? motion.segments.find((s) => s.kind === "projectile" && s.stageIndex === proj.stageIndex)
+      : motion.segments.find((s) => s.kind === "projectile");
+    const floorY = proj.landingPlane.yM;
+    const projEndX = projSeg ? motion.sampleAt(projSeg.endSeconds).position.x : lastPos.x;
+    addSegment(
+      X(Math.min(proj.launch.xM, projEndX) - size),
+      Y(floorY),
+      X(Math.max(proj.launch.xM, projEndX) + size),
+      Y(floorY),
+      10,
+      10,
+      8,
+    );
+    if (projSeg) {
+      for (let i = 0; i <= 10; i += 1) {
+        const t = projSeg.startSeconds + ((projSeg.endSeconds - projSeg.startSeconds) * i) / 10;
+        const pt = motion.sampleAt(t).position;
+        addPoint(X(pt.x), Y(pt.y), 10, 10);
+      }
+    }
+  }
+
+  for (const lm of g.landmarks ?? []) {
+    addPoint(X(lm.position.xM), Y(lm.position.yM), 14, 14);
+  }
+
+    if (showsEnergy(motion)) {
+      rects.push({ x: 0, y: Math.max(0, H - 38), w: W, h: 38 });
+    }
+    hudObstacleCache.set(motion, { w: W, h: H, s: S, rects });
+    baseRects = rects;
+  }
+  if (options?.annotationPaletteOpen) {
+    return [...baseRects, { x: Math.max(0, W - 160), y: 0, w: 160, h: 38 }];
+  }
+  return baseRects;
+}
+
+/**
+ * 按固定优先级（右上 → 左上 → 左下 → 右下）挑选与障碍物重叠面积最小的 HUD 角落；
+ * 无重叠时天然落在默认的 "top-right"。
+ */
+export function pickHudCorner(options: PickHudCornerOptions): HudCorner {
+  const { canvasW: W, canvasH: H, hudW, hudH, annotationPaletteOpen } = options;
+  const pad = options.padding ?? 12;
+  const obstacles: HudRect[] = [...(options.obstacles ?? [])];
+  if (options.motion && options.vp) {
+    obstacles.push(...collectHudObstacles(options.motion, W, H, options.vp, { annotationPaletteOpen }));
+  } else if (annotationPaletteOpen) {
+    obstacles.push({ x: Math.max(0, W - 160), y: 0, w: 160, h: 38 });
+  }
+
+  const cornerRects: Record<HudCorner, HudRect> = {
+    "top-right": { x: Math.max(pad, W - pad - hudW), y: pad, w: hudW, h: hudH },
+    "top-left": { x: pad, y: pad, w: hudW, h: hudH },
+    "bottom-left": { x: pad, y: Math.max(pad, H - pad - hudH), w: hudW, h: hudH },
+    "bottom-right": { x: Math.max(pad, W - pad - hudW), y: Math.max(pad, H - pad - hudH), w: hudW, h: hudH },
+  };
+
+  let bestCorner: HudCorner = "top-right";
+  let bestOverlap = Infinity;
+  for (const corner of HUD_CORNER_PRIORITY) {
+    const rect = cornerRects[corner];
+    let total = 0;
+    for (const obs of obstacles) total += hudOverlapArea(rect, obs);
+    if (total === 0) return corner;
+    if (total < bestOverlap) {
+      bestOverlap = total;
+      bestCorner = corner;
+    }
+  }
+  return bestCorner;
 }
 
 export function stageWorldBounds(motion: Motion): WorldBounds {
@@ -159,7 +429,16 @@ export function stageWorldBounds(motion: Motion): WorldBounds {
   return computeWorldBounds(points);
 }
 
-export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: number, motion: Motion, time: number, precomputedBounds?: WorldBounds, forceArrows?: import("../../../features/forces/forceModel").ForceArrow[]) {
+export function drawStageScene(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  motion: Motion,
+  time: number,
+  precomputedBounds?: WorldBounds,
+  forceArrows?: import("../../../features/forces/forceModel").ForceArrow[],
+  options?: { annotationPaletteOpen?: boolean },
+) {
   const g = motion.stageGeometry!;
   const inclineLaunch = hasInclineLaunch(motion);
   const verticalArcs = getVerticalArcs(g);
@@ -175,7 +454,7 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   const last = motion.sampleAt(motion.durationSeconds);
   const worldBounds = precomputedBounds ?? stageWorldBounds(motion);
   const narrow = W < 420;
-  const hasTopHud = inclineLaunch || explicitArc || !!g.conveyor || !!g.linearTrack;
+  const hasTopHud = inclineLaunch || explicitArc || !!g.conveyor || !!g.linearTrack || !!g.movableArc || !!g.springPair;
   const vp = fitViewport(W, H, worldBounds, {
     top: hasTopHud ? 48 : 34,
     right: narrow ? 30 : 48,
@@ -601,6 +880,46 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.fillText("k", X((plateX + sp.anchor.xM) / 2), Y(coilY + size * 0.55));
   }
 
+  // 匀强磁场区域与偏转轨迹作为静态底层几何绘制在粒子和速度箭头下方，避免遮挡粒子黑点。
+  for (const mg of g.magnetics ?? (g.magnetic ? [g.magnetic] : [])) {
+    const x0 = mg.entry.xM;
+    const x1 = mg.entry.xM + mg.regionWidthM;
+    const yTop = mg.center.yM + mg.radiusM;
+    const yBot = mg.center.yM - mg.radiusM;
+    ctx.save();
+    ctx.fillStyle = "rgba(56,110,138,0.07)";
+    ctx.fillRect(X(x0), Y(yTop), (x1 - x0) * S, (yTop - yBot) * S);
+    ctx.strokeStyle = "#386e8a";
+    ctx.lineWidth = 1.2;
+    ctx.setLineDash([5, 4]);
+    ctx.strokeRect(X(x0), Y(yTop), (x1 - x0) * S, (yTop - yBot) * S);
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#386e8a";
+    ctx.font = `11px ${SANS}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const glyph = mg.fieldDirection === "into_page" ? "×" : "·";
+    for (let ix = x0 + 0.25; ix < x1; ix += 0.5) {
+      for (let iy = yBot + 0.25; iy < yTop; iy += 0.5) ctx.fillText(glyph, X(ix), Y(iy));
+    }
+    ctx.strokeStyle = "#b42318";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const sweep = mg.exitAngleRad - mg.entryAngleRad;
+    for (let i = 0; i <= 48; i += 1) {
+      const a = mg.entryAngleRad + (sweep * i) / 48;
+      const px = mg.center.xM + mg.radiusM * Math.cos(a);
+      const py = mg.center.yM + mg.radiusM * Math.sin(a);
+      if (i === 0) ctx.moveTo(X(px), Y(py));
+      else ctx.lineTo(X(px), Y(py));
+    }
+    ctx.stroke();
+    ctx.textAlign = "left";
+    ctx.textBaseline = "bottom";
+    ctx.fillText(`B ${mg.fieldDirection === "into_page" ? "⊗" : "⊙"}　R = ${mg.radiusM.toFixed(2)} m`, X(x0) + 6, Y(yTop) - 6);
+    ctx.restore();
+  }
+
   const activeIncline = active?.kind === "incline"
     ? (inclines.find((inc) => inc.stageIndex === active.stageIndex) ?? inclines[0])
     : inclines[0];
@@ -767,92 +1086,143 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   const labelY = explicitArc?20:Math.min(H - 28, Math.max(20, Y(center.y) - (g.positionReference === "particle" ? 18 : halfPx + 9)));
   if(!explicitArc){ctx.fillStyle = PAPER; ctx.fillRect(labelX - labelWidth / 2 - 3, labelY - 15, labelWidth + 6, sample.constraint ? 35 : 18);}
   ctx.fillStyle = INK; ctx.fillText(label, labelX, labelY);
+  let velBoxW = labelWidth;
   if (sample.constraint) {
     const isRodCurrent = currentArc && "side" in currentArc && currentArc.side === "rod";
     const nVal = sample.constraint.normalForceN;
     const forceLabel = isRodCurrent
       ? (nVal < -1e-9 ? `支持力 ${normalText(Math.abs(nVal), explicitArc)} N` : nVal > 1e-9 ? `拉力 ${normalText(nVal, explicitArc)} N` : "杆力 0.00 N")
       : `N = ${normalText(nVal, explicitArc)} N`;
+    velBoxW = Math.max(velBoxW, ctx.measureText(forceLabel).width || forceLabel.length * 7);
     ctx.fillStyle = SOFT; ctx.fillText(forceLabel, labelX, labelY + 18);
   }
-  if (inclineLaunch||explicitArc) {
-    ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = SOFT;
-    ctx.fillText(`vₓ = ${componentText(sample.velocity.x)}，vᵧ = ${componentText(sample.velocity.y)} m/s`, 12, 12);
+  const velLabelRect = {
+    x: labelX - velBoxW / 2 - 4,
+    y: labelY - 16,
+    w: velBoxW + 8,
+    h: (sample.constraint ? 35 : 18) + 2,
+  };
+
+  // 画布实时数据 HUD：基于整段运动与静态几何的四角智能避让，默认右上角。
+  const hudLines: string[] = [];
+  let hudTemplate = "";
+  if (inclineLaunch || explicitArc) {
+    hudLines.push(`vₓ = ${componentText(sample.velocity.x)}，vᵧ = ${componentText(sample.velocity.y)} m/s`);
+    hudTemplate = "vₓ = -00.00，vᵧ = -00.00 m/s";
   } else if (g.conveyor) {
     const cState = motion.conveyorAt?.(time);
     const rad = ((g.conveyor.angleDeg ?? 0) * Math.PI) / 180;
     const dirSign = g.conveyor.inclineDirection === "down" ? -1 : 1;
     const vBlockAlong = g.conveyor.angleDeg ? sample.velocity.x * Math.cos(rad) + sample.velocity.y * dirSign * Math.sin(rad) : sample.velocity.x;
-    ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = SOFT;
-    ctx.fillText(`对地 x = ${componentText(sample.position.x)} m，相对带面 Δs = ${componentText(cState?.relativeDisplacementM ?? 0)} m${g.conveyor.angleDeg ? `（θ=${g.conveyor.angleDeg}°）` : ""}`, 12, 12);
-    ctx.fillText(`v块 = ${componentText(vBlockAlong)} m/s，v带 = ${componentText(cState?.beltSpeedMps ?? 0)} m/s`, 12, 28);
+    const thetaSuffix = g.conveyor.angleDeg ? `（θ=${g.conveyor.angleDeg}°）` : "";
+    hudLines.push(
+      `对地 x = ${componentText(sample.position.x)} m，相对带面 Δs = ${componentText(cState?.relativeDisplacementM ?? 0)} m${thetaSuffix}`,
+      `v块 = ${componentText(vBlockAlong)} m/s，v带 = ${componentText(cState?.beltSpeedMps ?? 0)} m/s`,
+    );
+    hudTemplate = `对地 x = -00.00 m，相对带面 Δs = -00.00 m${thetaSuffix}`;
   } else if (g.linearTrack) {
-    ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = SOFT;
-    ctx.fillText(`x = ${componentText(sample.position.x)} m，vₓ = ${componentText(sample.velocity.x)} m/s`, 12, 12);
+    hudLines.push(`x = ${componentText(sample.position.x)} m，vₓ = ${componentText(sample.velocity.x)} m/s`);
+    hudTemplate = "x = -00.00 m，vₓ = -00.00 m/s";
   } else if (g.movableArc || g.springPair) {
     const gs = motion.movableArcAt?.(time);
     const ps = motion.springPairAt?.(time);
-    ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = SOFT;
-    ctx.fillText(`v₁ = ${componentText(sample.velocity.x)} m/s${gs ? `，V槽 = ${componentText(gs.grooveVX)} m/s` : ""}`, 12, 12);
-    if (ps) ctx.fillText(`v₂ = ${componentText(ps.vx2Mps)} m/s，弹簧压缩 = ${componentText(ps.compressionM)} m`, 12, 28);
+    hudLines.push(`v₁ = ${componentText(sample.velocity.x)} m/s${gs ? `，V槽 = ${componentText(gs.grooveVX)} m/s` : ""}`);
+    if (ps) hudLines.push(`v₂ = ${componentText(ps.vx2Mps)} m/s，弹簧压缩 = ${componentText(ps.compressionM)} m`);
+    hudTemplate = ps ? "v₂ = -00.00 m/s，弹簧压缩 = 00.00 m" : "v₁ = -00.00 m/s，V槽 = -00.00 m/s";
   }
-  for (const mg of g.magnetics ?? (g.magnetic ? [g.magnetic] : [])) {
-    const x0 = mg.entry.xM;
-    const x1 = mg.entry.xM + mg.regionWidthM;
-    const yTop = mg.center.yM + mg.radiusM;
-    const yBot = mg.center.yM - mg.radiusM;
+  let placedHudRect: HudRect | null = null;
+  if (hudLines.length > 0) {
     ctx.save();
-    ctx.fillStyle = "rgba(56,110,138,0.07)";
-    ctx.fillRect(X(x0), Y(yTop), (x1 - x0) * S, (yTop - yBot) * S);
-    ctx.strokeStyle = "#386e8a";
-    ctx.lineWidth = 1.2;
-    ctx.setLineDash([5, 4]);
-    ctx.strokeRect(X(x0), Y(yTop), (x1 - x0) * S, (yTop - yBot) * S);
-    ctx.setLineDash([]);
-    ctx.fillStyle = "#386e8a";
-    ctx.font = `11px ${SANS}`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    const glyph = mg.fieldDirection === "into_page" ? "×" : "·";
-    for (let ix = x0 + 0.25; ix < x1; ix += 0.5) {
-      for (let iy = yBot + 0.25; iy < yTop; iy += 0.5) ctx.fillText(glyph, X(ix), Y(iy));
-    }
-    ctx.strokeStyle = "#b42318";
-    ctx.lineWidth = 2;
+    ctx.font = `12px ${SANS}`;
+    const templateW = hudTemplate ? (ctx.measureText(hudTemplate).width || hudTemplate.length * 7) : 164;
+    const maxLineW = Math.max(templateW, ...hudLines.map((line) => ctx.measureText(line).width || line.length * 7));
+    const hudBoxW = Math.ceil(maxLineW) + 16;
+    const hudBoxH = hudLines.length * 16 + 10;
+    const pad = 12;
+    const corner = pickHudCorner({
+      canvasW: W,
+      canvasH: H,
+      hudW: Math.max(180, hudBoxW),
+      hudH: hudBoxH,
+      motion,
+      vp,
+      annotationPaletteOpen: options?.annotationPaletteOpen,
+      padding: pad,
+    });
+    const boxX = corner.endsWith("right") ? Math.max(pad, W - pad - hudBoxW) : pad;
+    const boxY = corner.startsWith("bottom") ? Math.max(pad, H - pad - hudBoxH) : pad;
+    placedHudRect = { x: boxX, y: boxY, w: hudBoxW, h: hudBoxH };
+    ctx.fillStyle = "rgba(251, 251, 249, 0.84)";
     ctx.beginPath();
-    const sweep = mg.exitAngleRad - mg.entryAngleRad;
-    for (let i = 0; i <= 48; i += 1) {
-      const a = mg.entryAngleRad + (sweep * i) / 48;
-      const px = mg.center.xM + mg.radiusM * Math.cos(a);
-      const py = mg.center.yM + mg.radiusM * Math.sin(a);
-      if (i === 0) ctx.moveTo(X(px), Y(py));
-      else ctx.lineTo(X(px), Y(py));
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(boxX, boxY, hudBoxW, hudBoxH, 6);
+    } else {
+      ctx.rect(boxX, boxY, hudBoxW, hudBoxH);
     }
-    ctx.stroke();
+    ctx.fill();
+    ctx.fillStyle = SOFT;
     ctx.textAlign = "left";
-    ctx.textBaseline = "bottom";
-    ctx.fillText(`B ${mg.fieldDirection === "into_page" ? "⊗" : "⊙"}　R = ${mg.radiusM.toFixed(2)} m`, X(x0) + 6, Y(yTop) - 6);
+    ctx.textBaseline = "top";
+    hudLines.forEach((line, idx) => {
+      ctx.fillText(line, boxX + 8, boxY + 5 + idx * 16);
+    });
     ctx.restore();
   }
-  if (forceArrows?.length) drawForceArrows(ctx, forceArrows, X, Y);
+
+  if (forceArrows?.length) {
+    const bodyPad = g.positionReference === "particle" ? 10 : halfPx + 4;
+    const particleRect: HudRect = {
+      x: X(center.x) - bodyPad,
+      y: Y(center.y) - bodyPad,
+      w: bodyPad * 2,
+      h: bodyPad * 2,
+    };
+    const avoid = placedHudRect ? [velLabelRect, particleRect, placedHudRect] : [velLabelRect, particleRect];
+    drawForceArrows(ctx, forceArrows, X, Y, avoid, { w: W, h: H });
+  }
 }
 
-export function StagePhysicsCanvas({ motion, time, isPlaying = false, forces = false, decompose = false }: Props) {
+export function StagePhysicsCanvas({
+  motion,
+  time,
+  isPlaying = false,
+  forces = false,
+  decompose = false,
+  annotationPaletteOpen = false,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<number | null>(null);
   const sizeRef = useRef({ w: 0, h: 0 });
   const stableBounds = useMemo(() => stageWorldBounds(motion), [motion]);
-  const stateRef = useRef({ motion, time, stableBounds, forces, decompose });
-  stateRef.current = { motion, time, stableBounds, forces, decompose };
+  const stateRef = useRef({ motion, time, stableBounds, forces, decompose, annotationPaletteOpen });
+  stateRef.current = { motion, time, stableBounds, forces, decompose, annotationPaletteOpen };
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const { motion: currentMotion, time: currentTime, stableBounds: bounds, forces: showForces, decompose: split } = stateRef.current;
+    const {
+      motion: currentMotion,
+      time: currentTime,
+      stableBounds: bounds,
+      forces: showForces,
+      decompose: split,
+      annotationPaletteOpen: paletteOpen,
+    } = stateRef.current;
     const { w, h } = sizeRef.current;
     if (!w || !h) return;
     const ctx = canvas.getContext("2d");
-    if (ctx) drawStageScene(ctx, w, h, currentMotion, currentTime, bounds, showForces ? forcesAt(currentMotion, currentTime, split) : undefined);
+    if (ctx) {
+      drawStageScene(
+        ctx,
+        w,
+        h,
+        currentMotion,
+        currentTime,
+        bounds,
+        showForces ? forcesAt(currentMotion, currentTime, split) : undefined,
+        { annotationPaletteOpen: paletteOpen },
+      );
+    }
   }, []);
 
   useEffect(() => {
@@ -879,7 +1249,7 @@ export function StagePhysicsCanvas({ motion, time, isPlaying = false, forces = f
     if (frameRef.current) cancelAnimationFrame(frameRef.current);
     frameRef.current = requestAnimationFrame(paint);
     return () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); };
-  }, [motion, time, forces, decompose, paint]);
+  }, [motion, time, forces, decompose, annotationPaletteOpen, paint]);
 
   const velocity = motion.sampleAt(time).velocity;
   const constraint = motion.sampleAt(time).constraint;

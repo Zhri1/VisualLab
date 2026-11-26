@@ -113,6 +113,10 @@ export function WorkspaceLayout({ ws }: Props) {
     setAnnotationMode("off");
   }, [motion]);
 
+  const closeDrawMode = () => {
+    setAnnotationMode((m) => (m === "draw" ? "off" : m));
+  };
+
   const toggleFavorite = () => {
     if (favorited) {
       removeFavorite(favoriteId);
@@ -377,6 +381,7 @@ export function WorkspaceLayout({ ws }: Props) {
                     className="tool-toggle"
                     aria-pressed={forcesOn}
                     onClick={() => {
+                      closeDrawMode();
                       setForcesOn((v) => {
                         if (v) setDecomposeOn(false);
                         return !v;
@@ -392,7 +397,10 @@ export function WorkspaceLayout({ ws }: Props) {
                     className="tool-toggle"
                     aria-pressed={decomposeOn}
                     disabled={!forcesOn}
-                    onClick={() => setDecomposeOn((v) => !v)}
+                    onClick={() => {
+                      closeDrawMode();
+                      setDecomposeOn((v) => !v);
+                    }}
                     title={forcesOn ? "正交分解受力矢量" : "请先开启「受力」"}
                   >
                     <GitFork size={13} strokeWidth={2} />
@@ -412,7 +420,10 @@ export function WorkspaceLayout({ ws }: Props) {
                     <button
                       type="button"
                       className="tool-toggle tool-clear"
-                      onClick={() => setStrokes([])}
+                      onClick={() => {
+                        closeDrawMode();
+                        setStrokes([]);
+                      }}
                       title="清空画布标注"
                     >
                       <Trash2 size={12} strokeWidth={2} />
@@ -434,7 +445,10 @@ export function WorkspaceLayout({ ws }: Props) {
                     className="tool-toggle"
                     aria-pressed={speechOn}
                     disabled={!speech.supported}
-                    onClick={() => setSpeechOn((v) => !v)}
+                    onClick={() => {
+                      closeDrawMode();
+                      setSpeechOn((v) => !v);
+                    }}
                     title={speech.supported ? "语音朗读关键事件讲解" : "当前浏览器不支持语音合成"}
                   >
                     <Volume2 size={13} strokeWidth={2} />
@@ -446,6 +460,7 @@ export function WorkspaceLayout({ ws }: Props) {
                     aria-pressed={practiceOn}
                     disabled={samplePractice.length === 0}
                     onClick={() => {
+                      closeDrawMode();
                       setPracticeOn((v) => !v);
                       setRevealed(false);
                     }}
@@ -461,7 +476,10 @@ export function WorkspaceLayout({ ws }: Props) {
                 className="meta-toggle tool-toggle"
                 aria-expanded={metaOpen}
                 aria-controls="player-meta"
-                onClick={() => setMetaOpen((open) => !open)}
+                onClick={() => {
+                  closeDrawMode();
+                  setMetaOpen((open) => !open);
+                }}
                 title="展开或收起路段与计时详情"
               >
                 <span>路段·计时</span>
@@ -514,6 +532,7 @@ export function WorkspaceLayout({ ws }: Props) {
                   readouts={false}
                   forces={forcesOn}
                   decompose={decomposeOn}
+                  annotationPaletteOpen={annotationMode === "draw"}
                 />
               </div>
             ) : (

@@ -201,7 +201,7 @@ export function AnnotationLayer({
         onPointerUp={endStroke}
         onPointerCancel={endStroke}
       />
-      {interactive && (
+      {mode === 'draw' && (
       <div
         style={{
           position: 'absolute',
