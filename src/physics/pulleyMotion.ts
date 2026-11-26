@@ -48,13 +48,20 @@ export function computePulleyMotion(plan: ResolvedStagePlan): StageMotion | Stag
 
   // 初始世界坐标（定滑轮圆心在 (0, 0)）
   const rPulley = 0.25;
-  const b1Span = Math.max(3.5, (stage.body1TravelLimitM ?? 0) + 0.8, (stage.body2DropToGroundM ?? 0) + 2.0);
+  const minInclineSpan = surf.kind === 'incline' && stage.body2DropToGroundM != null
+    ? (stage.body2DropToGroundM + 0.8) / Math.max(0.25, Math.sin(rad))
+    : 0;
+  const b1Span = Math.max(3.5, (stage.body1TravelLimitM ?? 0) + 0.8, (stage.body2DropToGroundM ?? 0) + 2.0, minInclineSpan);
   const b1Start = surf.kind === 'hanging'
     ? { xM: -rPulley, yM: -b1Span }
     : surf.kind === 'horizontal'
       ? { xM: -b1Span, yM: 0 }
       : { xM: -b1Span * Math.cos(rad), yM: -b1Span * Math.sin(rad) };
-  const b2Start = { xM: rPulley, yM: -1.0 };
+  // 斜面配落地地面时，令地面与斜面底端齐平（groundYM = b1Start.yM），避免斜面穿过地面线。
+  const b2StartY = surf.kind === 'incline' && stage.body2DropToGroundM != null
+    ? Math.min(-0.8, b1Start.yM + stage.body2DropToGroundM)
+    : -1.0;
+  const b2Start = { xM: rPulley, yM: b2StartY };
 
   const pos1 = (s1: number) =>
     surf.kind === 'hanging' ? { xM: b1Start.xM, yM: b1Start.yM + s1 }

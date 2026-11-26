@@ -56,6 +56,7 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
   }
   if(motion.stageGeometry?.pulley){
     const pl=motion.stageGeometry.pulley,px=X(pl.pulley.xM),py=Y(pl.pulley.yM);
+    const pr=Math.max(8,Math.min(18,Math.abs(X(pl.body2Start.xM)-px)));
     ctx.save();ctx.strokeStyle=INK;ctx.lineWidth=1.6;
     if(pl.surfaceKind==='horizontal'||pl.surfaceKind==='incline'){
       ctx.beginPath();ctx.moveTo(X(pl.body1Start.xM),Y(pl.body1Start.yM));ctx.lineTo(px,py);ctx.stroke();
@@ -64,16 +65,22 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
       const gy=Y(pl.groundYM);ctx.beginPath();ctx.moveTo(gx1,gy);ctx.lineTo(gx2,gy);ctx.stroke();
       reqs.push({text:'地面支撑',color:SOFT,cx:X(pl.body2Start.xM)+36,by:gy+16,dir:1});
     }
-    ctx.fillStyle=PAPER;ctx.beginPath();ctx.arc(px,py,9,0,2*Math.PI);ctx.fill();ctx.stroke();
+    ctx.fillStyle=PAPER;ctx.beginPath();ctx.arc(px,py,pr,0,2*Math.PI);ctx.fill();ctx.stroke();
     ctx.beginPath();ctx.arc(px,py,2.2,0,2*Math.PI);ctx.fillStyle=INK;ctx.fill();ctx.restore();
-    occupied.push({x:px-11,y:py-11,w:22,h:22});
+    occupied.push({x:px-pr-2,y:py-pr-2,w:(pr+2)*2,h:(pr+2)*2});
   }
   for(const c of Object.values(snapshot.constraints??{})){
     if(c.kind==='pulley_string'){
       const b1=snapshot.bodies?.[c.bodyIds[0]],b2=snapshot.bodies?.[c.bodyIds[1]];if(!b1||!b2)continue;
+      const pl=motion.stageGeometry?.pulley,px=X(c.pivot.xM),py=Y(c.pivot.yM);
+      const b1TopX=pl?.surfaceKind==='hanging'?X(b1.position.x):px;
+      const b2TopX=X(b2.position.x);
       ctx.save();ctx.strokeStyle=c.state==='taut'?INK:SOFT;ctx.lineWidth=c.state==='taut'?1.8:1.2;if(c.state==='slack')ctx.setLineDash([4,5]);
-      ctx.beginPath();ctx.moveTo(X(b1.position.x),Y(b1.position.y));ctx.lineTo(X(c.pivot.xM),Y(c.pivot.yM));ctx.lineTo(X(b2.position.x),Y(b2.position.y));ctx.stroke();ctx.restore();
-      reqs.push({text:c.state==='taut'?`T = ${c.tensionN.toFixed(2)} N`:'松绳 · T = 0 N',color:SOFT,cx:Math.max(70,Math.min(W-70,X(c.pivot.xM)+58)),by:Math.max(18,Y(c.pivot.yM)-14),dir:-1});
+      ctx.beginPath();
+      ctx.moveTo(X(b1.position.x),Y(b1.position.y));ctx.lineTo(b1TopX,py);
+      ctx.moveTo(b2TopX,py);ctx.lineTo(X(b2.position.x),Y(b2.position.y));
+      ctx.stroke();ctx.restore();
+      reqs.push({text:c.state==='taut'?`T = ${c.tensionN.toFixed(2)} N`:'松绳 · T = 0 N',color:SOFT,cx:Math.max(70,Math.min(W-70,px+58)),by:Math.max(18,py-14),dir:-1});
       continue;
     }
     const body=snapshot.bodies?.[c.bodyIds[0]];if(!body)continue;
