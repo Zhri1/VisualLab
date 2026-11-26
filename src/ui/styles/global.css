@@ -2230,7 +2230,16 @@ textarea {
   align-self: center;
   white-space: nowrap;
 }
-/* 视图工具条：受力/分解/标注/教鞭/朗读/练习 */
+/* 视图工具条：受力/分解/标注/临时标注/朗读/练习 */
+.player-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: none;
+  margin-left: auto;
+}
 .view-tools {
   display: flex;
   gap: 6px;
