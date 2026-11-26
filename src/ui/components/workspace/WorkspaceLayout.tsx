@@ -1,5 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Image as ImageIcon, Repeat } from "lucide-react";
+import {
+  ArrowUpRight,
+  Bookmark,
+  Check,
+  ChevronDown,
+  ClipboardCheck,
+  GitFork,
+  Image as ImageIcon,
+  Pencil,
+  Pointer,
+  Repeat,
+  Share2,
+  Trash2,
+  Volume2,
+} from "lucide-react";
 import type { Workspace } from "../../../hooks/useWorkspace";
 import { isStageReading } from "../../../types";
 import { ChatPanel } from "../chat/ChatPanel";
@@ -10,6 +24,14 @@ import { MultiBodyExplanation } from './MultiBodyExplanation';
 import { PlaybackControls } from "./PlaybackControls";
 import { OriginalProblemViewer } from "./OriginalProblemViewer";
 import { advancePlayback, computeDefaultPace, segmentAt } from "./playback";
+import { getSample } from "../../../data/samples";
+import { AnnotationLayer } from "../../../features/annotate/AnnotationLayer";
+import type { AnnotationMode, AnnotationStroke } from "../../../features/annotate/types";
+import { useEventSpeech } from "../../../features/speech/useEventSpeech";
+import { ExportMenu } from "../../../features/export/ExportMenu";
+import { PracticePanel } from "../../../features/practice/PracticePanel";
+import { isFavorite, removeFavorite, saveFavorite } from "../../../features/share/favorites";
+import { buildShareUrl } from "../../../features/share/shareLink";
 import "./player.css";
 
 interface Props {
@@ -45,6 +67,86 @@ export function WorkspaceLayout({ ws }: Props) {
   const [explainOpen, setExplainOpen] = useState(false);
   /** 自动慢放开关：默认开（只放慢不加速），可关回原始物理流速。 */
   const [paceEnabled, setPaceEnabled] = useState(true);
+  const [forcesOn, setForcesOn] = useState(false);
+  const [decomposeOn, setDecomposeOn] = useState(false);
+  const [annotationMode, setAnnotationMode] = useState<AnnotationMode>("off");
+  const [strokes, setStrokes] = useState<AnnotationStroke[]>([]);
+  const [speechOn, setSpeechOn] = useState(false);
+  const [practiceOn, setPracticeOn] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [copiedShare, setCopiedShare] = useState(false);
+  const frameBoxRef = useRef<HTMLDivElement | null>(null);
+  const [frameSize, setFrameSize] = useState({ w: 0, h: 0 });
+
+  const activeReading = (ws.appliedReading ?? ws.reading) as unknown;
+  const samplePractice = useMemo(() => (ws.sampleId ? getSample(ws.sampleId).practice ?? [] : []), [ws.sampleId]);
+  const sampleTitle = ws.sampleId ? getSample(ws.sampleId).title : ws.problemText?.slice(0, 24) || "VisualLab 题目";
+  const favoriteId = useMemo(() => {
+    if (ws.sampleId) return ws.sampleId;
+    const raw = ws.problemText?.trim() || JSON.stringify(activeReading ?? "").slice(0, 120);
+    let hash = 0;
+    for (let i = 0; i < raw.length; i++) hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
+    return `custom-${Math.abs(hash)}`;
+  }, [ws.sampleId, ws.problemText, activeReading]);
+  const [favorited, setFavorited] = useState(() => isFavorite(favoriteId));
+  useEffect(() => {
+    setFavorited(isFavorite(favoriteId));
+  }, [favoriteId]);
+
+  const speech = useEventSpeech(motion?.events ?? [], currentTime, speechOn);
+  const masked = practiceOn && !revealed && samplePractice.length > 0;
+
+  useEffect(() => {
+    const box = frameBoxRef.current;
+    if (!box) return;
+    const measure = () => setFrameSize({ w: box.clientWidth, h: box.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [motion]);
+
+  useEffect(() => {
+    setRevealed(false);
+    setPracticeOn(false);
+    setStrokes([]);
+    setAnnotationMode("off");
+  }, [motion]);
+
+  const toggleFavorite = () => {
+    if (favorited) {
+      removeFavorite(favoriteId);
+      setFavorited(false);
+    } else {
+      saveFavorite({
+        id: favoriteId,
+        title: sampleTitle,
+        savedAt: Date.now(),
+        sampleId: ws.sampleId ?? undefined,
+        reading: activeReading,
+      });
+      setFavorited(true);
+    }
+  };
+
+  const copyShare = () => {
+    const url = buildShareUrl(`${window.location.origin}${window.location.pathname}`, {
+      sampleId: ws.sampleId ?? undefined,
+      reading: activeReading,
+      timeSeconds: currentTime,
+      playbackRate: ws.playbackRate,
+    });
+    const markCopied = () => {
+      setCopiedShare(true);
+      window.setTimeout(() => setCopiedShare(false), 2000);
+    };
+    if (navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(url).then(markCopied, () => window.prompt("复制此链接", url));
+    } else {
+      window.prompt("复制此链接", url);
+    }
+  };
+
   const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primaryBodyId);
   useEffect(()=>setTrackedBodyId(motion?.primaryBodyId),[motion]);
   const rafRef = useRef<number | null>(null);
@@ -213,6 +315,41 @@ export function WorkspaceLayout({ ws }: Props) {
                 </span>
               </button>
             )}
+            {motion && (
+              <ExportMenu
+                getCanvas={() => frameBoxRef.current?.querySelector("canvas") ?? null}
+                motion={motion}
+                title={sampleTitle}
+                problemText={ws.problemText ?? ""}
+                wallMs={Math.round((motion.durationSeconds / Math.max(0.1, ws.playbackRate * (paceEnabled ? defaultPace : 1))) * 1000)}
+                onSeek={ws.seek}
+              />
+            )}
+            {motion && (
+              <button
+                type="button"
+                className="ghost-button favorite-btn"
+                onClick={toggleFavorite}
+                aria-pressed={favorited}
+                aria-label={favorited ? "取消收藏" : "收藏到错题本"}
+                title={favorited ? "已收藏（点击取消）" : "收藏到错题本"}
+              >
+                <Bookmark size={14} strokeWidth={1.8} fill={favorited ? "currentColor" : "none"} />
+                <span className="btn-label">{favorited ? "已收藏" : "收藏"}</span>
+              </button>
+            )}
+            {motion && (
+              <button
+                type="button"
+                className={`ghost-button share-btn${copiedShare ? " is-copied" : ""}`}
+                onClick={copyShare}
+                aria-label="分享链接"
+                title="复制包含当前条件与时刻的分享链接"
+              >
+                {copiedShare ? <Check size={14} strokeWidth={2.2} /> : <Share2 size={14} strokeWidth={1.8} />}
+                <span className="btn-label">{copiedShare ? "已复制" : "分享"}</span>
+              </button>
+            )}
             <button className="ghost-button" onClick={() => setViewerOpen(true)} aria-label="查看原题">
               <ImageIcon size={14} strokeWidth={1.8} />
               <span className="btn-label">查看原题</span>
@@ -263,9 +400,105 @@ export function WorkspaceLayout({ ws }: Props) {
               )}
             </ul>
           )}
-          <div className={'canvas-frame'+(motion?.primaryBodyId?' body-canvas-frame':'')}>
+          {motion && (
+            <div className="view-tools" role="toolbar" aria-label="画布辅助工具">
+              <button
+                type="button"
+                className="tool-toggle"
+                aria-pressed={forcesOn}
+                onClick={() => {
+                  setForcesOn((v) => {
+                    if (v) setDecomposeOn(false);
+                    return !v;
+                  });
+                }}
+                title="在画布上显示物体受力矢量"
+              >
+                <ArrowUpRight size={13} strokeWidth={2} />
+                <span>受力</span>
+              </button>
+              <button
+                type="button"
+                className="tool-toggle"
+                aria-pressed={decomposeOn}
+                disabled={!forcesOn}
+                onClick={() => setDecomposeOn((v) => !v)}
+                title={forcesOn ? "正交分解受力矢量" : "请先开启「受力」"}
+              >
+                <GitFork size={13} strokeWidth={2} />
+                <span>分解</span>
+              </button>
+              <button
+                type="button"
+                className="tool-toggle"
+                aria-pressed={annotationMode === "draw"}
+                onClick={() => setAnnotationMode((m) => (m === "draw" ? "off" : "draw"))}
+                title="在画布上自由标注"
+              >
+                <Pencil size={13} strokeWidth={2} />
+                <span>标注{strokes.length > 0 ? ` (${strokes.length})` : ""}</span>
+              </button>
+              {strokes.length > 0 && (
+                <button
+                  type="button"
+                  className="tool-toggle tool-clear"
+                  onClick={() => setStrokes([])}
+                  title="清空画布标注"
+                >
+                  <Trash2 size={12} strokeWidth={2} />
+                  <span>清空</span>
+                </button>
+              )}
+              <button
+                type="button"
+                className="tool-toggle"
+                aria-pressed={annotationMode === "laser"}
+                onClick={() => setAnnotationMode((m) => (m === "laser" ? "off" : "laser"))}
+                title="激光教鞭指示"
+              >
+                <Pointer size={13} strokeWidth={2} />
+                <span>教鞭</span>
+              </button>
+              <button
+                type="button"
+                className="tool-toggle"
+                aria-pressed={speechOn}
+                disabled={!speech.supported}
+                onClick={() => setSpeechOn((v) => !v)}
+                title={speech.supported ? "语音朗读关键事件讲解" : "当前浏览器不支持语音合成"}
+              >
+                <Volume2 size={13} strokeWidth={2} />
+                <span>朗读</span>
+              </button>
+              <button
+                type="button"
+                className="tool-toggle"
+                aria-pressed={practiceOn}
+                disabled={samplePractice.length === 0}
+                onClick={() => {
+                  setPracticeOn((v) => !v);
+                  setRevealed(false);
+                }}
+                title={samplePractice.length > 0 ? "先预测再播放动画验证" : "当前题目暂无预测练习"}
+              >
+                <ClipboardCheck size={13} strokeWidth={2} />
+                <span>练习</span>
+              </button>
+            </div>
+          )}
+          <div className={'canvas-frame'+(motion?.primaryBodyId?' body-canvas-frame':'')} ref={frameBoxRef}>
             {motion ? (
-              <PhysicsCanvas motion={motion} time={currentTime} isPlaying={isPlaying} trackedBodyId={trackedBodyId} readouts={false} />
+              <div className={'canvas-stack'+(masked ? ' is-blinded' : '')}>
+                <PhysicsCanvas
+                  motion={motion}
+                  time={currentTime}
+                  isPlaying={isPlaying}
+                  trackedBodyId={trackedBodyId}
+                  readouts={false}
+                  forces={forcesOn}
+                  decompose={decomposeOn}
+                />
+              </div>
             ) : (
               <div
                 style={{
@@ -279,7 +512,32 @@ export function WorkspaceLayout({ ws }: Props) {
                 补全条件后生成动画
               </div>
             )}
+            {motion && (
+              <AnnotationLayer
+                width={frameSize.w}
+                height={frameSize.h}
+                time={currentTime}
+                mode={annotationMode}
+                strokes={strokes}
+                onChange={setStrokes}
+              />
+            )}
+            {masked && (
+              <div className="practice-mask">
+                <PracticePanel
+                  items={samplePractice}
+                  onReveal={() => {
+                    setRevealed(true);
+                    ws.replay();
+                  }}
+                />
+              </div>
+            )}
           </div>
+          {motion && speechOn && (() => {
+            const cue = [...motion.events].reverse().find((e) => e.timeSeconds <= currentTime);
+            return cue ? <div className="speech-caption" role="status"><b>{cue.label}</b>{cue.caption}</div> : null;
+          })()}
 
           {motion ? (
             <>

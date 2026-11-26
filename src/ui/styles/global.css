@@ -2230,28 +2230,114 @@ textarea {
   align-self: center;
   white-space: nowrap;
 }
-/* 视图工具条：受力/分解/标注/教鞭/朗读 */
+/* 视图工具条：受力/分解/标注/教鞭/朗读/练习 */
 .view-tools {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  margin: 8px 0;
+  align-items: center;
+  margin: 6px 0 8px;
 }
 .tool-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 12px;
-  padding: 3px 10px;
+  font-weight: 500;
+  padding: 4px 10px;
   border: 1px solid var(--hair);
   border-radius: 999px;
   background: #fff;
   color: var(--text-secondary);
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 120ms ease;
+}
+.tool-toggle:hover:not(:disabled) {
+  background: var(--surface-muted);
+  border-color: var(--hair-strong);
+  color: var(--ink);
 }
 .tool-toggle[aria-pressed="true"] {
   background: var(--ink);
   border-color: var(--ink);
   color: #fff;
 }
+.tool-toggle[aria-pressed="true"]:hover:not(:disabled) {
+  background: #27272a;
+  border-color: #27272a;
+  color: #fff;
+}
 .tool-toggle:disabled {
-  opacity: 0.45;
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+.tool-clear {
+  color: var(--text-muted);
+  border-style: dashed;
+}
+.tool-clear:hover:not(:disabled) {
+  color: #8a4b4b;
+  border-color: rgba(138, 75, 75, 0.45);
+  background: rgba(138, 75, 75, 0.06);
+}
+.favorite-btn[aria-pressed="true"] {
+  background: #fffbeb;
+  border-color: #f59e0b;
+  color: #b45309;
+}
+.favorite-btn[aria-pressed="true"]:hover {
+  background: #fef3c7;
+  border-color: #d97706;
+  color: #92400e;
+}
+.share-btn.is-copied {
+  background: #f0fdf4;
+  border-color: rgba(47, 111, 82, 0.45);
+  color: #2f6f52;
+}
+.export-menu {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.export-chev {
+  transition: transform 160ms ease;
+}
+.export-chev.is-open {
+  transform: rotate(180deg);
+}
+.export-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 164px;
+  padding: 5px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--hair);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.export-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.export-item:hover {
+  background: var(--surface-muted);
 }
 /* 双画布同步对照 */
 .canvas-stack {
