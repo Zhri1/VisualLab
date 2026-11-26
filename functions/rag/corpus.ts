@@ -514,25 +514,25 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
   },
   {
     id: "gk-movable-arc-recoil-projectile-22",
-    title: "可动光滑圆弧槽反冲人船位移接桌沿平抛",
-    source: "高考经典母题 · 人船模型与平抛综合",
+    title: "可动光滑圆弧槽反冲接桌沿平抛",
+    source: "拟题变式 · 水平动量守恒与平抛",
     difficulty: "中档",
     stageSignature: ["movable_arc", "horizontal_slide", "projectile"],
-    tags: ["可移动圆弧槽", "人船模型", "反冲位移", "桌沿平抛"],
-    stem: "光滑水平台面距地面高 H = 1.25 m，质量 M = 2 kg、半径 R = 0.6 m 的四分之一光滑圆弧槽静置于台面上可自由滑动，槽底左端恰好与台面左沿对齐。质量 m = 1 kg 的小球从槽顶（切线竖直）由静止释放，滑离槽底后沿台面向左匀速滑行 0.20 m 到达桌沿，再水平飞出落地，g = 10 m/s²，求小球离槽时槽的反冲位移及小球平抛的水平射程。",
+    tags: ["可移动圆弧槽", "水平动量守恒", "光滑水平匀速", "桌沿平抛"],
+    stem: "光滑水平台面距地面高 H = 1.25 m，质量 M = 2 kg、半径 R = 0.6 m 的四分之一光滑圆弧槽静置于台面上，可自由滑动。质量 m = 1 kg 的小球从槽顶（切线竖直）由静止释放，从槽底向左离槽时，离槽点距台面左沿 d = 0.35 m。小球随后沿台面滑到桌沿并水平飞出落地，g = 10 m/s²。求小球从离槽到落地的总时间，以及落地点到桌沿的水平距离。",
     keyFormulas: [
-      "人船模型反冲位移：x_槽 = mR / (M + m)，x_球 = MR / (M + m)",
-      "离槽球速：v_球 = √[2gRM / (M + m)]",
-      "平抛射程：x = v_球·√(2H/g)",
+      "联立水平动量守恒与机械能守恒：m v_球 = M v_槽，mgR = ½m v_球² + ½M v_槽²",
+      "总时间为台面匀速滑行时间与平抛时间之和：t = d/v_球 + √(2H/g)",
+      "从桌沿量起的平抛射程：x = v_球·√(2H/g)",
     ],
     pitfalls: [
       "错把固定圆弧槽速度 √(2gR) 套用于可动圆弧槽，忽略槽获得反冲动能导致球速变小",
-      "人船模型中 x_槽 + x_球 = R，位移与质量成反比，不可把槽与球的质量位置写反",
+      "从离槽到落地包含台面滑行与空中飞行两段，平抛射程从桌沿起算",
     ],
     solutionOutline:
-      "球槽水平动量守恒，由人船模型得圆弧槽向右反冲位移 x_槽 = 1×0.6/3 = 0.2 m。联立能量守恒得小球离槽水平速度 v_球 = √(2×10×0.6×2/3) = 2√2 m/s。小球离槽后沿光滑台面向左滑行 0.20 m，速度保持不变，从高 1.25 m 桌沿平抛落地用时 0.5 s，水平射程 √2 ≈ 1.41 m。",
+      "联立水平动量守恒和机械能守恒，得离槽球速 2√2 m/s，方向向左。小球以该速度滑过题给的 0.35 m，到桌沿用时 0.35/(2√2) s。平抛用时 0.5 s，从离槽到落地共约 0.624 s。落地点到桌沿的水平距离为 √2 m，约 1.41 m。",
     planHint:
-      "stages: movable_arc(radiusM:0.6, grooveMassKg:2.0, exitDirection:-1) -> horizontal_slide(kineticFrictionCoefficient:0, end:{kind:'distance', distanceM:0.20}) -> projectile(dropHeightM:1.25)",
+      "stages: movable_arc(radiusM:0.6, grooveMassKg:2.0, exitDirection:-1) -> horizontal_slide(kineticFrictionCoefficient:0, end:{kind:'distance', distanceM:0.35}) -> projectile(dropHeightM:1.25)",
   },
 
   // =========================================================================
