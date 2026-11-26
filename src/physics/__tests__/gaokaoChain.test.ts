@@ -335,6 +335,66 @@ describe('高考多阶段接续矩阵与显式圆弧自动圆心', () => {
     });
   });
 
+  it('支持预压释放 → 水平 → 180°圆弧 → 向左平抛 → 切向进入左下斜面（含摩擦能量守恒）与 lossless_turn → 下滑斜面', () => {
+    // 预压释放：k = 200 N/m, x0 = 0.5 m => Ep = 25 J，m = 1 kg, μ = 0 => v = √50
+    // 水平滑行：μ = 0.2, d = 1 m => 损能 2 J => v_底² = 46
+    // 半圆轨：R = 0.5 m, 180° => 最高点 y = 1.0 m, v_顶² = 46 - 20 = 26，方向向左 (vx = -√26, vy = 0)
+    // 平抛落回 y = 0（落差 1.0 m）：落地 vy = -√20，速度倾角 θ = atan(√(20/26))
+    // 左下斜面：倾角 θ，长 L = 2 m，动摩擦因数 μ = 0.25，沿左下方向下滑
+    const thetaDeg = (Math.atan2(Math.sqrt(20), Math.sqrt(26)) * 180) / Math.PI;
+    const rad = (thetaDeg * Math.PI) / 180;
+    const fiveStage = {
+      kind: 'stage_plan',
+      schemaVersion: 1,
+      gravityMps2: 10,
+      massKg: 1,
+      initial: { speedMps: 0 },
+      stages: [
+        { kind: 'spring_release', springConstantNpm: 200, initialCompressionM: 0.5, kineticFrictionCoefficient: 0, unattached: true, slidesAfterRelease: true },
+        { kind: 'horizontal_slide', kineticFrictionCoefficient: 0.2, end: { kind: 'distance', distanceM: 1 } },
+        { kind: 'vertical_arc', radiusM: 0.5, endAngleDeg: 180, side: 'inside', frictionless: true },
+        { kind: 'projectile', landingPlaneYM: 0 },
+        { kind: 'incline_slide', lengthM: 2, angleDeg: thetaDeg, kineticFrictionCoefficient: 0.25 },
+      ],
+    };
+    const motion = build(fiveStage);
+    expect(motion.segments.map((s) => s.kind)).toEqual([
+      'spring_release',
+      'horizontal_slide',
+      'vertical_arc',
+      'projectile',
+      'incline_slide',
+    ]);
+    const inc = motion.geometry.incline!;
+    // 左下斜面终点 x 小于起点 x、y 小于起点 y
+    expect(inc.end.xM).toBeLessThan(inc.start.xM);
+    expect(inc.end.yM).toBeLessThan(inc.start.yM);
+    close(inc.end.xM - inc.start.xM, -2 * Math.cos(rad), 1e-9);
+    close(inc.end.yM - inc.start.yM, -2 * Math.sin(rad), 1e-9);
+    // 验证左下斜面摩擦方向正确：a = g(sinθ - μcosθ)
+    const finalSample = motion.sampleAt(Infinity);
+    const expectedV2 = 46 + 2 * 10 * (Math.sin(rad) - 0.25 * Math.cos(rad)) * 2;
+    close(Math.hypot(finalSample.vxMps, finalSample.vyMps) ** 2, expectedV2, 1e-6);
+    expect(finalSample.vxMps).toBeLessThan(0);
+    expect(finalSample.vyMps).toBeLessThan(0);
+
+    // 额外验证 horizontal_slide → lossless_turn → incline_slide(down) 不被误判切向冲突
+    const turnIncline = {
+      kind: 'stage_plan',
+      schemaVersion: 1,
+      gravityMps2: 10,
+      initial: { speedMps: 4 },
+      stages: [
+        { kind: 'horizontal_slide', kineticFrictionCoefficient: 0, end: { kind: 'distance', distanceM: 2 } },
+        { kind: 'lossless_turn', lossless: true },
+        { kind: 'incline_slide', lengthM: 3, angleDeg: 30, kineticFrictionCoefficient: 0 },
+      ],
+    };
+    const turnMotion = build(turnIncline);
+    expect(turnMotion.segments.map((s) => s.kind)).toEqual(['horizontal_slide', 'incline_slide']);
+    close(Math.hypot(turnMotion.sampleAt(Infinity).vxMps, turnMotion.sampleAt(Infinity).vyMps) ** 2, 16 + 30, 1e-6);
+  });
+
   it('支持 vertical_arc → spring_contact / constant_force_1d / vertical_arc 顺畅接续', () => {
     // vertical_arc → spring_contact
     const arcSpring = {

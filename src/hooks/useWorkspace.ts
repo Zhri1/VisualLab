@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatErrors, motionLibrary } from "../adapters";
 import { mockChatService } from "../services/chatService";
-import { requestPlan, requestStageCommand } from "../services/imageRecognition";
+import { isAbortError, requestPlan, requestStageCommand } from "../services/imageRecognition";
 import type { StagePlanDraft } from "../physics/stagePlan";
 import { truncateStagePlan } from '../physics/truncateStagePlan';
 import { getSample } from "../data/samples";
@@ -14,12 +14,15 @@ import { decodeShareState, readShareFromLocation } from "../features/share/share
 import { isStageReading } from "../types";
 import type {
   ChatMessage,
+  ChatMode,
   ConditionChange,
   Conditions,
   FieldError,
   Motion,
   MotionSegment,
+  PlanResponse,
   Reading,
+  TutorStyle,
   WorkspaceReading,
 } from "../types";
 
@@ -71,7 +74,12 @@ export function useWorkspace() {
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRecognizing, setIsRecognizing] = useState(false);
+  const [generatingSimilarId, setGeneratingSimilarId] = useState<string | null>(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [tutorStyle, setTutorStyle] = useState<TutorStyle>("tutor");
+  const recognizeAbortRef = useRef<AbortController | null>(null);
+  const phaseRef = useRef<Phase>(phase);
+  phaseRef.current = phase;
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -175,11 +183,51 @@ export function useWorkspace() {
 
   /* ---------------- 识别 ---------------- */
 
+  useEffect(() => {
+    return () => {
+      recognizeAbortRef.current?.abort();
+      recognizeAbortRef.current = null;
+    };
+  }, []);
+
+  const cancelRecognize = useCallback(() => {
+    const ctrl = recognizeAbortRef.current;
+    if (!ctrl) return;
+    recognizeAbortRef.current = null;
+    ctrl.abort();
+    setIsRecognizing(false);
+    setGeneratingSimilarId(null);
+    if (phaseRef.current === "workspace") {
+      setMessages((prev) => [
+        ...prev,
+        { id: uid(), role: "assistant", text: "已取消生成，当前动画与对话保持不变。" },
+      ]);
+    }
+  }, []);
+
   const recognize = useCallback(
-    async (input: { file?: File | null; text?: string; isSample?: boolean; sampleId?: string }) => {
+    async (input: {
+      file?: File | null;
+      text?: string;
+      isSample?: boolean;
+      sampleId?: string;
+      similarId?: string;
+    }) => {
+      if (recognizeAbortRef.current) {
+        recognizeAbortRef.current.abort();
+      }
+      const controller = new AbortController();
+      recognizeAbortRef.current = controller;
+
+      // 在工作台从相似题卡片点「生成动画试做」时，请求等待期间保留现有画布与对话，避免闪白
+      const isSimilarInWorkspace = Boolean(input.similarId && phaseRef.current === "workspace");
+
       setIsRecognizing(true);
-      setNotice(null);
-      setProblemText(null);
+      setGeneratingSimilarId(input.similarId ?? null);
+      if (!isSimilarInWorkspace) {
+        setNotice(null);
+        setProblemText(null);
+      }
 
       const revokeIfBlob = (url: string | null) => {
         if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
@@ -195,17 +243,44 @@ export function useWorkspace() {
         });
       }
 
-      const res = await requestPlan({
-        file: input.file,
-        text: input.text,
-        isSample: input.isSample,
-        sampleId: input.sampleId,
-      });
+      let res: PlanResponse;
+      try {
+        res = await requestPlan(
+          {
+            file: input.file,
+            text: input.text,
+            isSample: input.isSample,
+            sampleId: input.sampleId,
+          },
+          { signal: controller.signal }
+        );
+      } catch (err) {
+        if (controller.signal.aborted || isAbortError(err) || recognizeAbortRef.current !== controller) {
+          if (recognizeAbortRef.current === controller) {
+            recognizeAbortRef.current = null;
+            setIsRecognizing(false);
+            setGeneratingSimilarId(null);
+          }
+          return null;
+        }
+        res = { status: "error", message: "网络异常，请检查连接后重试" };
+      }
+
+      if (controller.signal.aborted || recognizeAbortRef.current !== controller) {
+        return null;
+      }
+
+      recognizeAbortRef.current = null;
       setIsRecognizing(false);
+      setGeneratingSimilarId(null);
 
       if (res.status === "ok") {
         setPhase("workspace");
-        setProblemText(res.problemText ?? null);
+        setTutorStyle("tutor");
+        setNotice(null);
+        const nextProblemText =
+          res.problemText ?? (input.similarId && input.text?.trim() ? input.text.trim() : null);
+        setProblemText(nextProblemText);
         setSampleId(res.sampleId ?? null);
         setCompareOn(false);
         if (!input.file) {
@@ -230,13 +305,15 @@ export function useWorkspace() {
           text: `${summary}。可以直接提问，也可以让我修改条件，比如「把劲度系数改成 100 N/m」。`,
           assumptions,
         };
-        // 内置示例把完整题面放在对话首条，用户不用打开抽屉也能看到在算什么。
+        // 内置示例或相似变式题把完整题面放在对话首条，用户不用打开抽屉也能看到在算什么。
+        const headText = res.problemText
+          ? `【题目】\n${res.problemText}`
+          : input.similarId && input.text?.trim()
+            ? `【变式题】\n${input.text.trim()}`
+            : null;
         setMessages(
-          res.problemText
-            ? [
-                { id: uid(), role: "assistant", text: `【题目】\n${res.problemText}` },
-                summaryMessage,
-              ]
+          headText
+            ? [{ id: uid(), role: "assistant", text: headText }, summaryMessage]
             : [summaryMessage]
         );
         return res;
@@ -265,6 +342,17 @@ export function useWorkspace() {
         };
 
         setPhase("workspace");
+        setTutorStyle("tutor");
+        setProblemText(input.similarId && input.text?.trim() ? input.text.trim() : null);
+        setSampleId(null);
+        setCompareOn(false);
+        if (!input.file) {
+          setImageFile(null);
+          setImageUrl((prev) => {
+            revokeIfBlob(prev);
+            return null;
+          });
+        }
         setReading(shell);
         setMotion(null);
         setAppliedReading(null);
@@ -281,10 +369,22 @@ export function useWorkspace() {
 
       if (res.status === "unsupported") {
         setNotice({ kind: "info", text: res.message, showSample: true });
+        if (isSimilarInWorkspace) {
+          setMessages((prev) => [
+            ...prev,
+            { id: uid(), role: "assistant", text: `该变式题暂无法生成动画：${res.message}。当前动画与对话保持不变。`, error: true },
+          ]);
+        }
         return res;
       }
 
       setNotice({ kind: "error", text: res.message });
+      if (isSimilarInWorkspace) {
+        setMessages((prev) => [
+          ...prev,
+          { id: uid(), role: "assistant", text: `生成变式题动画失败：${res.message}。当前动画与对话保持不变。`, error: true },
+        ]);
+      }
       return res;
     },
     [applyReading]
@@ -339,6 +439,13 @@ export function useWorkspace() {
   }, []);
 
   const restartHome = useCallback(() => {
+    if (recognizeAbortRef.current) {
+      recognizeAbortRef.current.abort();
+      recognizeAbortRef.current = null;
+    }
+    setIsRecognizing(false);
+    setGeneratingSimilarId(null);
+    setTutorStyle("tutor");
     setSegmentPlayback(null);
     setPhase("home");
     setMotion(null);
@@ -439,8 +546,17 @@ export function useWorkspace() {
     setMessages((prev) => [...prev, m]);
   }, []);
 
+  const pushAssistantMessage = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      pushMessage({ id: uid(), role: "assistant", text: trimmed });
+    },
+    [pushMessage]
+  );
+
   const sendChat = useCallback(
-    async (text: string, opts?: { mode?: "tutor" | "similar" }) => {
+    async (text: string, opts?: { mode?: ChatMode }) => {
       const trimmed = text.trim();
       if (!trimmed || isChatLoading) return;
 
@@ -450,7 +566,8 @@ export function useWorkspace() {
       setIsChatLoading(true);
 
       const dropPending = () => setMessages((prev) => prev.filter((m) => m.id !== pendingId));
-      const isTruncateCommand = opts?.mode !== "similar" && isStageTruncateCommand(trimmed);
+      const isTruncateCommand =
+        opts?.mode !== "similar" && opts?.mode !== "socratic" && isStageTruncateCommand(trimmed);
       if (isStageReading(reading) && isTruncateCommand) {
         const base = latestAppliedRef.current;
         if (!isStageReading(base)) {
@@ -741,7 +858,9 @@ export function useWorkspace() {
       segmentPlayback,
       messages,
       isRecognizing,
+      generatingSimilarId,
       isChatLoading,
+      tutorStyle,
       imageUrl,
       imageFile,
       problemText,
@@ -752,6 +871,7 @@ export function useWorkspace() {
       compareOn,
       // actions
       recognize,
+      cancelRecognize,
       loadSample,
       applyReadingOverride,
       toggleSampleCompare,
@@ -763,6 +883,8 @@ export function useWorkspace() {
       replay,
       setIsPlaying,
       sendChat,
+      setTutorStyle,
+      pushAssistantMessage,
       recommendSimilar,
       undoChange,
       applyConditions,
@@ -775,9 +897,9 @@ export function useWorkspace() {
     }),
     [
       phase, reading, appliedReading, motion, currentTime, isPlaying, playbackRate, autoPauseEvents, segmentPlayback, messages,
-      isRecognizing, isChatLoading, imageUrl, imageFile, problemText, notice, missingKeys, sampleId, sampleCompare, compareOn,
-      recognize, loadSample, applyReadingOverride, toggleSampleCompare, restartHome, seek, seekEvent, nextEvent, togglePlay,
-      replay, sendChat, recommendSimilar, undoChange, applyConditions, slowCurrentSegment, exitSegmentPlayback,
+      isRecognizing, generatingSimilarId, isChatLoading, tutorStyle, imageUrl, imageFile, problemText, notice, missingKeys, sampleId, sampleCompare, compareOn,
+      recognize, cancelRecognize, loadSample, applyReadingOverride, toggleSampleCompare, restartHome, seek, seekEvent, nextEvent, togglePlay,
+      replay, sendChat, pushAssistantMessage, recommendSimilar, undoChange, applyConditions, slowCurrentSegment, exitSegmentPlayback,
     ]
   );
 }

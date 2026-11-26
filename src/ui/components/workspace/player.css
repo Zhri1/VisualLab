@@ -3,11 +3,15 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 4px 10px;
+  align-items: center;
+  gap: 4px 8px;
   list-style: none;
-  margin: 10px 0 -4px;
+  margin: 0;
+  margin-left: auto;
   padding: 0;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
   color: var(--text-secondary);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -16,7 +20,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 7px;
+  padding: 3px 7px;
   border-radius: 4px;
   border-left: 2px solid transparent;
   white-space: nowrap;
@@ -38,39 +42,125 @@
   white-space: nowrap;
   border: 0;
 }
-.playback-auxiliary { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--hair); }
-.playback-options {
+.transport-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.transport-options {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px 12px;
-  margin-top: 0;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-left: 10px;
+  border-left: 1px solid var(--hair);
+}
+.transport-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  background: var(--surface, #fff);
   color: var(--text-secondary);
   font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
-.rate-control, .auto-pause-control { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; }
+.transport-pill:hover {
+  background: var(--surface-muted, var(--surface-secondary));
+  border-color: var(--hair-strong, var(--hair));
+  color: var(--ink);
+}
+.transport-pill:has(:focus-visible),
+.transport-pill:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.rate-control {
+  padding: 0 5px 0 8px;
+}
 .rate-control select {
-  border: 1px solid var(--hair);
-  border-radius: 5px;
-  padding: 4px;
-  min-height: 32px;
-  background: var(--surface);
+  border: 0;
+  background: transparent;
+  height: 100%;
+  padding: 0 2px;
   color: var(--text-primary);
   font: inherit;
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  outline: none;
 }
-.segment-control { min-height: 32px; padding: 4px 8px; border: 1px solid var(--hair); border-radius: 5px; }
-.segment-control[aria-pressed="true"] { background: var(--ink); color: white; }
-.auto-pause-control { cursor: pointer; }
-.auto-pause-control input { width: 16px; height: 16px; accent-color: var(--ink); }
-.playback-mode { margin: 4px 0 0; min-height: 18px; font-size: 11px; line-height: 18px; color: var(--text-secondary); }
+.segment-label {
+  max-width: 11em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.segment-control[aria-pressed="true"],
+.auto-pause-control.is-active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #ffffff;
+}
+.segment-control[aria-pressed="true"]:hover,
+.auto-pause-control.is-active:hover {
+  background: #27272a;
+  border-color: #27272a;
+  color: #ffffff;
+}
+.pace-badge {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
 .explanation-slot, .explanation-reserve { display: grid; min-width: 0; flex: none; }
 .explanation-slot > *, .explanation-reserve > * { grid-area: 1 / 1; }
 .explanation-reserve { visibility: hidden; pointer-events: none; }
+@media (max-width: 760px) {
+  .transport-options {
+    order: 3;
+    flex: 1 0 100%;
+    padding-left: 0;
+    border-left: none;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+  .transport-options::-webkit-scrollbar {
+    display: none;
+  }
+  .transport-pill {
+    flex: none;
+  }
+}
 @media (max-width: 720px) {
-  .scene-legend { justify-content: flex-start; font-size: 11px; gap: 4px; }
+  .scene-legend { justify-content: flex-start; font-size: 11px; gap: 4px; margin-left: 0; }
   .scene-legend li { padding: 4px; }
-  .playback-options { gap: 4px 8px; }
+  .transport-pill {
+    height: 36px;
+    min-height: 36px;
+    padding: 0 10px;
+    font-size: 12.5px;
+  }
+  .rate-control {
+    padding: 0 4px 0 8px;
+  }
+  .rate-control select {
+    min-height: 34px;
+    font-size: 16px;
+  }
 }
 
 /* 弹簧题的能量读数：与画布同钟，贴底，不拦截点击。 */

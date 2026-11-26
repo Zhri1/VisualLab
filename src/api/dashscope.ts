@@ -63,7 +63,7 @@ export interface TutorChatMessage {
   text: string;
 }
 
-export type TutorChatMode = 'tutor' | 'similar';
+export type TutorChatMode = 'tutor' | 'similar' | 'socratic';
 
 export interface TutorSimilarProblem {
   title: string;
@@ -106,6 +106,36 @@ function maxTokens(): number {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : DEFAULT_MAX_TOKENS;
 }
 
+function buildTargetedRepairHints(errors: VisionRepairError[]): string[] {
+  const hints: string[] = [];
+  const joined = errors.map((e) => `${e.path} ${e.code} ${e.message}`).join('\n');
+
+  if (joined.includes('landingPlaneYM') || joined.includes('圆弧后抛体需固定')) {
+    hints.push(
+      '- 圆弧后抛体修正指引：必须删除该 projectile 阶段的 dropHeightM 键，只保留世界坐标 landingPlaneYM。换算公式：① 若落地平面与圆弧最低点/水平地面同高，直接填 "landingPlaneYM": 0；② 若从半径 R 的半圆最高点（y = 2R）或端点（y = y_exit）向下落差 h，则填 "landingPlaneYM": y_exit - h（例如半圆最高点向下落差 h 时为 2R - h）；绝不可同时保留 dropHeightM 与 landingPlaneYM。',
+    );
+  }
+
+  if (
+    joined.includes('释放上界小于真实压缩量') ||
+    joined.includes('弹簧参数与固定能量不符') ||
+    joined.includes('临界条件须指向引用A') ||
+    joined.includes('AB不能小于已用释放位移')
+  ) {
+    hints.push(
+      '- 预压弹簧（spring_release）修正指引：若题面已明确给出劲度系数 k 和压缩量 x₀，只填 springConstantNpm 与 initialCompressionM，删除顶层 energy、删除不必要的 constraints，且不要填写或估算 releaseCompleteByM；若后接水平段距离从脱离弹簧后量起，用 end: { "kind": "distance", "distanceM": d }，仅当题面给的是从初始压缩点 A 到圆弧入口 B 的总长 AB 时才用 distance_from_stage_start（且须满足 AB ≥ initialCompressionM）。',
+    );
+  }
+
+  if (joined.includes('来向速度方向与斜面切向不一致')) {
+    hints.push(
+      '- 斜面接续修正指引：检查 incline_slide 的 direction（初速冲上斜面须填 "up"）与倾角 angleDeg 是否与来向速度方向一致；若经过光滑弯道转向，请在斜面前补 lossless_turn。',
+    );
+  }
+
+  return hints;
+}
+
 function formatRepairPrompt(repairContext: VisionRepairContext): string {
   const previousJson = JSON.stringify(repairContext.previousRaw);
   const errorLines =
@@ -118,11 +148,13 @@ function formatRepairPrompt(repairContext: VisionRepairContext): string {
     Array.isArray(repairContext.missingKeys) && repairContext.missingKeys.length > 0
       ? `\n当前标记的缺项路径（若题面确实未给仍保持 null，绝不猜测）：${repairContext.missingKeys.join('、')}`
       : '';
+  const targetedHints = buildTargetedRepairHints(repairContext.errors);
+  const targetedBlock = targetedHints.length > 0 ? `\n针对性修正指引：\n${targetedHints.join('\n')}` : '';
 
   return [
     '你上一次输出的 JSON 未通过后端校验，请根据报错只修正出错字段并重新输出单个合法 JSON 对象：',
     `上一次输出的 JSON：\n${previousJson}`,
-    `后端校验报错列表：\n${errorLines}${missingLine}`,
+    `后端校验报错列表：\n${errorLines}${missingLine}${targetedBlock}`,
     '要求：只修正上述报错字段，保持其他正确识别的题面条件不变；题面未给的数值一律保持 null，绝不猜数；只输出一个纯 JSON 对象，不要任何额外文字。',
   ].join('\n\n');
 }
@@ -320,7 +352,20 @@ export function extractTutorReply(payload: unknown): string {
   return '';
 }
 
-function normalizeSimilarProblems(raw: unknown): TutorSimilarProblem[] {
+const AMBIGUOUS_VAR_PARAM_RE = /(?:可调(?:节)?|待定|任意改变|自由调节|大小可变|宽度可变|长度可变|高度可变|半径可变)/;
+const UNNAMED_UNKNOWN_PARAM_RE = /(?:宽度|长度|距离|高度|倾角|半径|初速度|速度|质量|磁感应强度|劲度系数)[^，。；;]{0,6}(?:未知|可变|不固定)/;
+const CONCRETE_SUBQUESTION_VALUE_RE = /(?:当|若|取)\s*[A-Za-z\u4e00-\u9fff_0-9]{1,8}\s*=\s*-?\d/;
+
+function hasUnresolvedVariableParam(stem: string): boolean {
+  if (AMBIGUOUS_VAR_PARAM_RE.test(stem)) return true;
+  if (UNNAMED_UNKNOWN_PARAM_RE.test(stem) && !CONCRETE_SUBQUESTION_VALUE_RE.test(stem)) return true;
+  return false;
+}
+
+function normalizeSimilarProblemsWithStats(raw: unknown): {
+  problems: TutorSimilarProblem[];
+  rejectedCount: number;
+} {
   const list = Array.isArray(raw)
     ? raw
     : raw && typeof raw === 'object' && Array.isArray((raw as { similarProblems?: unknown; problems?: unknown }).similarProblems)
@@ -330,12 +375,17 @@ function normalizeSimilarProblems(raw: unknown): TutorSimilarProblem[] {
         : [];
 
   const result: TutorSimilarProblem[] = [];
+  let rejectedCount = 0;
   for (const item of list) {
     if (!item || typeof item !== 'object') continue;
     const obj = item as Record<string, unknown>;
     const title = typeof obj.title === 'string' ? obj.title.trim() : '';
     const stem = typeof obj.stem === 'string' ? obj.stem.trim() : '';
     if (!title || !stem || NULLISH_REPLY_RE.test(title) || NULLISH_REPLY_RE.test(stem)) continue;
+    if (hasUnresolvedVariableParam(stem)) {
+      rejectedCount += 1;
+      continue;
+    }
     const tags = Array.isArray(obj.tags)
       ? obj.tags
           .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
@@ -354,10 +404,14 @@ function normalizeSimilarProblems(raw: unknown): TutorSimilarProblem[] {
     result.push({ title, tags, difficulty, stem, focus, hint });
     if (result.length >= 3) break;
   }
-  return result;
+  return { problems: result, rejectedCount };
 }
 
-export function parseSimilarResponse(text: string): { summary: string; similarProblems: TutorSimilarProblem[] } {
+function parseSimilarResponseDetailed(text: string): {
+  summary: string;
+  similarProblems: TutorSimilarProblem[];
+  rejectedCount: number;
+} {
   let body = text.trim();
   body = body.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 
@@ -370,10 +424,12 @@ export function parseSimilarResponse(text: string): { summary: string; similarPr
   if (objStart !== -1 && objEnd > objStart) candidates.push(body.slice(objStart, objEnd + 1));
   if (arrStart !== -1 && arrEnd > arrStart) candidates.push(body.slice(arrStart, arrEnd + 1));
 
+  let totalRejected = 0;
   for (const candidate of candidates) {
     try {
       const parsed = JSON.parse(candidate) as unknown;
-      const problems = normalizeSimilarProblems(parsed);
+      const { problems, rejectedCount } = normalizeSimilarProblemsWithStats(parsed);
+      totalRejected = Math.max(totalRejected, rejectedCount);
       if (problems.length > 0) {
         const rawSummary =
           parsed && typeof parsed === 'object' && !Array.isArray(parsed) && typeof (parsed as { summary?: unknown }).summary === 'string'
@@ -382,14 +438,19 @@ export function parseSimilarResponse(text: string): { summary: string; similarPr
         const summary = isUsableReply(rawSummary)
           ? rawSummary
           : `结合当前题目的物理模型，为你精选了 ${problems.length} 道高中力学相似变式题，点击「生成动画试做」可直接加载运行：`;
-        return { summary, similarProblems: problems };
+        return { summary, similarProblems: problems, rejectedCount };
       }
     } catch {
       // 尝试下一个 JSON 片段
     }
   }
 
-  return { summary: isUsableReply(text) ? text.trim() : '', similarProblems: [] };
+  return { summary: isUsableReply(text) ? text.trim() : '', similarProblems: [], rejectedCount: totalRejected };
+}
+
+export function parseSimilarResponse(text: string): { summary: string; similarProblems: TutorSimilarProblem[] } {
+  const { summary, similarProblems } = parseSimilarResponseDetailed(text);
+  return { summary, similarProblems };
 }
 
 function buildTutorSystemPrompt(
@@ -407,20 +468,31 @@ function buildTutorSystemPrompt(
           '2. 模型白名单（每道题必须 100% 属于以下 VisualLab 支持的模型范围，禁止超纲如变力、空气阻力、非线性阻力、弹性绳、多体复杂复合场或三维运动等）：',
           '   - 单物体多过程（可按合理物理顺序串联）：斜面下滑或初速冲上斜面往返（incline_slide）、坡底光滑无损转向（lossless_turn）、水平面滑行（horizontal_slide）、水平或倾斜传送带（conveyor_belt）、平抛或斜抛（projectile）、固定竖直圆弧内轨或轻杆/双轨（vertical_arc）、光滑或粗糙弹簧接触与回弹（spring_contact）、预压弹簧静止释放（spring_release）、分段水平恒定合力（constant_force_1d）、匀强磁场偏转（magnetic_deflection）、可自由滑动的光滑圆弧槽（movable_arc）、不锚墙自由弹簧双球（spring_pair）。',
           '   - 多物体系统（独立出题）：水平两球一维碰撞（可接平抛或滑行）、轻绳单摆最低点正碰、光滑地面滑块-长木板（block_plank）、理想定滑轮连接体（pulley_system）。',
-          '3. 严禁非法混拼：单物体多过程模型与多物体系统模型（如 block_plank、pulley_system、pendulum_swing）不可混拼在同一道题中（例如禁止「滑块-长木板 + 竖直圆弧」或「定滑轮 + 斜面平抛」）；且转向（lossless_turn）后不可直接平抛，必须经过一段明确长度的水平面再从桌沿飞出。',
+          '3. 严禁非法混拼：单物体多过程模型与多物体系统模型（如 block_plank、pulley_system、pendulum_swing）不可混拼在同一道题中（例如禁止「滑块-长木板 + 竖直圆弧」或「定滑轮 + 斜面平抛」）；且转向（lossless_turn）后不可直接平抛，必须经过一段明确长度的水平面再从桌沿飞出；匀强磁场偏转（magnetic_deflection）只能单独成题、作为首段后接抛体（magnetic_deflection → projectile），或接在水平滑行之后（horizontal_slide → magnetic_deflection），严禁先平抛/斜抛再入磁场，也严禁斜向穿出磁场后直接接水平滑行（horizontal_slide 要求纯水平速度）。',
           '4. 严禁空间几何自相矛盾：同一个轨道端点绝不能「既平滑连接斜面/平面/圆弧，又直接悬空平抛落地」！若设计「传送带 + 斜面折返 + 平抛」，必须明确区分左右两端（例如「水平传送带左端高出地面 h 悬空、右端平滑连接足够长光滑斜面，物块向右冲上斜面折返后从传送带左端水平飞出」，或「斜面下滑 → 水平传送带 → 右端平抛落地」）；平抛切入圆弧必须明确给出圆弧入口角、半径、内侧/轻杆属性与圆心角或终点位置。',
           '5. 严禁遗漏必需数值与前提：题干必须明确给出所有计算必需的具体数字与单位（如 g = 10 m/s²、质量、倾角、长度或高度、半径、动摩擦因数、劲度系数、初速度、初始间距等），禁止出成纯字母符号推导题！严禁写「沿水平面滑行一段距离」或「沿光滑水平面滑行」而不给具体水平距离 d（每一段水平滑行必须给出具体长度，如 d = 1 m，否则不要加水平段）；若弹簧压缩段处于粗糙水平面（μ > 0），必须明确写出最大静摩擦因数（如「静摩擦因数 μₛ = μ = 0.2」）或写明「弹簧压缩区域光滑」。仅在明确考查临界反求（如「恰好通过圆弧最高点」「恰好不再滑上圆弧槽」）或「足够长光滑斜面」时，才允许对应物理量不给数值。',
-          '6. 绝不输出 null、NULL、undefined 或空数组；所有字符串字段必须为自然流畅的中文，且 stem 与 hint 中的数值推导必须前后自洽。',
+          '6. 严禁分情形变参题与脆弱长链：严禁出「某参数可调 / 待定 / 变化，第(1)问求最值、第(2)问当 x = … 时」的分情形变参题！所有物理量（如磁场宽度 d、轨道半径 R、桌面长度、弹簧压缩量、外力 F 等）必须在题干开头直接给出唯一确定的具体数值；且单道变式题阶段数控制在 2~4 段经典稳健组合内（不拼凑 5~6 段脆弱长链，圆弧最高点飞出后直接落回与圆弧底端同高的水平地面，不要再硬接非切向斜面）。',
+          '7. 绝不输出 null、NULL、undefined 或空数组；所有字符串字段必须为自然流畅的中文，且 stem 与 hint 中的数值推导必须前后自洽。',
         ].join('\n')
-      : [
-          '你是 VisualLab 的资深高中物理 AI 助教，正在结合交互动画一步步辅导学生理解物理题。',
-          '核心原则：',
-          '1. 即使上下文里没有 problemText（例如用户上传题图识别，没有原始文字题干），也要直接根据 reading（阶段组合与数值参数）、events（关键时刻与事件）、derivedCalculations（反求/推导结果）和 currentSnapshot 完整理解物理情景，像有经验的高中物理老师一样自然、清晰地回答用户的任何自由提问。',
-          '2. 绝不输出字面 null、NULL、undefined 或空白回复，也不要机械复读原始 JSON 字段名；如果用户问的是开放性概念、推导或拓展问题，请直接展开讲解。',
-          '3. 涉及时刻、速度、位置、支持力/张力、能量或半径等数值时，严格以「当前题目与物理引擎实算数据」为准，绝不编造与实算矛盾的数值。',
-          '4. 先给清晰结论，再分步讲清受力分析、运动过程拆分、守恒定律与临界条件。表达简洁易读，直接用中文自然段或「1. / 2.」分点；不要输出 # 标题、--- 分割线、Markdown 表格或 LaTeX 反斜杠命令（如 \\frac、\\sqrt、\\[...\\]），公式一律用直观符号写成纯文本（如 N + mg = mv²/R、v = √(gR)、ΔEk = W合）。',
-          '5. 必要时可提醒学生在时间轴点击对应关键事件观察，或直接说「把某参数改成某值」做对比实验。',
-        ].join('\n');
+      : mode === 'socratic'
+        ? [
+            '你是 VisualLab 循循善诱的苏格拉底式高中物理老师（分步带练模式），正在结合交互动画一步步引导学生自己把物理题想明白、算出来。',
+            '硬性教学规则（每条必须严格遵守）：',
+            '1. 严禁一次性给出完整全过程解答、严禁直接报出最终答案数值或把所有阶段的方程一次全列出来！每次回复严格控制在 80~160 字以内，保持轻快、聚焦、可互动。',
+            '2. 开场首问策略：若是开场首问，先用 1~2 句话帮学生把整道题拆成清晰的几个物理阶段，然后只聚焦【第 1 阶段】，指出关键受力或守恒条件，再提出 1 个具体的思考小问题让学生接招。',
+            '3. 多轮追问策略：若学生已在回答上一步问题，先明确肯定答对的部分，或温柔指出卡点与高频易错点（结合【当前题目与物理引擎实算数据】严格核对数值与方向，绝不编造矛盾数据）；确认当前阶段过关后，再推进到下一阶段并抛出下一个引导小问题。',
+            '4. 只有当全部物理阶段都引导学生自己推导完成后，才用简短 2~3 句话总结全题关键结论与核心物理方法。',
+            '5. 绝不输出字面 null、NULL、undefined、空白回复或原始 JSON 字段名；不要输出 # 标题、--- 分割线、Markdown 表格或 LaTeX 反斜杠命令（如 \\frac、\\sqrt），公式一律用直观纯文本符号（如 a = g(sinθ - μcosθ)、N + mg = mv²/R、v = √(gR)）。必要时可提醒学生观察动画对应时刻。',
+          ].join('\n')
+        : [
+            '你是 VisualLab 的资深高中物理 AI 助教，正在结合交互动画一步步辅导学生理解物理题。',
+            '核心原则：',
+            '1. 即使上下文里没有 problemText（例如用户上传题图识别，没有原始文字题干），也要直接根据 reading（阶段组合与数值参数）、events（关键时刻与事件）、derivedCalculations（反求/推导结果）和 currentSnapshot 完整理解物理情景，像有经验的高中物理老师一样自然、清晰地回答用户的任何自由提问。',
+            '2. 绝不输出字面 null、NULL、undefined 或空白回复，也不要机械复读原始 JSON 字段名；如果用户问的是开放性概念、推导或拓展问题，请直接展开讲解。',
+            '3. 涉及时刻、速度、位置、支持力/张力、能量或半径等数值时，严格以「当前题目与物理引擎实算数据」为准，绝不编造与实算矛盾的数值。',
+            '4. 先给清晰结论，再分步讲清受力分析、运动过程拆分、守恒定律与临界条件。表达简洁易读，直接用中文自然段或「1. / 2.」分点；不要输出 # 标题、--- 分割线、Markdown 表格或 LaTeX 反斜杠命令（如 \\frac、\\sqrt、\\[...\\]），公式一律用直观符号写成纯文本（如 N + mg = mv²/R、v = √(gR)、ΔEk = W合）。',
+            '5. 必要时可提醒学生在时间轴点击对应关键事件观察，或直接说「把某参数改成某值」做对比实验。',
+          ].join('\n');
 
   const sections: string[] = [base];
   if (context && Object.keys(context).length > 0) {
@@ -441,31 +513,41 @@ function buildTutorSystemPrompt(
   return sections.join('\n\n');
 }
 
+const SIMILAR_REPAIR_HINT =
+  '你上一次生成的相似变式题包含「可调 / 待定 / 未知」等未定变参，已被校验过滤。请重新输出 2~3 道完全合规的相似变式题：所有物理量必须在题干开头直接给出唯一确定的具体数值，严禁出现「可调」「待定」或「第(2)问当 x = … 时」的分情形设问，且每题阶段数控制在 2~4 段内。';
+
 async function callTutorOnce(
   model: string,
   request: TutorChatRequest,
   apiKey: string,
+  similarRepairHint?: string,
 ): Promise<TutorChatResponse> {
   const baseUrl = env('DASHSCOPE_BASE_URL') || DEFAULT_BASE_URL;
   const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
   const limit = timeoutMs();
-  const mode: TutorChatMode = request.mode === 'similar' ? 'similar' : 'tutor';
+  const mode: TutorChatMode =
+    request.mode === 'similar' ? 'similar' : request.mode === 'socratic' ? 'socratic' : 'tutor';
 
-  const ragHits = searchPhysicsRag(buildChatRagQuery(request.message, request.context, mode));
+  const ragMode = mode === 'similar' ? 'similar' : 'tutor';
+  const ragHits = searchPhysicsRag(buildChatRagQuery(request.message, request.context, ragMode));
   const ragContext = mode === 'similar' ? formatRagForSimilar(ragHits) : formatRagForTutor(ragHits);
   const ragReferences = toRagReferences(ragHits);
 
   const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
     { role: 'system', content: buildTutorSystemPrompt(request.context, mode, ragContext) },
   ];
-  if (mode === 'tutor') {
+  if (mode === 'tutor' || mode === 'socratic') {
     for (const item of (request.history ?? []).slice(-8)) {
       const content = typeof item.text === 'string' ? item.text.trim().slice(0, 1200) : '';
       if (!content || NULLISH_REPLY_RE.test(content)) continue;
       messages.push({ role: item.role === 'assistant' ? 'assistant' : 'user', content });
     }
   }
-  messages.push({ role: 'user', content: request.message.trim().slice(0, 2000) });
+  const userMessage = request.message.trim().slice(0, 2000);
+  messages.push({
+    role: 'user',
+    content: similarRepairHint ? `${userMessage}\n\n${similarRepairHint}` : userMessage,
+  });
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), limit);
@@ -512,7 +594,10 @@ async function callTutorOnce(
   if (!rawReply) throw new VisionError('parse', 'AI 助教返回了无效空内容');
 
   if (mode === 'similar') {
-    const parsed = parseSimilarResponse(rawReply);
+    const parsed = parseSimilarResponseDetailed(rawReply);
+    if (parsed.similarProblems.length === 0 && parsed.rejectedCount > 0 && !similarRepairHint) {
+      throw new VisionError('parse', '相似变式题含未定变参，需重新生成');
+    }
     return {
       reply: parsed.summary || '已根据当前题目生成相似变式参考：',
       model,
@@ -542,7 +627,11 @@ export async function callTutorChat(request: TutorChatRequest): Promise<TutorCha
     if (!retryable) throw error;
     const retryModel = fallback && fallback !== primary ? fallback : error.kind === 'parse' ? primary : '';
     if (!retryModel) throw error;
+    const repairHint =
+      request.mode === 'similar' && error.kind === 'parse' && error.message.includes('未定变参')
+        ? SIMILAR_REPAIR_HINT
+        : undefined;
     console.warn(`[chat] ${primary} 失败（${(error as Error).message}），改用 ${retryModel} 重试`);
-    return callTutorOnce(retryModel, request, apiKey);
+    return callTutorOnce(retryModel, request, apiKey, repairHint);
   }
 }

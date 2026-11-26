@@ -2,8 +2,18 @@
  * 单条消息。支持极简 Markdown 子集（段落、**粗体**、`代码`、$公式$）、
  * 参数修改卡片、相似变式题卡片与内嵌操作入口，不引入第三方解析库。
  */
-import { useState, type ReactNode } from "react";
-import { ArrowRight, ChevronDown, ChevronRight, CornerDownRight, Lightbulb, Play, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  ArrowRight,
+  ChevronDown,
+  ChevronRight,
+  CornerDownRight,
+  Lightbulb,
+  Loader2,
+  Play,
+  Sparkles,
+  X,
+} from "lucide-react";
 import type { ChatMessage as ChatMessageType, RagReference, SimilarProblem } from "../../../types";
 import { ParameterChangeCard } from "./ParameterChangeCard";
 import { CONDITION_META } from "../../../types";
@@ -12,7 +22,10 @@ interface Props {
   message: ChatMessageType;
   onUndo: (id: string) => void;
   onSeekEvent: (eventId: string) => void;
-  onTrySimilar?: (stem: string) => void;
+  onTrySimilar?: (stem: string, similarId: string) => void;
+  generatingSimilarId?: string | null;
+  isRecognizing?: boolean;
+  onCancelGenerate?: () => void;
 }
 
 /** 把 **x**、`x`、$x$ 转成 React 节点 */
@@ -152,13 +165,59 @@ function RagReferencesChip({ items }: { items: RagReference[] }) {
 }
 
 function SimilarProblemCard({
+  cardId,
   item,
   onTrySimilar,
+  generatingSimilarId,
+  isRecognizing,
+  onCancelGenerate,
 }: {
+  cardId: string;
   item: SimilarProblem;
-  onTrySimilar?: (stem: string) => void;
+  onTrySimilar?: (stem: string, similarId: string) => void;
+  generatingSimilarId?: string | null;
+  isRecognizing?: boolean;
+  onCancelGenerate?: () => void;
 }) {
   const [hintOpen, setHintOpen] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [canShowCancel, setCanShowCancel] = useState(false);
+  const delayTimerRef = useRef<number | null>(null);
+
+  const isCurrentGenerating = Boolean(isRecognizing && generatingSimilarId === cardId);
+  const isOtherGenerating = Boolean(isRecognizing && generatingSimilarId !== cardId);
+  const showCancel = isCurrentGenerating && isHovered && canShowCancel;
+
+  useEffect(() => {
+    if (isCurrentGenerating) {
+      setCanShowCancel(false);
+      delayTimerRef.current = window.setTimeout(() => {
+        setCanShowCancel(true);
+        delayTimerRef.current = null;
+      }, 400);
+      return () => {
+        if (delayTimerRef.current !== null) {
+          window.clearTimeout(delayTimerRef.current);
+          delayTimerRef.current = null;
+        }
+      };
+    }
+    setCanShowCancel(false);
+    if (delayTimerRef.current !== null) {
+      window.clearTimeout(delayTimerRef.current);
+      delayTimerRef.current = null;
+    }
+  }, [isCurrentGenerating]);
+
+  useEffect(() => {
+    if (isOtherGenerating) {
+      setIsHovered(false);
+    }
+  }, [isOtherGenerating]);
+
+  const primaryClassName =
+    "similar-btn similar-btn-primary" +
+    (showCancel ? " is-cancelable" : isCurrentGenerating ? " is-generating" : "");
 
   return (
     <div className="similar-card">
@@ -187,11 +246,38 @@ function SimilarProblemCard({
         {onTrySimilar && (
           <button
             type="button"
-            className="similar-btn similar-btn-primary"
-            onClick={() => onTrySimilar(item.stem)}
+            className={primaryClassName}
+            disabled={isOtherGenerating}
+            aria-busy={isCurrentGenerating}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => {
+              setIsHovered(false);
+              if (isCurrentGenerating) setCanShowCancel(true);
+            }}
+            onClick={() => {
+              if (isCurrentGenerating) {
+                if (showCancel) onCancelGenerate?.();
+                return;
+              }
+              onTrySimilar(item.stem, cardId);
+            }}
           >
-            <Play size={12} strokeWidth={2.2} />
-            生成动画试做
+            {showCancel ? (
+              <>
+                <X size={13} strokeWidth={2.2} />
+                取消生成
+              </>
+            ) : isCurrentGenerating ? (
+              <>
+                <Loader2 size={13} strokeWidth={2.2} className="similar-btn-spinner" />
+                生成中…
+              </>
+            ) : (
+              <>
+                <Play size={12} strokeWidth={2.2} />
+                生成动画试做
+              </>
+            )}
           </button>
         )}
         <button
@@ -218,7 +304,15 @@ function SimilarProblemCard({
   );
 }
 
-export function ChatMessageRow({ message, onUndo, onSeekEvent, onTrySimilar }: Props) {
+export function ChatMessageRow({
+  message,
+  onUndo,
+  onSeekEvent,
+  onTrySimilar,
+  generatingSimilarId,
+  isRecognizing,
+  onCancelGenerate,
+}: Props) {
   if (message.role === "user") {
     return (
       <div className="msg user">
@@ -264,13 +358,20 @@ export function ChatMessageRow({ message, onUndo, onSeekEvent, onTrySimilar }: P
             {message.assumptions?.length ? <AssumptionChip items={message.assumptions} /> : null}
             {message.similarProblems?.length ? (
               <div className="similar-list">
-                {message.similarProblems.map((item, idx) => (
-                  <SimilarProblemCard
-                    key={`${item.title}-${idx}`}
-                    item={item}
-                    onTrySimilar={onTrySimilar}
-                  />
-                ))}
+                {message.similarProblems.map((item, idx) => {
+                  const cardId = item.id ?? `${message.id}-similar-${idx}`;
+                  return (
+                    <SimilarProblemCard
+                      key={cardId}
+                      cardId={cardId}
+                      item={item}
+                      onTrySimilar={onTrySimilar}
+                      generatingSimilarId={generatingSimilarId}
+                      isRecognizing={isRecognizing}
+                      onCancelGenerate={onCancelGenerate}
+                    />
+                  );
+                })}
               </div>
             ) : null}
             {message.ragReferences?.length ? <RagReferencesChip items={message.ragReferences} /> : null}

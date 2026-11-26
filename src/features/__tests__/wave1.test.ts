@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { motionLibrary } from "../../adapters";
 import { buildFromReading, defaultScanPath, findCriticals, getParam, outcomeOf, scanBounds, scanRange, withParam } from "../critical/scanner";
 import { forcesAt } from "../forces/forceModel";
+import { formatForceMagnitude } from "../forces/drawForces";
+import { pickHudCorner, stageWorldBounds } from "../../ui/components/workspace/StagePhysicsCanvas";
+import { fitViewport } from "../../ui/components/workspace/canvasViewport";
 import { systemEnergyAt } from "../energy/systemEnergy";
 import loop from "../../../fixtures/gaokao-proj-arc-horiz-loop.reading.json";
 import incline from "../../../fixtures/gaokao-incline-arc-horiz-spring.reading.json";
@@ -79,6 +82,138 @@ describe("受力矢量", () => {
     const motion = build(collision);
     const arrows = forcesAt(motion, 0.2);
     expect(arrows.filter((a) => a.kind === "gravity").length).toBe(2);
+  });
+
+  it("匀强磁场洛伦兹力按 F=qv×B 精确指向圆心且保留毫牛级大小", () => {
+    const makeMagneticPlan = (chargeC: number, fieldDirection: "into_page" | "out_of_page") => ({
+      kind: "stage_plan",
+      schemaVersion: 1,
+      massKg: 1e-3,
+      gravityMps2: 10,
+      initial: { vxMps: 2, vyMps: 0 },
+      stages: [
+        {
+          kind: "magnetic_deflection",
+          magneticTeslaB: 1,
+          chargeC,
+          regionWidthM: 1,
+          fieldDirection,
+        },
+      ],
+    });
+
+    // q = +1e-3 C, B = 1 T, v = 2 m/s, into_page → F洛 = 0.002 N，初始向上 (0, +1)
+    const mPosIn = build(makeMagneticPlan(1e-3, "into_page"));
+    const aPosIn0 = forcesAt(mPosIn, 0).find((a) => a.kind === "magnetic")!;
+    expect(aPosIn0).toBeTruthy();
+    expect(aPosIn0.label).toBe("F洛");
+    expect(aPosIn0.magnitudeN).toBeCloseTo(0.002, 9);
+    expect(aPosIn0.dir.x).toBeCloseTo(0, 6);
+    expect(aPosIn0.dir.y).toBeCloseTo(1, 6);
+
+    // 偏转途中始终垂直于瞬时速度且指向圆心
+    const tMid = mPosIn.durationSeconds * 0.5;
+    const sMid = mPosIn.sampleAt(tMid);
+    const aMid = forcesAt(mPosIn, tMid).find((a) => a.kind === "magnetic")!;
+    const dotV = aMid.dir.x * sMid.velocity.x + aMid.dir.y * sMid.velocity.y;
+    expect(dotV).toBeCloseTo(0, 6);
+    const mg = mPosIn.stageGeometry!.magnetics?.[0] ?? mPosIn.stageGeometry!.magnetic!;
+    const toCenter = { x: mg.center.xM - sMid.position.x, y: mg.center.yM - sMid.position.y };
+    const toCenterLen = Math.hypot(toCenter.x, toCenter.y);
+    expect(aMid.dir.x).toBeCloseTo(toCenter.x / toCenterLen, 5);
+    expect(aMid.dir.y).toBeCloseTo(toCenter.y / toCenterLen, 5);
+
+    // q < 0, into_page → 初始向下 (0, -1)
+    const mNegIn = build(makeMagneticPlan(-1e-3, "into_page"));
+    const aNegIn0 = forcesAt(mNegIn, 0).find((a) => a.kind === "magnetic")!;
+    expect(aNegIn0.magnitudeN).toBeCloseTo(0.002, 9);
+    expect(aNegIn0.dir.x).toBeCloseTo(0, 6);
+    expect(aNegIn0.dir.y).toBeCloseTo(-1, 6);
+
+    // q > 0, out_of_page → 初始向下 (0, -1)
+    const mPosOut = build(makeMagneticPlan(1e-3, "out_of_page"));
+    const aPosOut0 = forcesAt(mPosOut, 0).find((a) => a.kind === "magnetic")!;
+    expect(aPosOut0.magnitudeN).toBeCloseTo(0.002, 9);
+    expect(aPosOut0.dir.x).toBeCloseTo(0, 6);
+    expect(aPosOut0.dir.y).toBeCloseTo(-1, 6);
+  });
+
+  it("formatForceMagnitude 准确格式化宏牛、毫牛与微观科学计数法", () => {
+    expect(formatForceMagnitude(125.4)).toBe("125 N");
+    expect(formatForceMagnitude(9.8)).toBe("9.8 N");
+    expect(formatForceMagnitude(0.002)).toBe("0.002 N");
+    expect(formatForceMagnitude(0.002)).not.toContain("0.0 N");
+    expect(formatForceMagnitude(1.6e-13)).toBe("1.6×10⁻¹³ N");
+  });
+});
+
+describe("HUD 四角智能避让", () => {
+  it("四角全空时默认返回 top-right", () => {
+    expect(pickHudCorner({ canvasW: 800, canvasH: 480, hudW: 200, hudH: 40, obstacles: [] })).toBe("top-right");
+  });
+
+  it("水平传送带在左上 + 平抛在右下时默认落在右上角", () => {
+    const conveyorProj = build({
+      kind: "stage_plan",
+      schemaVersion: 1,
+      massKg: 1,
+      gravityMps2: 10,
+      initial: { vxMps: 0 },
+      stages: [
+        {
+          kind: "conveyor_belt",
+          initialBeltSpeedMps: 4,
+          segments: [{ accelerationMps2: 0, durationSeconds: 2 }],
+          kineticFrictionCoefficient: 0.4,
+        },
+        {
+          kind: "projectile",
+          dropHeightM: 5,
+        },
+      ],
+    });
+    const W = 800;
+    const H = 480;
+    const vp = fitViewport(W, H, stageWorldBounds(conveyorProj), { top: 48, right: 48, bottom: 44, left: 48 });
+    expect(pickHudCorner({ canvasW: W, canvasH: H, hudW: 220, hudH: 42, motion: conveyorProj, vp })).toBe("top-right");
+  });
+
+  it("右上被占用时自动切到 top-left 或 bottom-left", () => {
+    expect(
+      pickHudCorner({
+        canvasW: 800,
+        canvasH: 480,
+        hudW: 200,
+        hudH: 40,
+        obstacles: [{ x: 560, y: 0, w: 240, h: 120 }],
+      }),
+    ).toBe("top-left");
+
+    expect(
+      pickHudCorner({
+        canvasW: 800,
+        canvasH: 480,
+        hudW: 200,
+        hudH: 40,
+        obstacles: [
+          { x: 560, y: 0, w: 240, h: 120 },
+          { x: 0, y: 0, w: 240, h: 120 },
+        ],
+      }),
+    ).toBe("bottom-left");
+  });
+
+  it("标注调色盘展开（annotationPaletteOpen=true）时避开右上角", () => {
+    expect(
+      pickHudCorner({
+        canvasW: 800,
+        canvasH: 480,
+        hudW: 200,
+        hudH: 40,
+        obstacles: [],
+        annotationPaletteOpen: true,
+      }),
+    ).toBe("top-left");
   });
 });
 

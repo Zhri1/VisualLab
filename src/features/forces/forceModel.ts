@@ -50,10 +50,15 @@ export function forcesAt(motion: Motion, time: number, decompose = false): Force
     const kind = stage?.kind;
 
     if (kind === "magnetic_deflection") {
-      const mg = motion.stageGeometry?.magnetics?.[0] ?? motion.stageGeometry?.magnetic;
-      const q = Math.abs((stage.chargeC as number) ?? 0);
+      const rawQ = (stage.chargeC as number) ?? 0;
+      const q = Math.abs(rawQ);
       const B = (stage.magneticTeslaB as number) ?? 0;
-      const dir = mg ? norm(mg.center.xM - pos.x, mg.center.yM - pos.y) : norm(-vel.y, vel.x);
+      const fieldDirection = (stage.fieldDirection as string) ?? "into_page";
+      // x 向右、y 向上坐标系中，严格按 F = qv×B 计算洛伦兹力单位方向（与 magneticDeflection.ts 圆心方向一致）。
+      const spin = (rawQ >= 0 ? 1 : -1) * (fieldDirection === "out_of_page" ? -1 : 1);
+      const dir = speed > 1e-9
+        ? { x: spin * (-vel.y / speed), y: spin * (vel.x / speed) }
+        : { x: 0, y: 0 };
       push({ bodyId: body.id, label: "F洛", kind: "magnetic", from: pos, dir, magnitudeN: q * speed * B });
       continue;
     }
@@ -74,7 +79,7 @@ export function forcesAt(motion: Motion, time: number, decompose = false): Force
         push({ bodyId: body.id, label: "G∥", kind: "gravity", from: pos, dir: downDir, magnitudeN: mass * g * Math.sin(theta), dashed: true });
         push({ bodyId: body.id, label: "G⊥", kind: "gravity", from: pos, dir: { x: -nDir.x, y: -nDir.y }, magnitudeN: mass * g * Math.cos(theta), dashed: true });
       }
-    } else if (kind === "horizontal_slide" || kind === "spring_release" || kind === "conveyor_belt" || kind === "constant_force_1d") {
+    } else if (kind === "horizontal_slide" || kind === "conveyor_belt" || kind === "constant_force_1d") {
       push({ bodyId: body.id, label: "N", kind: "normal", from: pos, dir: { x: 0, y: 1 }, magnitudeN: mass * g });
       const mu = (stage.kineticFrictionCoefficient as number) ?? 0;
       let rel = speed;
@@ -112,5 +117,5 @@ export function forcesAt(motion: Motion, time: number, decompose = false): Force
       push({ bodyId: body.id, label: "T", kind: "tension", from: pos, dir, magnitudeN: c.tensionN });
     }
   }
-  return arrows.filter((a) => a.magnitudeN > 1e-6);
+  return arrows.filter((a) => (a.kind === "magnetic" ? a.magnitudeN > 0 : a.magnitudeN > 1e-9));
 }

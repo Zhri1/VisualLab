@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs';
 import { dispatchStageCommand } from './stageCommand';
 import { join } from 'node:path';
 
-import { callTutorChat, callVisionModel, VisionError, type TutorChatMessage, type VisionRepairContext } from './dashscope';
+import { callTutorChat, callVisionModel, VisionError, type TutorChatMessage, type TutorChatMode, type VisionRepairContext } from './dashscope';
 import { applyLegacyContract, outputContractFromEnv, type ClientResult } from './legacyBridge';
 import { STAGE_HTTP_STATUS } from './stageTypes';
 import type { StagePlanResult } from './stageTypes';
@@ -209,11 +209,14 @@ export async function handlePlan(request: Request): Promise<Response> {
       }
     }
     const rawMode = form.get('chatMode');
-    const chatMode =
-      (typeof rawMode === 'string' && rawMode.trim().toLowerCase() === 'similar') ||
-      (context && typeof context.mode === 'string' && context.mode.trim().toLowerCase() === 'similar')
-        ? 'similar'
-        : 'tutor';
+    const modeToken =
+      typeof rawMode === 'string' && rawMode.trim()
+        ? rawMode.trim().toLowerCase()
+        : context && typeof context.mode === 'string' && context.mode.trim()
+          ? context.mode.trim().toLowerCase()
+          : '';
+    const chatMode: TutorChatMode =
+      modeToken === 'similar' ? 'similar' : modeToken === 'socratic' ? 'socratic' : 'tutor';
     try {
       const chat = await callTutorChat({ message: chatMessage, context, history, mode: chatMode });
       const elapsed = Date.now() - startedAt;
