@@ -155,6 +155,57 @@ describe('真实 AI 物理助教对话入口（Node 与 Qoder 双端一致）', 
     expect(body.similarProblems[1].stem).toContain('k=150N/m');
   });
 
+  it('Node 与 Qoder 双端 similar 系统提示词一致，并包含模型白名单与空间几何防冲突硬约束', async () => {
+    const prompts: string[] = [];
+    for (const fn of [handlePlan, qoderHandler]) {
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    summary: '推荐 1 道变式题',
+                    similarProblems: [
+                      {
+                        title: '斜面下滑接水平平抛',
+                        tags: ['斜面', '平抛'],
+                        difficulty: '中档',
+                        stem: '质量 m = 1 kg 滑块从倾角 30°、长 2 m 光滑斜面下滑，经底端无损转向在光滑水平面滑行 1 m 后从高 1.25 m 桌沿水平飞出，g = 10 m/s²。',
+                        focus: '衔接斜面与平抛。',
+                        hint: '先求底端速度再算平抛射程。',
+                      },
+                    ],
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+
+      const res = await fn(chatRequest('推荐相似题', { currentTimeSeconds: 0 }, { chatMode: 'similar' }));
+      expect(res.status).toBe(200);
+      const sent = JSON.parse(String(fetchMock.mock.calls[fetchMock.mock.calls.length - 1][1]?.body)) as {
+        messages: Array<{ role: string; content: string }>;
+      };
+      prompts.push(sent.messages[0].content);
+    }
+
+    expect(prompts[0]).toBe(prompts[1]);
+    const sys = prompts[0];
+    expect(sys).toContain('模型白名单');
+    expect(sys).toContain('incline_slide');
+    expect(sys).toContain('conveyor_belt');
+    expect(sys).toContain('spring_contact');
+    expect(sys).toContain('block_plank');
+    expect(sys).toContain('pulley_system');
+    expect(sys).toContain('严禁非法混拼');
+    expect(sys).toContain('严禁空间几何自相矛盾');
+    expect(sys).toContain('严禁遗漏必需数值与前提');
+  });
+
   it('空提问或混用图片字段时返回 400', async () => {
     const emptyRes = await handlePlan(chatRequest('   '));
     expect(emptyRes.status).toBe(400);

@@ -144,4 +144,77 @@ describe("getQuickParamSuggestions 与 getLocalSimilarProblems", () => {
     expect(inclineList.length).toBeGreaterThanOrEqual(2);
     expect(inclineList[0].stem).toContain("斜面");
   });
+
+  it("全量本地相似题库均参数齐全、几何自洽且无非法接续表述", () => {
+    const sampleDrafts: Array<StagePlanDraft | null> = [
+      null,
+      MOVABLE_ARC_PLAN,
+      INCLINE_PLAN,
+      { kind: "stage_plan", schemaVersion: 1, initial: { speedMps: 4 }, stages: [{ kind: "spring_pair" }] },
+      { kind: "stage_plan", schemaVersion: 1, initial: { speedMps: 4 }, stages: [{ kind: "vertical_arc" }] },
+      { kind: "stage_plan", schemaVersion: 1, initial: { vxMps: 4, vyMps: 0 }, stages: [{ kind: "projectile" }] },
+      { kind: "stage_plan", schemaVersion: 1, initial: { speedMps: 0 }, stages: [{ kind: "block_plank" }] },
+      { kind: "stage_plan", schemaVersion: 1, initial: { vxMps: 0 }, stages: [{ kind: "conveyor_belt" }] },
+      { kind: "stage_plan", schemaVersion: 1, initial: { speedMps: 0 }, stages: [{ kind: "pulley_system" }] },
+      { kind: "stage_plan", schemaVersion: 1, initial: { speedMps: 0 }, stages: [{ kind: "collision_1d" }] },
+      { kind: "stage_plan", schemaVersion: 1, initial: { speedMps: 0 }, stages: [{ kind: "pendulum_swing" }] },
+    ];
+
+    for (const draft of sampleDrafts) {
+      const list = getLocalSimilarProblems(draft);
+      expect(list.length).toBeGreaterThanOrEqual(2);
+      for (const item of list) {
+        expect(item.title.trim().length).toBeGreaterThan(0);
+        expect(item.stem.trim().length).toBeGreaterThan(20);
+        expect(item.focus.trim().length).toBeGreaterThan(0);
+        expect(item.hint.trim().length).toBeGreaterThan(0);
+        expect(item.tags.length).toBeGreaterThan(0);
+        // 必须给出 g = 10 m/s² 且包含具体数字，避免纯字母符号题
+        expect(item.stem).toMatch(/g\s*=\s*10\s*m\/s²/);
+        expect(item.stem).toMatch(/\d/);
+        // 严禁出现转向后直接平抛（缺少水平段）的非法表述
+        expect(item.stem).not.toMatch(/无损转向后立即.{0,12}飞出/);
+        // 严禁出现字面 null/undefined
+        expect(item.stem).not.toMatch(/\b(?:null|undefined)\b/i);
+      }
+    }
+
+    // 针对已修复题目的定向回归断言
+    const arcList = getLocalSimilarProblems({
+      kind: "stage_plan",
+      schemaVersion: 1,
+      initial: { speedMps: 4 },
+      stages: [{ kind: "vertical_arc" }],
+    });
+    expect(arcList[0].stem).toContain("45°");
+    expect(arcList[0].stem).toContain("内侧");
+    expect(arcList[0].stem).toContain("225°");
+
+    const projList = getLocalSimilarProblems({
+      kind: "stage_plan",
+      schemaVersion: 1,
+      initial: { vxMps: 4, vyMps: 0 },
+      stages: [{ kind: "projectile" }],
+    });
+    expect(projList[1].stem).toContain("光滑水平平台");
+
+    const pulleyList = getLocalSimilarProblems({
+      kind: "stage_plan",
+      schemaVersion: 1,
+      initial: { speedMps: 0 },
+      stages: [{ kind: "pulley_system" }],
+    });
+    expect(pulleyList[1].stem).toContain("μs = 0.2");
+    expect(pulleyList[1].stem).toContain("加速滑动");
+
+    const collList = getLocalSimilarProblems({
+      kind: "stage_plan",
+      schemaVersion: 1,
+      initial: { speedMps: 0 },
+      stages: [{ kind: "collision_1d" }],
+    });
+    expect(collList[0].stem).toContain("μ = 0.2");
+    expect(collList[1].stem).toContain("x = 0");
+    expect(collList[1].stem).toContain("x = 6 m");
+  });
 });
