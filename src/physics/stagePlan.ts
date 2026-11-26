@@ -85,7 +85,11 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 export function validateStagePlan(input: unknown): StagePlanValidation {
-  if (record(input) && ('bodies' in input || (Array.isArray(input.stages) && input.stages.some(s => record(s) && ['pendulum_swing','collision_1d','parallel_motion','horizontal_approach','block_plank','pulley_system'].includes(String(s.kind)))))) return validateMultiBodyPlan(input, validateStagePlan);
+  if (record(input) && ('bodies' in input || (Array.isArray(input.stages) && input.stages.some(s => record(s) && ['pendulum_swing','collision_1d','parallel_motion','horizontal_approach','block_plank','pulley_system'].includes(String(s.kind)))))) return validateMultiBodyPlan(input, (track) => validateSingleBodyPlan(track, true));
+  return validateSingleBodyPlan(input);
+}
+
+function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanValidation {
   const missingKeys: string[] = [];
   const fieldErrors: StageFieldError[] = [];
   let damaged = false;
@@ -329,6 +333,12 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
         if (source.end.kind === "distance_from_stage_start") {
           numberField(source.end, stage.end as Record<string, unknown>, "stageIndex", path + "/end/stageIndex", v => Number.isInteger(v) && v >= 0 && v < i);
           if (typeof source.end.stageIndex === "number" && (source.end.stageIndex !== i - 1 || stages[i - 1]?.kind !== "spring_release")) issue(path + "/end/stageIndex", "PRECONDITION_CONFLICT", "距离引用须指向紧邻的预压释放阶段。");
+        }
+      }
+      else if (source.end.kind === "scene_end" && bodyTrack) {
+        if (i !== stages.length - 1) issue(path + "/end/kind", "PRECONDITION_CONFLICT", "跟随共同终点的水平段必须是轨道末段。");
+        if (typeof source.kineticFrictionCoefficient === "number" && source.kineticFrictionCoefficient > 0) {
+          issue(path + "/kineticFrictionCoefficient", "PRECONDITION_CONFLICT", "跟随共同终点的水平段必须光滑。");
         }
       }
       else if (source.end.kind !== "stop") issue(path + "/end/kind", "UNSUPPORTED", "未登记的水平结束条件。");

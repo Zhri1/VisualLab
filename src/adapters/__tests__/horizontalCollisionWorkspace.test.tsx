@@ -18,6 +18,16 @@ describe('水平正碰工作区接线',()=>{
  it('已有约束和真实桌沿事实全部有补值字段',()=>{const pend=form(read('pendulum')),flight=form(read('flight'));for(const name of ['two 支点 x','two 已有绳长 L','two 初态绳状态','沿用题给绳的物体 ID'])expect(pend).toContain(name);for(const name of ['two 碰后初处无支撑','two 桌沿世界 x','two 桌沿支撑侧','two 落地平面 y'])expect(flight).toContain(name);});
  it('碰撞说明使用真实带符号速度及独立动量/能量元数据',()=>{const m=build(read('sticky')),t=m.events.find(e=>e.eventKind==='collision')!.timeSeconds,html=renderToStaticMarkup(<MultiBodyExplanation motion={m} time={t}/>);expect(html).toContain('碰撞前后水平速度');expect(html).toContain('-1.000');expect(html).toContain('14.000');expect(html).toContain('0.500');expect(html).toContain('13.500');});
  it('读数保留负速度和真实位置；合法constructor ID不会读原型',()=>{const p=renamePlanBody(read('elastic'),0,'constructor'),m=build(p);const html=renderToStaticMarkup(<MultiBodyPhysicsCanvas motion={m} time={1}/>);expect(html).toContain('vₓ = -4.00');expect(html).toContain('x = 5.00');expect(html).toContain('两物体水平正碰');const ctx=new Proxy({}, {get:(_t,k)=>k==='measureText'?()=>({width:100}):()=>{}}) as CanvasRenderingContext2D;expect(()=>drawMultiBodyScene(ctx,375,280,m,1)).not.toThrow();});
+ it('光滑跟随段在条件编辑器可选，画布末帧保留运动状态',()=>{
+  const plan=read('scene-end'),motion=build(plan);
+  expect(form(plan)).toContain('光滑匀速至共同终点');
+  const ctx=new Proxy({}, {get:(_t,k)=>k==='measureText'?()=>({width:80}):()=>{}}) as CanvasRenderingContext2D;
+  expect(()=>drawMultiBodyScene(ctx,375,300,motion,motion.durationSeconds)).not.toThrow();
+  expect(motion.stageGeometry?.bodyTracks?.find(track=>track.stagePath==='/stages/2/tracks/0/stages/0')?.horizontal?.plannedEnd).toBeNull();
+  const html=renderToStaticMarkup(<MultiBodyPhysicsCanvas motion={motion} time={motion.durationSeconds}/>);
+  expect(html).toContain('vₓ = -2.00');
+  expect(html).toContain('接地瞬间');
+ });
  it.each(['elastic','sticky','slides','flight','pendulum','no-contact','catch-after-stop'])('%s沿用同一画布，无假地面或接触标记',name=>{const m=build(read(name)),labels:string[]=[],ctx=new Proxy({}, {get:(_t,k)=>k==='measureText'?()=>({width:80}):k==='fillText'?(s:string)=>labels.push(s):()=>{}}) as CanvasRenderingContext2D;drawMultiBodyScene(ctx,375,300,m,m.durationSeconds);if(name==='no-contact'){expect(labels).not.toContain('实际接触点');expect(labels.some(s=>s.startsWith('地面'))).toBe(false);}else expect(labels).toContain('实际接触点');});
  it('重排tracks后的μ图例仍指向停止物体真实字段',()=>{const p=read('catch-after-stop');p.stages[0].tracks.reverse();const m=build(p),stop=m.events.find(e=>e.eventKind==='stop')!;expect(stageForLegend(p,stop.stagePath,stop.stageIndex)?.kineticFrictionCoefficient).toBe(.2);expect(stop.bodyIds).toEqual(['two']);});
  it('零时刻正碰仍展示事件列表，滑轨禁用且快照为碰后',()=>{const p=read('elastic');p.initial.bodies[1].xM=0;p.stages[1].normalXM=1;const m=build(p);const html=renderToStaticMarkup(<EventTimeline motion={m} time={0} onSeek={()=>{}} onSeekEvent={()=>{}} onScrubStart={()=>{}}/>);expect(html).toContain('水平正碰');expect(html).toContain('aria-disabled="true"');expect(m.sampleAt(0).bodies!.one.velocity.x).toBe(-4);expect(m.sampleAt(-1).bodies!.one.velocity.x).toBe(5);});

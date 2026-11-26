@@ -88,7 +88,10 @@ export function solveHorizontal(plan:HorizontalPlan) {
       if(firstBoundary<=age){age=firstBoundary;reason=tracks.find(t=>t.limit===age)!.reason;status=reason==='string_retaut_boundary'?'model_limit':'range_end';}
       else reason=parallel.end.kind==='pendulum_turn'?'pendulum_first_turn':'stopped';
       const crossing=tracks.length===2?secondContact(tracks[0],tracks[1],age):undefined;
-      if(crossing!==undefined&&crossing<=age){age=crossing;reason='second_contact_boundary';status='model_limit';}
+      if(crossing!==undefined&&(crossing<=age||nearValue(crossing,age))){
+        if(!nearValue(crossing,age))age=crossing;
+        reason='second_contact_boundary';status='model_limit';
+      }
       postAge=age;duration=tc+age;
       if(age>0&&duration===tc)throw new RangeError('碰后时长不能与碰撞时刻区分。');
       if(reason==='stopped'){status=tracks.every(t=>t.at(age).status==='resting')?'complete':'range_end';if(status==='range_end')reason='prefix_end';}
@@ -100,11 +103,14 @@ export function solveHorizontal(plan:HorizontalPlan) {
     }
     add(tc,'collision',1,'/stages/1',pair,preContact,postStart,collisionValues);
     if(parallel){
-      const age=postAge,all=tracks.flatMap((tr,i)=>tr.events.filter(e=>e.time<=age).map(e=>({tr,i,e}))).sort((a,b)=>a.e.time-b.e.time||a.i-b.i);
-      for(const {tr,e}of all){const before=postSnapshot(e.time),after=postSnapshot(e.time);
+      const age=postAge,all=tracks.flatMap((tr,i)=>tr.events
+        .filter(e=>e.time<=age||nearValue(e.time,age))
+        .map(e=>({tr,i,e,time:nearValue(e.time,age)?age:e.time})))
+        .sort((a,b)=>a.time-b.time||a.i-b.i);
+      for(const {tr,e,time}of all){const before=postSnapshot(time),after=postSnapshot(time);
         if(e.before)for(const id of tr.ids)Object.assign(before.bodies[id],e.before);
         if(e.after)for(const id of tr.ids)Object.assign(after.bodies[id],e.after);
-        add(tc+e.time,e.kind,2,e.path,tr.ids,before,after);
+        add(tc+time,e.kind,2,e.path,tr.ids,before,after);
       }
       if(reason==='second_contact_boundary')add(duration,'second_contact_boundary',2,'/stages/2',ids,postSnapshot(age));
       else if(!events.some(e=>e.timeSeconds===duration))add(duration,'range_end',2,'/stages/2',ids,postSnapshot(age));
@@ -125,8 +131,9 @@ export function solveHorizontal(plan:HorizontalPlan) {
   function makeTrack(stages:BodyTrackStage[],owners:string[],i:number):Track{
     const path=`/stages/2/tracks/${i}/stages/0`,head=stages[0],start=postStart.bodies[owners[0]];
     if(head.kind!=='pendulum_swing'){
-      const tr=linearBodyTrack(stages,start,owners,i,g),final=tr.at(tr.duration);
-      return {...tr,ids:owners,path,limit:final.status==='resting'?Infinity:tr.duration};
+      const tr=linearBodyTrack(stages,start,owners,i,g);
+      const limit=Number.isFinite(tr.duration)&&tr.at(tr.duration).status!=='resting'?tr.duration:Infinity;
+      return {...tr,ids:owners,path,limit};
     }
     const origin=initial(head.inheritFromBodyId!),c=origin.constraint!,mass=owners.reduce((s,id)=>s+postStart.bodies[id].massKg,0),p=createPendulum(c.lengthM,g,mass,0,start.vxMps,!!head.slackContinuation);
     if(!nearValue(start.xM,c.pivotXM))throw new BodyPlanError(path+'/inheritFromBodyId','碰后位置不在已有绳最低点。');

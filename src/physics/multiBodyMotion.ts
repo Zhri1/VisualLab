@@ -9,7 +9,7 @@ import type { BodyState, BodySnapshot, BodyDefinition, StringState, MotionStatus
 import { createPendulum } from './pendulum.ts';
 import type { PendulumSample } from './pendulum.ts';
 import { collide1D } from './collision.ts';
-import { landingTime, linearState } from './kinematics.ts';
+import { linearState } from './kinematics.ts';
 
 type Pendulum = ReturnType<typeof createPendulum>;
 type Scalar = Pick<BodyState, 'xM'|'yM'|'vxMps'|'vyMps'|'springCompressionM'|'status'>;
@@ -44,7 +44,7 @@ function solve(plan: ResolvedStagePlan): StageMotion {
   const tc=source.endTime(first.end.kind),collision=plan.stages[1] as CollisionStage|undefined;
   if(!Number.isFinite(tc))throw new PlanError('/stages/0/end','当前结束条件不会在可求运动内发生。');
   const geometry: StageMotion['geometry']={blockSizeM:.3,positionReference:'particle',bodies:definitions.map(b=>({...b})),pendulums:[{constraintId,bodyIds:[bobId],definitionStageIndex:0,pivot:{xM:0,yM:L},lowestPoint:{xM:0,yM:0},lengthM:L,initialPosition:pos(source.initial)}],bodyTracks:[]};
-  let duration=tc, postPendulum:Pendulum|undefined,postIds=[bobId],postPath='/stages/2',postTrack=0;
+  let duration=tc, postAge=0, postPendulum:Pendulum|undefined,postIds=[bobId],postPath='/stages/2',postTrack=0;
   let targetId:string|undefined,targetVelocity=0,targetRun:ReturnType<typeof linearTrack>|undefined;
   let sticky=false, groupId:string|undefined, scopeReason:EndReason='prefix_end',status:MotionStatus['state']='range_end',scopeBodies=[bobId];
   const raw:RawEvent[]=[],segments:StageMotion['segments']=[];
@@ -84,23 +84,30 @@ function solve(plan: ResolvedStagePlan): StageMotion {
           endAge=postPendulum.firstTurn;
         }else if(targetRun){
           endAge=targetRun.duration;
+          if(!Number.isFinite(endAge))throw new PlanError('/stages/2/end','没有有限目标轨道决定共同播放范围。',true);
           if(endAge===0&&!postPendulum.equilibrium)throw new PlanError('/stages/2/end','目标已在入口静止，摆仍运动，请明确观察终点。',true);
         }else throw new PlanError('/stages/2/end','没有有限目标轨道决定共同播放范围。',true);
       }else endAge=postPendulum.endTime(pendStage!.end.kind);
+      const landing=targetRun?.reason==='landed'?targetRun.duration:Infinity;
       endAge=Math.min(endAge,postPendulum.limit);
+      if(landing<endAge||close(landing,endAge))endAge=landing;
+      postAge=endAge;
       if(!Number.isFinite(endAge))throw new PlanError('/stages/2/end','当前运动没有所指定的有限终点。');
       duration=tc+endAge;
       if(endAge>0&&!(duration>tc))throw new RangeError('碰后时长与全局时刻无法区分，请核对量级。');
       scopeBodies=postIds;
       if(close(endAge,postPendulum.limit)||endAge===postPendulum.limit){scopeReason=postPendulum.limitKind as EndReason;status=postPendulum.limitKind==='string_retaut_boundary'?'model_limit':'range_end';}
       else if(postPendulum.equilibrium&&(!targetRun||targetRun.at(endAge).status==='resting')){scopeReason='stopped';status='complete';scopeBodies=definitions.map(b=>b.bodyId);}
+      else if(landing===endAge){scopeReason='landed';scopeBodies=[targetId!];}
       else if(parallel?.end.kind==='pendulum_turn'||(!parallel&&pendStage?.end.kind==='first_turn')){scopeReason='pendulum_first_turn';}
       else if(targetRun){scopeReason=targetRun.reason==='landed'?'landed':'prefix_end';scopeBodies=[targetId!];}
       if(!postPendulum.initiallySlack)add(tc,'pendulum_enter',2,postPath,postIds,postTrack);
-      for(const e of postPendulum.eventsUntil(endAge))add(tc+e.time,e.kind,2,postPath,postIds,postTrack,false,e.before,e.after);
+      const turn=postPendulum.firstTurn;
+      const pendulumEventAge=close(turn,endAge)?Math.max(turn,endAge):endAge;
+      for(const e of postPendulum.eventsUntil(pendulumEventAge))add(tc+(close(e.time,endAge)?endAge:e.time),e.kind,2,postPath,postIds,postTrack,false,e.before,e.after);
       appendPendulumSegments(postPendulum,endAge,tc,2,postPath,postIds);
       if(targetRun){
-        for(const e of targetRun.events)if(e.time<=endAge)raw.push({time:tc+e.time,kind:e.kind,stageIndex:2,path:e.path,bodyIds:[targetId!],track:targetRun.track,targetBefore:e.before,targetAfter:e.after});
+        for(const e of targetRun.events)if(e.time<=endAge||close(e.time,endAge))raw.push({time:tc+(close(e.time,endAge)?endAge:e.time),kind:e.kind,stageIndex:2,path:e.path,bodyIds:[targetId!],track:targetRun.track,targetBefore:e.before,targetAfter:e.after});
         for(const s of targetRun.segments){const end=Math.min(endAge,s.endSeconds);if(end>s.startSeconds)segments.push({...s,startSeconds:tc+s.startSeconds,endSeconds:tc+end});}
         geometry.bodyTracks!.push(...targetRun.geometry.filter(x=>x.start<=endAge).map(x=>x.value));
       }
@@ -124,7 +131,8 @@ function solve(plan: ResolvedStagePlan): StageMotion {
   }
   function snapshot(t:number,pre=false,override?:PendulumSample,targetOverride?:Scalar):BodySnapshot{
     const after=!!collision&&t>=tc&&!pre, p=after?postPendulum!:source, ids=after?postIds:[bobId];
-    const state=override??p.at(after?t-tc:t),bodies:Record<string,BodyState>={},constraints:Record<string,StringState>={};
+    const age=after?(t===duration?postAge:t-tc):t;
+    const state=override??p.at(age),bodies:Record<string,BodyState>={},constraints:Record<string,StringState>={};
     const string:StringState={kind:'pendulum_string',constraintId,bodyIds:ids.slice(),pivot:{xM:0,yM:L},lengthM:L,state:state.stringState,tensionN:state.tensionN};
     if(state.stringState==='taut'){string.angleDeg=state.angleRad!*180/Math.PI;string.angularVelocityRadps=state.angularVelocityRadps!;}
     constraints[constraintId]=string;
@@ -132,7 +140,7 @@ function solve(plan: ResolvedStagePlan): StageMotion {
       let scalar:Scalar;
       if(ids.includes(b.bodyId))scalar=state;
       else if(b.bodyId===targetId){
-        if(after)scalar=targetOverride??(targetRun?targetRun.at(t-tc):{...linearState(0,0,targetVelocity,0,0,0,0),status:targetVelocity===0?'resting':'moving'});
+        if(after)scalar=targetOverride??(targetRun?targetRun.at(age):{...linearState(0,0,targetVelocity,0,0,0,0),status:targetVelocity===0?'resting':'moving'});
         else{const speed=collision!.targetApproach.velocityXMps;scalar={...linearState(-speed*tc,0,speed,0,0,0,t),status:speed===0?'resting':'moving'};}
       }else throw new PlanError('/bodies','物体没有可求的初态或运动轨道。');
       bodies[b.bodyId]={bodyId:b.bodyId,massKg:b.massKg,xM:scalar.xM,yM:scalar.yM,vxMps:scalar.vxMps,vyMps:scalar.vyMps,springCompressionM:0,status:scalar.status,...(ids.includes(b.bodyId)?{constraintId,...(after&&groupId?{groupId}:{})}:{})};

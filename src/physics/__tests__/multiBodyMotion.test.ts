@@ -9,6 +9,7 @@ import alone from '../../../fixtures/pendulum-alone.reading.json';
 import flight from '../../../fixtures/pendulum-target-projectile.reading.json';
 import slack from '../../../fixtures/pendulum-slack.reading.json';
 import initialSlack from '../../../fixtures/pendulum-initial-slack.reading.json';
+import follower from '../../../fixtures/pendulum-scene-end.reading.json';
 import ref from '../../../fixtures/pendulum-collision.acceptance.json';
 
 function motion(p:unknown):StageMotion {const a=assembleScene(p);if(!a.ok)throw Error(JSON.stringify(a));const b=buildMotion(a.scene);if(!b.ok)throw Error(JSON.stringify(b));if(!('stage_scene'===('kind'in a.scene?a.scene.kind:'')))throw Error('场景类型错误');return b.motion as StageMotion;}
@@ -40,6 +41,19 @@ describe('多物体装配、统一时钟和事件',()=>{
     const launch=m.events.find(e=>e.kind==='leave_table')!;expect(launch.stagePath).toBe('/stages/2/tracks/1/stages/1');expect(m.sampleAt(launch.timeSeconds+1e-7).bodies!.target.yM).toBeLessThan(0);
   });
   it('仅明确要求首转折才提前结束整个并行范围',()=>{const p=clone(unequal);p.stages[2].end={kind:'pendulum_turn',bodyId:'bob'} as typeof p.stages[2]['end'];const m=motion(p);expect(m.durationSeconds).toBeCloseTo(ref.unequal.bobTurnTimeSeconds,8);expect(m.sampleAt(Infinity).bodies!.target.vxMps).toBeGreaterThan(0);expect(m.events.some(e=>e.kind==='stop')).toBe(false);});
+  it.each([-1,1])('目标落地与摆锤首转折相差几个浮点单位时保留两项 (%s)',offset=>{
+    const base=motion(follower),collision=base.events.find(e=>e.kind==='collision')!;
+    const age=base.durationSeconds-collision.timeSeconds;
+    const p={...follower,stages:[...follower.stages.slice(0,2),{
+      ...follower.stages[2],tracks:[follower.stages[2].tracks![0],{
+        bodyIds:['target'],stages:[{kind:'projectile',landingPlaneYM:-5*age**2*(1+offset*4*Number.EPSILON)}],
+      }],
+    }]};
+    const m=motion(p);
+    expect(m.events.filter(e=>e.timeSeconds===m.durationSeconds).map(e=>e.kind)).toEqual(['pendulum_turn','land']);
+    expect(m.sampleAt(Infinity).bodies!.target.status).toBe('landed');
+    expect(m.sampleAt(Infinity).bodies!.bob.status).toBe('turning');
+  });
   it('目标预碰位置来自真实带符号匀速前提，物体表次序不改变绑定',()=>{const p=clone(moving);p.bodies.reverse();const m=motion(p);expect(m.sampleAt(0).bodies!.target.xM).toBeCloseTo(ref.movingTarget.initialXM,10);expect(m.sampleAt(0).bodies!.target.vxMps).toBe(-1);expect(m.sampleAt(m.events.find(e=>e.kind==='collision')!.timeSeconds).bodies!.target.vxMps).toBeCloseTo(Math.sqrt(10),10);});
   it('切换主物体只改变兼容投影，不交换ID和物理状态',()=>{const p=clone(unequal);p.primaryBodyId='target';const a=motion(unequal),b=motion(p),t=.8;expect(a.sampleAt(t).bodies).toEqual(b.sampleAt(t).bodies);expect(b.sampleAt(t).xM).toBe(b.sampleAt(t).bodies!.target.xM);});
   it('松绳事件后无圆周约束力，无地面时不造land',()=>{const m=motion(slack),loss=m.events.find(e=>e.kind==='string_slack')!,t=loss.timeSeconds;expect(m.sampleAt(t-1e-7).constraints!['string:bob'].state).toBe('taut');expect(m.sampleAt(t).constraints!['string:bob'].state).toBe('slack');expect(loss.constraintsBefore!['string:bob'].state).toBe('taut');expect(loss.constraintsAfter!['string:bob'].tensionN).toBe(0);expect(m.geometry.bodyTracks?.find(t=>t.projectile)?.projectile?.landingPlane).toBeUndefined();expect(m.events.some(e=>e.kind==='land')).toBe(false);expect(m.sampleAt(Infinity).bodies!.bob.status).toBe('model_boundary');expect(m.motionStatus?.state).toBe('model_limit');});

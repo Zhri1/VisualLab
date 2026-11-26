@@ -1,0 +1,92 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "bodies": [
+    {
+      "bodyId": "bob",
+      "massKg": 1
+    },
+    {
+      "bodyId": "target",
+      "massKg": 3
+    }
+  ],
+  "primaryBodyId": "bob",
+  "initial": {
+    "speedMps": 0
+  },
+  "stages": [
+    {
+      "kind": "pendulum_swing",
+      "bodyIds": [
+        "bob"
+      ],
+      "lengthM": 0.8,
+      "initialAngleDeg": -90,
+      "initialStringState": "taut",
+      "pivotFixed": true,
+      "lightInextensibleString": true,
+      "airResistanceNegligible": true,
+      "end": {
+        "kind": "lowest_point"
+      }
+    },
+    {
+      "kind": "collision_1d",
+      "bodyIds": [
+        "bob",
+        "target"
+      ],
+      "mode": "elastic",
+      "normalXM": 1,
+      "contact": {
+        "kind": "pendulum_lowest",
+        "pendulumStageIndex": 0
+      },
+      "targetApproach": {
+        "kind": "uniform_horizontal",
+        "velocityXMps": 0,
+        "endsAtContact": true
+      },
+      "externalImpulseNegligible": true
+    },
+    {
+      "kind": "parallel_motion",
+      "tracks": [
+        {
+          "bodyIds": [
+            "bob"
+          ],
+          "stages": [
+            {
+              "kind": "pendulum_swing",
+              "inheritFromStageIndex": 0,
+              "end": {
+                "kind": "scene_end"
+              }
+            }
+          ]
+        },
+        {
+          "bodyIds": [
+            "target"
+          ],
+          "stages": [
+            {
+              "kind": "horizontal_slide",
+              "kineticFrictionCoefficient": 0,
+              "end": {
+                "kind": "scene_end"
+              }
+            }
+          ]
+        }
+      ],
+      "end": {
+        "kind": "pendulum_turn",
+        "bodyId": "bob"
+      }
+    }
+  ]
+}
