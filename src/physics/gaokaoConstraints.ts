@@ -71,6 +71,7 @@ export type CriticalArcTopRadiusParams = {
   entrySpeedMps: number;
   gravityMps2: number;
   startAngleDeg?: number;
+  side?: "inside" | "rod";
   stageIndex?: number;
   constraintIndex?: number;
   inputPaths?: string[];
@@ -373,17 +374,18 @@ export function deriveCriticalArcTopRadius(
   }
 
   const cosPhi0 = arcTrig((startAngleDeg * Math.PI) / 180).cos;
-  const denomFactor = 3 + 2 * cosPhi0;
+  const isRod = params.side === "rod";
+  const denomFactor = (isRod ? 2 : 3) + 2 * cosPhi0;
   if (!Number.isFinite(denomFactor) || denomFactor <= DELTA_COS_TOL) {
     return fail(
       startAnglePath,
       "PRECONDITION_CONFLICT",
-      "入口角对应的能量系数 3 + 2*cos(phi0) 非正，无法反求临界半径。",
+      `入口角对应的能量系数 ${isRod ? 2 : 3} + 2*cos(phi0) 非正，无法反求临界半径。`,
     );
   }
 
   const radiusM = (params.entrySpeedMps * params.entrySpeedMps) / (params.gravityMps2 * denomFactor);
-  const topSpeedMps = Math.sqrt(params.gravityMps2 * radiusM);
+  const topSpeedMps = isRod ? 0 : Math.sqrt(params.gravityMps2 * radiusM);
   if (!Number.isFinite(radiusM) || radiusM <= 0 || !Number.isFinite(topSpeedMps)) {
     return fail(constraintPath, "NOT_FINITE", "反求得到的临界圆轨半径超出可表示范围。");
   }
@@ -836,6 +838,7 @@ export function resolveGaokaoImplicitParams(
             entrySpeedMps: state!.speed,
             gravityMps2: g!,
             startAngleDeg,
+            side: stage.side === "rod" ? "rod" : "inside",
             stageIndex: i,
             constraintIndex: crit.constraintIndex,
             inputPaths,

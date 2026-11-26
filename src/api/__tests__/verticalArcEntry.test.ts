@@ -43,4 +43,22 @@ describe.each([['Node', handlePlan], ['Qoder', handler]] as const)('%s 圆弧正
     expect(await response.json()).toMatchObject({ status: 'needs_input', missingKeys: ['/stages/0/radiusM'], reading: { stages: [{ kind: 'vertical_arc', radiusM: null }, { kind: 'projectile', landingPlaneYM: 0 }] } });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it('轻杆/双轨（side: rod）模型回包经真实校验与播放器入口可播放且最高点不脱轨', async () => {
+    const rodRaw = {
+      kind: 'stage_plan', schemaVersion: 1, gravityMps2: 10, massKg: 0.1,
+      initial: { speedMps: Math.sqrt(18) },
+      stages: [{ kind: 'vertical_arc', radiusM: 0.4, endAngleDeg: 180, side: 'rod', frictionless: true }],
+    };
+    fetchMock.mockResolvedValueOnce(Response.json({ choices: [{ message: { content: JSON.stringify(rodRaw) } }] }));
+    const form = new FormData(); form.set('text', '轻杆圆周运动');
+    const response = await entry(new Request('http://localhost/api/animation/plan', { method: 'POST', body: form }));
+    expect(response.status).toBe(200);
+    const result = await response.json(); expect(result.status).toBe('ok');
+    const scene = motionLibrary.assembleScene(result.reading); if (!scene.ok) throw new Error(JSON.stringify(scene.errors));
+    const built = motionLibrary.buildMotion(scene.scene); if (!built.ok) throw new Error(built.message);
+    expect(built.motion.stageGeometry?.verticalArc?.side).toBe('rod');
+    expect(built.motion.events.some(e => e.id.includes('arc_contact_lost'))).toBe(false);
+    expect(built.motion.events.find(e => e.id.includes('arc_endpoint'))?.normalForceBeforeN).toBeCloseTo(-0.5, 6);
+  });
 });

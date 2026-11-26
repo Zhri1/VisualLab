@@ -12,6 +12,10 @@ export type ConveyorBeltStage = {
   kineticFrictionCoefficient: number;
   staticFrictionCoefficient?: number | null;
   beltLengthM?: number | null;
+  /** 传送带倾角 θ（度），0 ≤ θ < 90；默认 0（水平传送带）。 */
+  angleDeg?: number | null;
+  /** 沿带正方向 +s 的倾斜朝向："up"（默认，从底端指向上端）或 "down"（从顶端指向底端）。 */
+  inclineDirection?: "up" | "down" | null;
 };
 
 export type ConveyorReading = {
@@ -26,6 +30,10 @@ export type ConveyorGeometry = {
   maxXM: number;
   beltLengthM: number | null;
   initialBeltSpeedMps: number;
+  angleDeg?: number;
+  inclineDirection?: "up" | "down";
+  originXM?: number;
+  originYM?: number;
 };
 
 type Piece = {
@@ -75,8 +83,20 @@ function solveExitTime(x0: number, v0: number, a: number, targetX: number): numb
 }
 
 export function solveConveyorBelt(stage: ConveyorBeltStage, startXM: number, startVxMps: number, gravityMps2: number) {
-  const ak = stage.kineticFrictionCoefficient * gravityMps2;
-  const asMax = (stage.staticFrictionCoefficient ?? 0) * gravityMps2;
+  const angleDeg = stage.angleDeg ?? 0;
+  const inclineDirection: "up" | "down" = stage.inclineDirection ?? "up";
+  const rad = (angleDeg * Math.PI) / 180;
+  const cos = angleDeg === 0 ? 1 : Math.cos(rad);
+  const sin = angleDeg === 0 ? 0 : Math.sin(rad);
+  const dirSign = inclineDirection === "down" ? -1 : 1;
+  // 重力沿传送带正方向 +s 的分量加速度："up" 时 -g·sinθ，"down" 时 +g·sinθ，水平时 0。
+  const ag = -dirSign * gravityMps2 * sin;
+  const ak = stage.kineticFrictionCoefficient * gravityMps2 * cos;
+  // 倾斜匀速传送带若未单列静摩擦因数，按高考常规取 μs = μk 以区分 μ ≥ tanθ 与 μ < tanθ。
+  const effectiveStaticMu = stage.staticFrictionCoefficient != null
+    ? stage.staticFrictionCoefficient
+    : angleDeg > 0 ? stage.kineticFrictionCoefficient : 0;
+  const asMax = effectiveStaticMu * gravityMps2 * cos;
   const L = stage.beltLengthM ?? null;
 
   let t = 0, x = startXM, v = startVxMps, xb = 0, vb = stage.initialBeltSpeedMps;
@@ -98,22 +118,27 @@ export function solveConveyorBelt(stage: ConveyorBeltStage, startXM: number, sta
       let reachesCommon = false;
 
       if (Math.abs(vRel) <= vTol) {
-        const aTol = 64 * Number.EPSILON * Math.max(1, asMax, Math.abs(ab));
-        if (Math.abs(ab) <= asMax + aTol) {
+        // 保持与带共速所需的静摩擦加速度：a_g + a_f_req = a_b ⇒ a_f_req = a_b - a_g
+        const aReq = ab - ag;
+        const aTol = 64 * Number.EPSILON * Math.max(1, asMax, Math.abs(aReq));
+        if (Math.abs(aReq) <= asMax + aTol) {
           a = ab;
         } else {
-          a = Math.sign(ab) * ak;
+          a = ag + Math.sign(aReq) * ak;
+          const inclinedUniform = angleDeg > 0 && Math.abs(ab) <= 1e-12;
           events.push({
             kind: "conveyor_reslide",
             time: t,
             xM: x,
             vxMps: v,
-            label: "静摩擦不足重新滑动",
-            explanation: `带面加速度 ${ab.toFixed(2)} m/s² 超过静摩擦上限 ${asMax.toFixed(2)} m/s²，滑块切换为动摩擦加速度 ${a.toFixed(2)} m/s²。`,
+            label: inclinedUniform ? "μ < tanθ 摩擦力反向继续滑动" : "静摩擦不足重新滑动",
+            explanation: inclinedUniform
+              ? `重力沿带分量 ${Math.abs(ag).toFixed(2)} m/s² 超过静摩擦上限 ${asMax.toFixed(2)} m/s²（μ < tanθ），共速后摩擦力反向，滑块以加速度 ${a.toFixed(2)} m/s² 继续相对滑动。`
+              : `维持共速所需静摩擦加速度 ${aReq.toFixed(2)} m/s² 超过上限 ${asMax.toFixed(2)} m/s²，滑块切换为动摩擦加速度 ${a.toFixed(2)} m/s²。`,
           });
         }
       } else {
-        a = -Math.sign(vRel) * ak;
+        a = ag - Math.sign(vRel) * ak;
         const aRel = a - ab;
         if (vRel * aRel < 0) {
           const tc = -vRel / aRel;
@@ -222,7 +247,13 @@ export function solveConveyorBelt(stage: ConveyorBeltStage, startXM: number, sta
     exited,
     endX: x,
     endVx: v,
-    geometry: { minXM: L !== null ? Math.min(0, minX) : minX, maxXM: L !== null ? Math.max(L, maxX) : maxX, beltLengthM: L, initialBeltSpeedMps: stage.initialBeltSpeedMps } as ConveyorGeometry,
+    geometry: {
+      minXM: L !== null ? Math.min(0, minX) : minX,
+      maxXM: L !== null ? Math.max(L, maxX) : maxX,
+      beltLengthM: L,
+      initialBeltSpeedMps: stage.initialBeltSpeedMps,
+      ...(angleDeg > 0 ? { angleDeg, inclineDirection } : {}),
+    } as ConveyorGeometry,
     events,
     evalAt: evalPiece,
   };

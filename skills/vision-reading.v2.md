@@ -101,7 +101,7 @@
 | `horizontal_slide` | `kineticFrictionCoefficient`、`end` | `end` 二选一：`{ "kind": "distance", "distanceM": 5 }` 或 `{ "kind": "stop" }`。`distanceM` **从本水平段起点量起**（通常就是坡底/转向点） |
 | `spring_contact` | `springConstantNpm`、`frictionless`、`unattached` | `frictionless` 指水平接触面光滑；`unattached` 指滑块与弹簧不连接。二者为 `false` → 超范围 |
 | `spring_release` | `springConstantNpm`、`initialCompressionM`、`kineticFrictionCoefficient`、`unattached`、`slidesAfterRelease`，必要时releaseCompleteByM | 静止预压释放首段；完整或缺参条件见第8节，由B计算能量与精确范围 |
-| `vertical_arc` | `radiusM`（可为 `null`）、可选 `verticalDropM`、旧 `endAngleDeg` 或互斥的显式 `path`、`side`、`frictionless` | 旧模式为最低点向右的半圆范围；完整内轨或不同角度入口按第11节提取显式 `path`（后继段应省略 `path.center` 由物理库自动衔接）；题面只给高度差与圆心角未给半径时填 `radiusM: null` + `verticalDropM`；临界过顶未给半径时填 `radiusM: null` + 顶层 `constraints: [{ kind: "critical_arc_top", stageIndex }]`；仍只支持 `inside` 和光滑，未知事实填 `null` |
+| `vertical_arc` | `radiusM`（可为 `null`）、可选 `verticalDropM`、旧 `endAngleDeg` 或互斥的显式 `path`、`side`、`frictionless` | 旧模式为最低点向右的半圆范围；完整内轨或不同角度入口按第11节提取显式 `path`（后继段应省略 `path.center` 由物理库自动衔接）；题面只给高度差与圆心角未给半径时填 `radiusM: null` + `verticalDropM`；临界过顶未给半径时填 `radiusM: null` + 顶层 `constraints: [{ kind: "critical_arc_top", stageIndex }]`；`side` 支持 `"inside"`（单内轨，过顶临界 `v≥√(gR)`）或 `"rod"`（轻杆/双轨/光滑管，过顶临界 `v≥0`，不脱轨），未知事实填 `null` |
 | `projectile` | `dropHeightM`、`landingPlaneYM` 或 `end: { kind: "tangent_to_next_arc" }`，三者互斥只能保留一个键 | 旧 `dropHeightM` 是相对发射点的非负落差；`landingPlaneYM` 是固定世界坐标落地高度（圆弧后必须用它）；题面写「恰好沿切线滑入下一段圆弧」且未给落差时使用 `end: { kind: "tangent_to_next_arc" }`。依据不足填 `null`，不要按图像或脱轨位置猜地面 |
 | *通用地标标注* | 可选 `startLabel`、`endLabel` | 任意阶段均可附带题图字母地标（如 `"startLabel": "A", "endLabel": "B"`），便于前端与阶段说明对应题面节点 |
 | `pendulum_swing` | bodyIds、lengthM、initialAngleDeg、initialStringState、理想绳/支点事实、end；碰后用inheritFromStageIndex | 第9节；不能将60°按小角近似、不能把绳当可推的杆 |
@@ -109,7 +109,7 @@
 | `parallel_motion` | tracks、end | 第9节；碰后摆与目标同时运动，不顺序串成两个时间段 |
 | `horizontal_approach` | tracks:[{bodyId,kineticFrictionCoefficient}]、end | 第10节；按两体初态计算实际接近或先停止，不猜碰撞时刻 |
 | `movable_arc` | `radiusM`、`grooveMassKg`、可选 `exitDirection`（-1 默认向左离槽 / 1 向右） | 第17节；四分之一光滑槽静置光滑地面可自由滑动；球从槽顶静止释放；离槽速度由动量+能量守恒由 B 计算 |
-| `spring_pair` | `springConstantNpm`、`targetMassKg`（可 `null`）、`separationSpeedMps`（可 `null`）、可选 `gapM` | 第18节；弹簧不锚墙、另一端自由；`targetMassKg` 与 `separationSpeedMps` 至少给一个，给后者时 B 反求 m₂；k 未给时填题设确认值或 `null` 待补 |
+| `spring_pair` | 可选 `springConstantNpm`（未给填 `null` 默认 100）、`targetMassKg`（可 `null`）、`separationSpeedMps`（可 `null`）、可选 `matchGrooveSpeed`、`gapM` | 第18节；弹簧不锚墙、另一端自由；`targetMassKg`、`separationSpeedMps`、`matchGrooveSpeed: true`（紧接 `movable_arc` 且题面称「恰好不能再次滑上圆弧槽」）三者至少给一个；k 未给时直接填 `null`（不影响速度、质量与最大弹性势能） |
 
 阶段特有的事实写在阶段内，**没有全局 `facts`**。
 
@@ -439,6 +439,13 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 轻绳张力/松绳、同钟bodyId和再次张紧前边界沿第9节，不能用圆轨替换绳。
 
+### 11.2 轻杆 / 双轨 / 光滑管竖直圆周运动（`side: "rod"`）
+
+当题面为**轻杆固定小球绕轴转动**或**小球在双面光滑圆管/双轨内运动**时，沿用 `vertical_arc`（旧 `endAngleDeg` 与显式 `path` 均支持），将 `side` 设为 `"rod"`：
+- 不会因法向力变负而脱轨，最高点临界速度为 `v_min = 0`（对应最低点临界 `v₀ = 2√(gR)`）；
+- 最高点 `0 ≤ v < √(gR)` 时杆/内管壁提供**向上的支持力**，`v > √(gR)` 时提供**向下的拉力/外管壁压力**，均由 B 计算并在画面标注；
+- 若配合 `constraints: [{ kind: "critical_arc_top", stageIndex }]` 反求半径，B 自动按 `v_top = 0`（`R = u² / (4g)`）求解。
+
 ## 12. 粗糙弹簧接触与能量显示
 
 共享契约 `ROUGH_SPRING_CONTACT.md`。滑块以水平正速入射压缩粗糙面上的弹簧时，沿用 `spring_contact`，使用互斥字段 `kineticFrictionCoefficient`（不得同时输出 `frictionless`），顶层必填 `massKg` 与 `gravityMps2`：
@@ -499,9 +506,9 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - 共速后若题面施加恒定水平外力，填 `postCommonForce: { blockForceXN, plankForceXN, durationSeconds }`；此时若所需静摩擦非零，必须从题面提取 `staticFrictionCoefficient`（未给则填 `null`，**绝不默认等于 μₖ**）。
 - 先共速还是先到板边、相对位移、离板速度以及共速后是否重新滑动均由 B 计算，模型不代算也不编造木板离地高度。
 
-## 15. 传送带与滑块
+## 15. 传送带与滑块（水平与倾斜）
 
-共享契约 `CONVEYOR_BELT.md`。水平传送带（匀速或分段恒加速）与滑块使用 `initial: { vxMps: 带符号对地初速 }`、顶层 `gravityMps2` 与单段 `conveyor_belt`：
+共享契约 `CONVEYOR_BELT.md`。水平或倾斜传送带（匀速或分段恒加速）与滑块使用 `initial: { vxMps: 带符号沿带初速 }`、顶层 `gravityMps2` 与单段 `conveyor_belt`：
 
 ```json
 {
@@ -516,7 +523,8 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 }
 ```
 
-- 匀速带只需 `accelerationMps2: 0`，此时不要求 `staticFrictionCoefficient`；存在非零带加速度时，必须提取题给 `staticFrictionCoefficient`（未给填 `null`，**绝不默认等于 μₖ**）。
+- 匀速水平带只需 `accelerationMps2: 0`，此时不要求 `staticFrictionCoefficient`；存在非零带加速度时，必须提取题给 `staticFrictionCoefficient`（未给填 `null`，**绝不默认等于 μₖ**）。
+- **倾斜传送带**：填 `angleDeg`（`0 < θ < 90`）与 `inclineDirection`（`"up"` 表示 +s 沿斜面向上、底端放上；`"down"` 表示 +s 沿斜面向下、顶端放上）；匀速倾斜带未单列静摩擦因数时可省略 `staticFrictionCoefficient`，B 自动按 `μ ≥ tanθ`（共速后匀速）与 `μ < tanθ`（共速后摩擦力反向继续加速/减速折返）精确分叉。
 - 题面给定带长时填 `beltLengthM`；未给则省略。对地位移、相对带面位移、共速时刻及是否重新滑动均由 B 计算。
 
 ## 16. 轻绳与理想定滑轮连接体
@@ -563,7 +571,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 ## 18. 不锚墙弹簧连接两球（spring_pair）
 
-题面特征：运动球冲向静止球，静止球连一**轻质弹簧、弹簧另一端自由（不锚墙）**；或两球经自由弹簧弹性相互作用。锚墙弹簧用 `spring_contact`，不得混用。
+题面特征：运动球冲向静止球，静止球连一**轻质弹簧、弹簧另一端自由（不锚墙）**；或两球经自由弹簧弹性相互作用。典型高考组合（如「光滑水平面上质量 M、半径 R 的四分之一光滑圆弧槽，质量 m₁ 的小球从槽顶静止释放，滑下后与连接轻质弹簧的静止小球 m₂ 相互作用，求槽速、m₁ 恰好不能再次滑上圆弧槽时的 m₂ 及最大弹性势能」）使用 `movable_arc → spring_pair`。锚墙弹簧用 `spring_contact`，不得混用。
 
 ```json
 {
@@ -571,15 +579,15 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
   "initial": { "speedMps": 0 },
   "stages": [
     { "kind": "movable_arc", "radiusM": 0.6, "grooveMassKg": 3, "exitDirection": -1 },
-    { "kind": "spring_pair", "springConstantNpm": 100, "gapM": 0.5, "targetMassKg": null, "separationSpeedMps": 1 }
+    { "kind": "spring_pair", "springConstantNpm": null, "gapM": 0.5, "targetMassKg": null, "matchGrooveSpeed": true }
   ],
   "assumptions": []
 }
 ```
 
-- `massKg` 是入射球 m₁；`targetMassKg` 是靶球 m₂。m₂ 未知而题给临界条件（如「m₁ 恰好不能再次滑上圆弧槽」⇒ 分离后 m₁ 速率等于槽速）时：`targetMassKg: null` + `separationSpeedMps: 槽速`，由 B 反求 m₂ = m₁(u+s)/(u−s)。
-- 两质量都已知时 `separationSpeedMps: null`；两者都缺 → 待补 `targetMassKg`。
-- `springConstantNpm` 题未给时：若只问能量/速度（与 k 无关），填一个题设确认的假设值并在 `assumptions` 声明「k 仅影响过程时长」；完全无依据填 `null` 待补。
+- `massKg` 是入射球 m₁；`targetMassKg` 是靶球 m₂。m₂ 未知且题面给定临界条件「m₁ 恰好不能再次滑上圆弧槽」（分离后 m₁ 速率等于圆弧槽速）时：**推荐直接写 `targetMassKg: null` + `matchGrooveSpeed: true`**（无需手算槽速），也可填 `separationSpeedMps: 槽速`，均由 B 自动反求 m₂ = m₁(u+s)/(u−s)。
+- 两质量都已知时 `separationSpeedMps: null` 且省略 `matchGrooveSpeed`；三者都缺 → 待补 `targetMassKg`。
+- `springConstantNpm` 题未给时直接填 `null`（B 默认按 100 N/m 播放，k 仅影响动画时长，不影响分离速度、反求质量与最大弹性势能）。
 - `gapM` 是入射球接触弹簧前到靶球的间距，未给默认 0.5 并在假设声明；地面必须光滑。
 - 共速时压缩最大、Ep = ½m₁u² − ½(m₁+m₂)v共²，分离后弹性势能归零，均由 B 计算；本段为末段。
 

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { solveSpringPair, type SpringPairStage } from "../springPair.ts";
+import { assembleScene, buildMotion } from "../index.ts";
 
 const stage = (over: Partial<SpringPairStage> = {}): SpringPairStage => ({
   kind: "spring_pair",
@@ -108,5 +110,39 @@ describe("弹簧双球：反求/给定两路与简谐接触过程", () => {
     expect(() => solveSpringPair(stage({ targetMassKg: 0 }), entry, m1)).toThrow(RangeError);
     expect(() => solveSpringPair(stage({ gapM: -0.1 }), entry, m1)).toThrow(RangeError);
     expect(() => solveSpringPair(stage(), entry, m1)).toThrow(RangeError);
+  });
+
+  it("第 19 题端到端核验：fixture 与缺 k + matchGrooveSpeed 均给出 v槽=1 m/s、m2=2 kg、Ep=3 J", () => {
+    const fixture = JSON.parse(readFileSync(new URL("../../../fixtures/movable-arc-spring.reading.json", import.meta.url), "utf8"));
+    const cases = [
+      fixture,
+      {
+        kind: "stage_plan",
+        schemaVersion: 1,
+        gravityMps2: 10,
+        massKg: 1,
+        initial: { speedMps: 0 },
+        stages: [
+          { kind: "movable_arc", radiusM: 0.6, grooveMassKg: 3, exitDirection: -1 },
+          { kind: "spring_pair", springConstantNpm: null, gapM: 0.5, targetMassKg: null, matchGrooveSpeed: true },
+        ],
+      },
+    ];
+    for (const plan of cases) {
+      const assembled: any = assembleScene(plan);
+      expect(assembled.ok).toBe(true);
+      const motion: any = buildMotion(assembled.scene).motion;
+      const arcExit = motion.events.find((e: any) => e.kind === "movable_arc_exit");
+      expect(arcExit).toBeDefined();
+      expect(Math.abs(arcExit.velocityAfter.vxMps)).toBeCloseTo(3, 6);
+      expect(motion.movableArcAt(arcExit.timeSeconds).grooveVX).toBeCloseTo(1, 6);
+      expect(motion.geometry.springPair.mass2Kg).toBeCloseTo(2, 6);
+      const maxComp = motion.events.find((e: any) => e.kind === "spring_pair_max_compression");
+      expect(maxComp).toBeDefined();
+      expect(maxComp.explanation).toContain("3.0000 J");
+      const sep = motion.events.find((e: any) => e.kind === "spring_pair_separate");
+      expect(sep.velocityAfter.vxMps).toBeCloseTo(1, 6);
+      expect(motion.springPairAt(sep.timeSeconds).vx2Mps).toBeCloseTo(-2, 6);
+    }
   });
 });

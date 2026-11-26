@@ -48,10 +48,11 @@ const NUMBER_FIELDS: Partial<Record<StageKind, NumberMeta[]>> = {
     { key: "netForceXN", label: "水平恒定合力 F", unit: "N", step: 0.5, hint: "向右为正，向左为负，0 为匀速" },
   ],
   conveyor_belt: [
-    { key: "initialBeltSpeedMps", label: "带面初速度 v带₀", unit: "m/s", step: 0.5, hint: "向右为正" },
+    { key: "initialBeltSpeedMps", label: "带面初速度 v带₀", unit: "m/s", step: 0.5, hint: "沿带正方向为正" },
     { key: "kineticFrictionCoefficient", label: "动摩擦因数 μₖ", unit: "", step: 0.05 },
-    { key: "staticFrictionCoefficient", label: "静摩擦因数 μₛ", unit: "", step: 0.05, hint: "加速带必填，不默认等于 μₖ" },
+    { key: "staticFrictionCoefficient", label: "静摩擦因数 μₛ", unit: "", step: 0.05, hint: "加速带必填；倾斜匀速带留空默认等于 μₖ" },
     { key: "beltLengthM", label: "带长 L（可选）", unit: "m", step: 0.5 },
+    { key: "angleDeg", label: "带面倾角 θ（可选）", unit: "°", step: 1, hint: "0° 为水平，0° < θ < 90° 为倾斜传送带" },
   ],
   spring_contact: [{ key: "springConstantNpm", label: "弹簧劲度系数 k", unit: "N/m", step: 10 }],
   movable_arc: [
@@ -59,7 +60,7 @@ const NUMBER_FIELDS: Partial<Record<StageKind, NumberMeta[]>> = {
     { key: "grooveMassKg", label: "槽质量 M", unit: "kg", step: 0.5, hint: "地面光滑，槽可自由滑动" },
   ],
   spring_pair: [
-    { key: "springConstantNpm", label: "弹簧劲度系数 k", unit: "N/m", step: 10, hint: "题未给时仅影响过程时长" },
+    { key: "springConstantNpm", label: "弹簧劲度系数 k（可选）", unit: "N/m", step: 10, hint: "题未给默认 100，仅影响过程时长" },
     { key: "targetMassKg", label: "靶球质量 m₂（可空）", unit: "kg", step: 0.5, hint: "留空时由分离速度反求" },
     { key: "separationSpeedMps", label: "分离后入射球速率", unit: "m/s", step: 0.5, hint: "临界条件：等于槽速即恰好不再滑上" },
     { key: "gapM", label: "接触前间距", unit: "m", step: 0.1 },
@@ -113,8 +114,10 @@ function blankStage(kind: StageKind): Record<string, unknown> {
     return { kind, netForceXN: null, end: { kind: "duration", durationSeconds: null } };
   }
   if (kind === "conveyor_belt") {
-    return { kind, initialBeltSpeedMps: null, segments: [{ accelerationMps2: 0, durationSeconds: null }], kineticFrictionCoefficient: null, staticFrictionCoefficient: null };
+    return { kind, initialBeltSpeedMps: null, segments: [{ accelerationMps2: 0, durationSeconds: null }], kineticFrictionCoefficient: null, staticFrictionCoefficient: null, angleDeg: null, inclineDirection: "up" };
   }
+  if (kind === "movable_arc") return { kind, radiusM: null, grooveMassKg: null, exitDirection: -1 };
+  if (kind === "spring_pair") return { kind, springConstantNpm: 100, targetMassKg: null, separationSpeedMps: null, gapM: 0.5 };
   if (kind === "spring_contact") return { kind, springConstantNpm: null, frictionless: null, unattached: null };
   if (kind === "vertical_arc") return { kind, radiusM: null, endAngleDeg: null, side: null, frictionless: null };
   return { kind, dropHeightM: null };
@@ -250,7 +253,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
   const firstKind = draft.stages[0]?.kind;
   const components = firstKind === "projectile" || "vxMps" in initial || "vyMps" in initial;
   const conveyorInit = firstKind === "conveyor_belt";
-  const showMass = "massKg" in draft || flagged("/massKg") || draft.stages.some((stage) => stage.kind === "spring_release" || stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "constant_force_1d");
+  const showMass = "massKg" in draft || flagged("/massKg") || draft.stages.some((stage) => stage.kind === "spring_release" || stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "constant_force_1d" || stage.kind === "movable_arc" || stage.kind === "spring_pair");
 
   return (
     <div className="stage-plan-editor" data-testid="stage-plan-editor">
@@ -332,7 +335,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                           aria-label={`阶段 ${index + 1} 圆轨道接触侧`} aria-invalid={flagged(`/stages/${index}/side`)}
                           value={typeof stage.side === "string" ? stage.side : ""}
                           onChange={(event) => setStage(index, { ...stage, side: event.target.value || null })}>
-                          <option value="">待确认</option><option value="inside">内侧</option><option value="outside">外侧（暂不支持）</option>
+                          <option value="">待确认</option><option value="inside">内侧（单轨）</option><option value="rod">轻杆 / 双轨</option><option value="outside">外侧（暂不支持）</option>
                         </select></td><td />
                       </tr>
                       {factRow(index, "frictionless", "圆轨道光滑")}
@@ -384,6 +387,23 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                         onChange: (raw) => setDistance(index, raw),
                       })}
                     </>
+                  )}
+                  {kind === "conveyor_belt" && (
+                    <tr data-field-path={`/stages/${index}/inclineDirection`}>
+                      <td className="name">倾斜正方向 +s</td>
+                      <td className="val">
+                        <select
+                          className={"stage-select" + (flagged(`/stages/${index}/inclineDirection`) ? " invalid" : "")}
+                          aria-label={`阶段 ${index + 1} 倾斜正方向`}
+                          value={typeof stage.inclineDirection === "string" ? stage.inclineDirection : "up"}
+                          onChange={(event) => setStage(index, { ...stage, inclineDirection: event.target.value })}
+                        >
+                          <option value="up">沿斜面向上（从底到顶）</option>
+                          <option value="down">沿斜面向下（从顶到底）</option>
+                        </select>
+                      </td>
+                      <td />
+                    </tr>
                   )}
                   {kind === "conveyor_belt" && Array.isArray(stage.segments) && stage.segments.map((seg, j) => {
                     const sObj = (seg && typeof seg === "object" ? seg : {}) as Record<string, unknown>;

@@ -21,7 +21,7 @@ export type SingleStage =
   | { kind: "spring_release"; springConstantNpm: number | null; initialCompressionM: number | null; kineticFrictionCoefficient: number; unattached: true; slidesAfterRelease: boolean; releaseCompleteByM?: number | null }
   | { kind: "spring_contact"; springConstantNpm: number; frictionless: true; unattached: true; kineticFrictionCoefficient?: never; staticFrictionCoefficient?: never; reboundAtMaxCompression?: never }
   | { kind: "spring_contact"; springConstantNpm: number; kineticFrictionCoefficient: number; staticFrictionCoefficient?: number | null; reboundAtMaxCompression?: boolean | null; unattached: true; frictionless?: never }
-  | { kind: "vertical_arc"; radiusM: number; verticalDropM?: number; endAngleDeg?: number; path?: ExplicitArcPath; side: "inside"; frictionless: true; startLabel?: string; endLabel?: string }
+  | { kind: "vertical_arc"; radiusM: number; verticalDropM?: number; endAngleDeg?: number; path?: ExplicitArcPath; side: "inside" | "rod"; frictionless: true; startLabel?: string; endLabel?: string }
   | ({ kind: "projectile"; startLabel?: string; endLabel?: string } & ({ dropHeightM: number; landingPlaneYM?: never; end?: never } | { landingPlaneYM: number; dropHeightM?: never; end?: never } | { end: { kind: "tangent_to_next_arc" }; dropHeightM?: number; landingPlaneYM?: never }));
 export type Stage = SingleStage | BodyStage;
 
@@ -73,7 +73,7 @@ const numericRules: Record<StageKind, Record<string, (value: number) => boolean>
   conveyor_belt: { initialBeltSpeedMps: finite, kineticFrictionCoefficient: nonnegative },
   magnetic_deflection: { magneticTeslaB: positive, chargeC: (value) => value !== 0, regionWidthM: positive },
   movable_arc: { radiusM: positive, grooveMassKg: positive },
-  spring_pair: { springConstantNpm: positive },
+  spring_pair: {},
   spring_contact: { springConstantNpm: positive },
   spring_release: { kineticFrictionCoefficient: nonnegative },
   projectile: {},
@@ -260,7 +260,7 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       fact(stage, "frictionless", path + "/frictionless");
       if (source.side == null) { stage.side = null; missingKeys.push(path + "/side"); }
       else if (typeof source.side !== "string") issue(path + "/side", "TYPE", "轨道内外侧须为字符串。");
-      else if (source.side !== "inside") issue(path + "/side", "UNSUPPORTED", "当前只支持竖直圆弧内侧。");
+      else if (source.side !== "inside" && source.side !== "rod") issue(path + "/side", "UNSUPPORTED", "当前只支持竖直圆弧内侧（inside）或轻杆/双轨（rod）。");
     }
     if (source.kind === "projectile") {
       const hasDrop = Object.prototype.hasOwnProperty.call(source, "dropHeightM") && source.dropHeightM !== undefined;
@@ -318,6 +318,12 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
     if (source.kind === "conveyor_belt") {
       numberField(source, stage, "staticFrictionCoefficient", path + "/staticFrictionCoefficient", nonnegative, false);
       numberField(source, stage, "beltLengthM", path + "/beltLengthM", positive, false);
+      numberField(source, stage, "angleDeg", path + "/angleDeg", (v) => v >= 0 && v < 90, false);
+      if (source.inclineDirection != null) {
+        if (typeof source.inclineDirection !== "string") issue(path + "/inclineDirection", "TYPE", "倾斜方向须为字符串。");
+        else if (source.inclineDirection !== "up" && source.inclineDirection !== "down") issue(path + "/inclineDirection", "UNSUPPORTED", "倾斜方向仅支持 up（向上）或 down（向下）。");
+        else stage.inclineDirection = source.inclineDirection;
+      }
       if (typeof stage.staticFrictionCoefficient === "number" && typeof stage.kineticFrictionCoefficient === "number" && stage.staticFrictionCoefficient < stage.kineticFrictionCoefficient) {
         issue(path + "/staticFrictionCoefficient", "RANGE", "静摩擦因数不应小于动摩擦因数。");
       }
@@ -356,13 +362,20 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       else stage.exitDirection = source.exitDirection;
     }
     if (source.kind === "spring_pair") {
+      if (source.springConstantNpm == null) stage.springConstantNpm = 100;
+      else numberField(source, stage, "springConstantNpm", path + "/springConstantNpm", positive);
       if (source.targetMassKg == null) stage.targetMassKg = null;
       else numberField(source, stage, "targetMassKg", path + "/targetMassKg", positive);
       if (source.separationSpeedMps == null) stage.separationSpeedMps = null;
       else numberField(source, stage, "separationSpeedMps", path + "/separationSpeedMps", positive);
       if (source.gapM == null) stage.gapM = 0.5;
       else numberField(source, stage, "gapM", path + "/gapM", nonnegative);
-      if (stage.targetMassKg == null && stage.separationSpeedMps == null) missingKeys.push(path + "/targetMassKg");
+      if (source.matchGrooveSpeed != null) {
+        if (typeof source.matchGrooveSpeed !== "boolean") issue(path + "/matchGrooveSpeed", "TYPE", "matchGrooveSpeed 须为布尔值。");
+        else if (source.matchGrooveSpeed && stages[i - 1]?.kind !== "movable_arc") issue(path + "/matchGrooveSpeed", "PRECONDITION_CONFLICT", "matchGrooveSpeed 仅在紧接 movable_arc 后使用。");
+        else stage.matchGrooveSpeed = source.matchGrooveSpeed;
+      }
+      if (stage.targetMassKg == null && stage.separationSpeedMps == null && stage.matchGrooveSpeed !== true) missingKeys.push(path + "/targetMassKg");
     }
     if (source.kind === "constant_force_1d") {
       if (source.end == null) { stage.end = null; missingKeys.push(path + "/end"); }
