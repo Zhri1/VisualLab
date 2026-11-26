@@ -9,7 +9,7 @@ import { computeMultiBodyMotion } from './multiBodyMotion.ts';
 import { validateStagePlan } from "./stagePlan.ts";
 import { landingTime, linearState, springMetrics, springState } from "./kinematics.ts";
 import { solveRoughSpring, type RoughSpring, type RoughSpringConflict } from "./roughSpring.ts";
-import { solveConveyorBelt, type ConveyorGeometry, type ConveyorReading } from "./conveyorBelt.ts";
+import { solveConveyorBelt, type ConveyorEdge, type ConveyorGeometry, type ConveyorReading } from "./conveyorBelt.ts";
 import { solveMagneticDeflection, type MagneticGeometry } from "./magneticDeflection.ts";
 import { solveMovableArc } from "./movableArc.ts";
 import { solveSpringPair } from "./springPair.ts";
@@ -47,6 +47,7 @@ export type StageEvent = {
   id: string; stageIndex: number; kind: string; timeSeconds: number; order: number;
   velocityBefore: Velocity; velocityAfter: Velocity; label: string; explanation: string;
   position?: Point; normalForceBeforeN?: number; normalForceAfterN?: number;
+  conveyorExitEdge?: ConveyorEdge;
 };
 export type StageMotion = {
   primaryBodyId?: string; motionStatus?: MotionStatus;
@@ -79,7 +80,7 @@ export type EnergyReading = {
 };
 export type StageScene = { kind: "stage_scene"; reading: ResolvedStagePlan; geometry: StageGeometry; motion: StageMotion };
 type EventState = { kind: string; time: number; before: MotionSample; after: MotionSample; label: string; explanation: string;
-  position?: Point; normalForceBeforeN?: number; normalForceAfterN?: number };
+  position?: Point; normalForceBeforeN?: number; normalForceAfterN?: number; conveyorExitEdge?: ConveyorEdge };
 type Run = {
   duration: number; end: MotionSample; events: EventState[];
   reason?: EndReason;
@@ -532,6 +533,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       velocityBefore: velocity(item.before), velocityAfter: velocity(item.after),
       label: item.label, explanation: item.explanation,
       ...(item.position ? { position: item.position, normalForceBeforeN: item.normalForceBeforeN, normalForceAfterN: item.normalForceAfterN } : {}),
+      ...(item.conveyorExitEdge ? { conveyorExitEdge: item.conveyorExitEdge } : {}),
     });
     eventStates.push({ ...item.after });
   }
@@ -627,22 +629,24 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
         const originXM = state.xM;
         const originYM = state.yM;
         // 统一在传送带局部坐标 s ∈ [0, L] 内求解，再按 (beltOriginXM, originYM) 投影到世界坐标。
-        // 从右侧斜面返回水平传送带右端（vAlong < 0 且定长）时，局部起点 sStart = L，带面起点为 originXM - L。
+        // 历史计划从右侧返回水平定长带时，默认从右端入带。题面明确端点时优先使用该端。
         const vAlong = angleDeg === 0
           ? (prevKind === "incline_slide" ? (state.vxMps < -1e-9 ? -1 : 1) * Math.hypot(state.vxMps, state.vyMps) : state.vxMps)
           : index === 0 ? state.vxMps : state.vxMps * ux + state.vyMps * uy;
-        const enterFromRight = index > 0 && angleDeg === 0 && vAlong < 0 && stage.beltLengthM != null;
-        const sStart = enterFromRight ? stage.beltLengthM! : 0;
-        const beltOriginXM = enterFromRight ? originXM - stage.beltLengthM! : originXM;
+        const inferredEdge = index > 0 && angleDeg === 0 && vAlong < 0 ? "end" : "start";
+        const entryEdge = stage.entryEdge ?? inferredEdge;
+        const sStart = entryEdge === "end" ? stage.beltLengthM ?? 0 : 0;
+        const beltOriginXM = originXM - sStart * ux;
+        const beltOriginYM = originYM - sStart * uy;
         const solved = solveConveyorBelt(stage, sStart, vAlong, plan.gravityMps2!);
         geometry.conveyor = {
           ...solved.geometry,
-          ...(beltOriginXM !== 0 || originYM !== 0 || angleDeg > 0 ? { originXM: beltOriginXM, originYM } : {}),
+          ...(beltOriginXM !== 0 || beltOriginYM !== 0 || angleDeg > 0 ? { originXM: beltOriginXM, originYM: beltOriginYM } : {}),
         };
         const toWorld = (s: number, v: number) =>
           angleDeg === 0
             ? moving(beltOriginXM + s, originYM, v, 0)
-            : moving(beltOriginXM + s * ux, originYM + s * uy, v * ux, v * uy);
+            : moving(beltOriginXM + s * ux, beltOriginYM + s * uy, v * ux, v * uy);
         const startTime = time;
         conveyorEvals.push({
           start: startTime,
@@ -653,13 +657,18 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
           },
         });
         const endSample = toWorld(solved.endX, solved.endVx);
+        const plannedExit = stage.continuationExitEdge;
+        const canContinue = hasNext && solved.exitEdge && (plannedExit == null || plannedExit === solved.exitEdge);
         run = {
           duration: solved.duration,
           end: endSample,
-          reason: solved.exited && !hasNext ? "conveyor_exit" : undefined,
+          reason: canContinue ? undefined : solved.exitEdge ? "conveyor_exit" : solved.stopped ? "stopped" : "prefix_end",
           events: solved.events.map((ev) => {
             const st = toWorld(ev.xM, ev.vxMps);
-            return event(ev.kind, ev.time, st, st, ev.label, ev.explanation);
+            return {
+              ...event(ev.kind, ev.time, st, st, ev.label, ev.explanation),
+              ...(ev.exitEdge ? { position: point(st), conveyorExitEdge: ev.exitEdge } : {}),
+            };
           }),
           sampleAt: (dt) => {
             const r = solved.evalAt(dt);

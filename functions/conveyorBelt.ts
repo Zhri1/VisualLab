@@ -2,8 +2,10 @@
 // 改动请改源文件后重新运行：node scripts/sync-functions.mjs
 export type ConveyorBeltSegment = {
   accelerationMps2: number;
-  durationSeconds: number;
+  durationSeconds: number | null;
 };
+
+export type ConveyorEdge = "start" | "end";
 
 export type ConveyorBeltStage = {
   kind: "conveyor_belt";
@@ -12,6 +14,8 @@ export type ConveyorBeltStage = {
   kineticFrictionCoefficient: number;
   staticFrictionCoefficient?: number | null;
   beltLengthM?: number | null;
+  entryEdge?: ConveyorEdge | null;
+  continuationExitEdge?: ConveyorEdge | null;
   /** 传送带倾角 θ（度），0 ≤ θ < 90；默认 0（水平传送带）。 */
   angleDeg?: number | null;
   /** 沿带正方向 +s 的倾斜朝向："up"（默认，从底端指向上端）或 "down"（从顶端指向底端）。 */
@@ -50,36 +54,23 @@ type ConveyorEvent = {
   vxMps: number;
   label: string;
   explanation: string;
+  exitEdge?: ConveyorEdge;
 };
 
-function solveExitTime(x0: number, v0: number, a: number, targetX: number): number {
-  const c = x0 - targetX;
-  if (Math.abs(c) <= 32 * Number.EPSILON * Math.max(1, Math.abs(x0), Math.abs(targetX))) {
-    const outward = targetX > 0 ? (v0 > 0 || (v0 === 0 && a > 0)) : (v0 < 0 || (v0 === 0 && a < 0));
-    if (outward) return 0;
-    // 从边缘向内进入后折返再次回到同一边缘：v0*t + 0.5*a*t^2 = 0 → t = -2*v0/a
-    if (Math.abs(a) >= 1e-15) {
-      const tReturn = -2 * v0 / a;
-      if (tReturn > 0) return tReturn;
-    }
-    return Infinity;
+// 从带内出发，按指向固定滚轮外侧的一维坐标求首次穿越。
+function solveExitTime(distance: number, outwardSpeed: number, outwardAcceleration: number): number {
+  if (distance <= 0) {
+    if (outwardSpeed > 0 || (outwardSpeed === 0 && outwardAcceleration > 0)) return 0;
+    return outwardSpeed < 0 && outwardAcceleration > 0 ? -2 * outwardSpeed / outwardAcceleration : Infinity;
   }
-  if (Math.abs(a) < 1e-15) {
-    if (Math.abs(v0) < 1e-15) return Infinity;
-    const t = -c / v0;
-    return t > 0 ? t : Infinity;
-  }
-  const disc = v0 * v0 - 2 * a * c;
-  if (disc < 0) return Infinity;
-  const r = Math.sqrt(disc);
-  const roots = [(-v0 - r) / a, (-v0 + r) / a].filter((t) => {
-    if (t <= 0) return false;
-    const vAt = v0 + a * t;
-    // 排除恰在边缘相切折返（速度为零且加速度指回带内）
-    const leaves = targetX > 0 ? (vAt > 1e-12 || (Math.abs(vAt) <= 1e-12 && a >= 0)) : (vAt < -1e-12 || (Math.abs(vAt) <= 1e-12 && a <= 0));
-    return leaves;
-  });
-  return roots.length ? Math.min(...roots) : Infinity;
+  if (outwardAcceleration === 0) return outwardSpeed > 0 ? distance / outwardSpeed : Infinity;
+  const discriminant = outwardSpeed * outwardSpeed + 2 * outwardAcceleration * distance;
+  // 在滚轮处相切、随后回到带内，不构成离带。
+  if (discriminant <= 0 || (outwardSpeed <= 0 && outwardAcceleration < 0)) return Infinity;
+  const crossingSpeed = Math.sqrt(discriminant);
+  return outwardSpeed >= 0
+    ? 2 * distance / (outwardSpeed + crossingSpeed)
+    : (crossingSpeed - outwardSpeed) / outwardAcceleration;
 }
 
 export function solveConveyorBelt(stage: ConveyorBeltStage, startXM: number, startVxMps: number, gravityMps2: number) {
@@ -101,16 +92,17 @@ export function solveConveyorBelt(stage: ConveyorBeltStage, startXM: number, sta
 
   let t = 0, x = startXM, v = startVxMps, xb = 0, vb = stage.initialBeltSpeedMps;
   let minX = x, maxX = x;
-  let exited = false;
+  let exitEdge: ConveyorEdge | undefined;
+  let stopped = false;
   const pieces: Piece[] = [];
   const events: ConveyorEvent[] = [];
 
-  for (let idx = 0; idx < stage.segments.length && !exited; idx++) {
-    const seg = stage.segments[idx];
-    let rem = seg.durationSeconds;
+  for (const seg of stage.segments) {
+    if (exitEdge || stopped) break;
+    let rem = seg.durationSeconds ?? Infinity;
     const ab = seg.accelerationMps2;
     let guard = 0;
-    while (rem > 1e-12 && !exited && guard++ < 16) {
+    while (rem > 0 && !exitEdge && guard++ < 16) {
       const vRel = v - vb;
       const vTol = 64 * Number.EPSILON * Math.max(1, Math.abs(v), Math.abs(vb));
       let a: number;
@@ -151,14 +143,20 @@ export function solveConveyorBelt(stage: ConveyorBeltStage, startXM: number, sta
 
       // 检查带长边界（若题面给定 beltLengthM）
       if (L !== null) {
-        const tLeft = solveExitTime(x, v, a, 0);
-        const tRight = solveExitTime(x, v, a, L);
-        const tExit = Math.min(tLeft, tRight);
-        if (tExit <= dt + 32 * Number.EPSILON * Math.max(1, dt)) {
+        const tStart = solveExitTime(x, -v, -a);
+        const tEnd = solveExitTime(L - x, v, a);
+        const tExit = Math.min(tStart, tEnd);
+        if (Number.isFinite(tExit) && tExit <= dt + 32 * Number.EPSILON * Math.max(1, dt)) {
           dt = Math.min(dt, tExit);
           reachesCommon = false;
-          exited = true;
+          exitEdge = tStart <= tEnd ? "start" : "end";
         }
+      }
+
+      if (!Number.isFinite(dt)) {
+        if (v !== 0 || a !== 0) throw new RangeError("传送带离带时间超出可计算范围。");
+        stopped = true;
+        break;
       }
 
       // 检查段内对地速度过零折返
@@ -179,7 +177,7 @@ export function solveConveyorBelt(stage: ConveyorBeltStage, startXM: number, sta
         }
       }
 
-      const x1 = x + v * dt + 0.5 * a * dt * dt;
+      const x1 = exitEdge === "start" ? 0 : exitEdge === "end" ? L! : x + v * dt + 0.5 * a * dt * dt;
       let v1 = v + a * dt;
       const xb1 = xb + vb * dt + 0.5 * ab * dt * dt;
       const vb1 = vb + ab * dt;
@@ -197,14 +195,18 @@ export function solveConveyorBelt(stage: ConveyorBeltStage, startXM: number, sta
       minX = Math.min(minX, x);
       maxX = Math.max(maxX, x);
 
-      if (exited) {
+      if (exitEdge) {
+        const side = angleDeg === 0
+          ? (exitEdge === "start" ? "左端" : "右端")
+          : exitEdge === "start" ? "起端" : "末端";
         events.push({
           kind: "conveyor_exit",
           time: t,
           xM: x,
           vxMps: v,
           label: "滑离传送带",
-          explanation: `在 x = ${x.toFixed(4)} m 处离开传送带，离带速度 vₓ = ${v.toFixed(4)} m/s，相对带面位移 ${(x - startXM - xb).toFixed(4)} m。`,
+          explanation: `从传送带${side}（s = ${x.toFixed(4)} m）离开，沿带速度 ${v.toFixed(4)} m/s，相对带面位移 ${(x - startXM - xb).toFixed(4)} m。`,
+          exitEdge,
         });
       } else if (reachesCommon) {
         events.push({
@@ -219,21 +221,23 @@ export function solveConveyorBelt(stage: ConveyorBeltStage, startXM: number, sta
     }
   }
 
-  if (!exited) {
+  if (!exitEdge) {
     events.push({
-      kind: "force_segment_end",
+      kind: stopped ? "stop" : "force_segment_end",
       time: t,
       xM: x,
       vxMps: v,
-      label: "传送带观察结束",
-      explanation: `观察结束时对地位移 ${(x - startXM).toFixed(4)} m，相对带面位移 ${(x - startXM - xb).toFixed(4)} m，块速 ${v.toFixed(4)} m/s，带速 ${vb.toFixed(4)} m/s。`,
+      label: stopped ? "滑块在带上静止" : "传送带观察结束",
+      explanation: stopped
+        ? `滑块在传送带上保持静止（s = ${x.toFixed(4)} m）。`
+        : `观察结束时对地位移 ${(x - startXM).toFixed(4)} m，相对带面位移 ${(x - startXM - xb).toFixed(4)} m，块速 ${v.toFixed(4)} m/s，带速 ${vb.toFixed(4)} m/s。`,
     });
   }
 
   const evalPiece = (query: number) => {
     const q = Math.min(t, Math.max(0, query));
     const p = pieces.find((item) => q >= item.start && q < item.end) ?? pieces[pieces.length - 1];
-    if (!p) return { xM: x, vxMps: v, beltSpeedMps: vb, beltDisplacementM: xb, relativeDisplacementM: x - startXM - xb, relativeSpeedMps: v - vb };
+    if (!p || q === t) return { xM: x, vxMps: v, beltSpeedMps: vb, beltDisplacementM: xb, relativeDisplacementM: x - startXM - xb, relativeSpeedMps: v - vb };
     const dt = q - p.start;
     const xn = p.x0 + p.v0 * dt + 0.5 * p.a * dt * dt;
     const vn = p.v0 + p.a * dt;
@@ -244,7 +248,8 @@ export function solveConveyorBelt(stage: ConveyorBeltStage, startXM: number, sta
 
   return {
     duration: t,
-    exited,
+    exitEdge,
+    stopped,
     endX: x,
     endVx: v,
     geometry: {

@@ -137,7 +137,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 4. `spring_contact` → 回弹脱离后可接 `horizontal_slide`、`lossless_turn`、`incline_slide`、`vertical_arc`、`conveyor_belt`、`projectile`（见第 12.1 节）
 5. `vertical_arc` → `projectile`（使用固定 `landingPlaneYM`）、`horizontal_slide`、`incline_slide`、`lossless_turn`、`spring_contact`、`constant_force_1d`、`conveyor_belt`、`spring_pair` 或另一段 `vertical_arc`；同一题可出现多个 `vertical_arc` 或 `horizontal_slide`。实际到端点、先脱轨或回滑由物理库判定，不由模型预先删段
 6. `projectile` → `vertical_arc`（切向入弧）或 `incline_slide`（切向落入斜面）；若为「恰好沿切线进入下一段圆弧」则用 `end: { kind: "tangent_to_next_arc" }`
-7. `conveyor_belt` → `projectile`、`horizontal_slide`、`spring_contact`、`vertical_arc`、`constant_force_1d`、`incline_slide`、`lossless_turn`、`spring_pair`（见第 15.1 节）
+7. `conveyor_belt` 实际离带后 → `projectile`、`horizontal_slide`、`spring_contact`、`vertical_arc`、`constant_force_1d`、`incline_slide`、`lossless_turn`、`spring_pair`；用 `continuationExitEdge` 写题面明确的接续端（见第 15 节）
 8. 单段独立：`incline_slide`、`horizontal_slide`、`spring_contact`、`projectile`、`vertical_arc`、`conveyor_belt`、`constant_force_1d`、`magnetic_deflection`、`movable_arc`、`spring_pair` 都可以单独出现
 9. `spring_release`作为首段可独立，或接水平、弹簧接触、圆弧、抛体、传送带、斜面、转向；接续和距离/能量前提见第8节。
 10. `pendulum_swing → collision_1d → parallel_motion`（弹性）或碰后同绳`pendulum_swing`（粘连）；独立摆也合法，详细字段见第9节。
@@ -556,9 +556,9 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 }
 ```
 
-- 匀速水平带只需 `accelerationMps2: 0`，此时不要求 `staticFrictionCoefficient`；**定长匀速传送带统一填 `segments: [{ "accelerationMps2": 0, "durationSeconds": 20 }]`**（确保仿真时间窗口足够物块离带）；存在非零带加速度时，必须提取题给 `staticFrictionCoefficient`（未给填 `null`，**绝不默认等于 μₖ**）。
+- 定长匀速，题面未规定时长时写 `segments: [{ "accelerationMps2": 0, "durationSeconds": null }]` 或省略 `segments`，由物理库求实际离带或保持静止的时刻。题给时长按原值填写，仍在带上时只结束观察。非零带加速度需提取题给 `staticFrictionCoefficient`（未给填 `null`）。
 - **倾斜传送带**：填 `angleDeg`（`0 < θ < 90`）与 `inclineDirection`（`"up"` 表示 +s 沿斜面向上、底端放上；`"down"` 表示 +s 沿斜面向下、顶端放上）；匀速倾斜带未单列静摩擦因数时可省略 `staticFrictionCoefficient`，B 自动按 `μ ≥ tanθ`（共速后匀速）与 `μ < tanθ`（共速后摩擦力反向继续加速/减速折返）精确分叉。
-- 题面给定带长时填 `beltLengthM`；未给则省略。对地位移、相对带面位移、共速时刻及是否重新滑动均由 B 计算。
+- 题面给定带长时填 `beltLengthM`；未给则省略。定长水平带的左端为 `"start"`，右端为 `"end"`；倾斜带按沿带坐标的起端和末端。明确从哪一端入带用 `entryEdge`，哪一端接斜面、平台或悬空飞出用 `continuationExitEdge`。速度沿局部正方向取正，按题意保留相向运行的符号。实际离开指定端才接后续，离开另一端即结束本次已知过程。共速和对地／相对带面位移均由 B 计算。
 
 ### 15.1 上滑斜面往返与传送带多段组合（`incline_slide` `direction: "up"`）
 
@@ -569,9 +569,9 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
    - 粗糙上滑斜面若题面给出静摩擦因数可填 `staticFrictionCoefficient`，未给则省略。
 2. **传送带与斜面/弹簧/平抛多段组合**：
    - 按物块**实际经历的物理时间顺序**拆段；例如「水平传送带右端平滑连接足够长光滑斜面、左端离地 h 悬空，物块从传送带左端向右运动、冲上斜面折返后再次经过传送带并从左端水平飞出」应拆为：`conveyor_belt → incline_slide(direction: "up", lengthM: null) → conveyor_belt → projectile`；
-   - 返程再次经过同一条水平传送带时，后一段 `conveyor_belt` 填相同的 `initialBeltSpeedMps`、`beltLengthM`、`kineticFrictionCoefficient` 与 `segments: [{ "accelerationMps2": 0, "durationSeconds": 20 }]`，B 会自动处理向左入射（`vx < 0`）的减速、折返或从左端飞出。
+   - 返程再次经过同一条水平传送带时，填写相同的带速、带长和摩擦因数，根据题意将入带端与接续端分别填为 `entryEdge: "end"` 和 `continuationExitEdge: "start"`。如果返程滑块在带上折返并回到右端，物理库在真实的右端离带时结束。
 
-示例（水平传送带向右以 4 m/s 匀速运行，长 6 m，μ = 0.2，左端离地 1.25 m，右端平滑连接倾角 30° 的足够长光滑斜面；质量 1 kg 物块从左端静止放上，冲上斜面返回后再经传送带，g = 10 m/s²）：
+示例：水平传送带向左以 4 m/s 匀速运行，长 3 m，μ = 0.2，左端离地 1.25 m，右端平滑接倾角 30° 的足够长光滑斜面。质量 1 kg 的物块从左端以 6 m/s 向右滑上，冲上斜面返回后再次经过传送带，g = 10 m/s²。
 
 ```json
 {
@@ -579,13 +579,14 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
   "schemaVersion": 1,
   "gravityMps2": 10,
   "massKg": 1,
-  "initial": { "vxMps": 0 },
+  "initial": { "vxMps": 6 },
   "stages": [
     {
       "kind": "conveyor_belt",
-      "initialBeltSpeedMps": 4,
-      "beltLengthM": 6,
-      "segments": [{ "accelerationMps2": 0, "durationSeconds": 20 }],
+      "initialBeltSpeedMps": -4,
+      "beltLengthM": 3,
+      "entryEdge": "start",
+      "continuationExitEdge": "end",
       "kineticFrictionCoefficient": 0.2
     },
     {
@@ -597,9 +598,10 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
     },
     {
       "kind": "conveyor_belt",
-      "initialBeltSpeedMps": 4,
-      "beltLengthM": 6,
-      "segments": [{ "accelerationMps2": 0, "durationSeconds": 20 }],
+      "initialBeltSpeedMps": -4,
+      "beltLengthM": 3,
+      "entryEdge": "end",
+      "continuationExitEdge": "start",
       "kineticFrictionCoefficient": 0.2
     },
     { "kind": "projectile", "dropHeightM": 1.25 }

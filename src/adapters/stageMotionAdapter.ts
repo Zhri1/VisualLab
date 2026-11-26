@@ -121,6 +121,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
       constraintsBefore:event.constraintsBefore,constraintsAfter:event.constraintsAfter,
       id: event.id,
       eventKind: event.kind,
+      ...(event.conveyorExitEdge ? { conveyorExitEdge: event.conveyorExitEdge } : {}),
       stageIndex: event.stageIndex,
       order: event.order,
       timeSeconds: event.timeSeconds,

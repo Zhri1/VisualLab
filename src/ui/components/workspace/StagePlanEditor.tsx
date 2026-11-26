@@ -426,6 +426,29 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                       <td />
                     </tr>
                   )}
+                  {kind === "conveyor_belt" && (
+                    [
+                      { key: "entryEdge", label: "入带端" },
+                      { key: "continuationExitEdge", label: "接续端" },
+                    ].map(({ key, label }) => (
+                      <tr key={key} data-field-path={`/stages/${index}/${key}`}>
+                        <td className="name">{label}</td>
+                        <td className="val">
+                          <select
+                            className={"stage-select" + (flagged(`/stages/${index}/${key}`) ? " invalid" : "")}
+                            aria-label={`阶段 ${index + 1} ${label}`}
+                            value={typeof stage[key] === "string" ? stage[key] : ""}
+                            onChange={(event) => setStage(index, { ...stage, [key]: event.target.value || null })}
+                          >
+                            <option value="">按实际运动</option>
+                            <option value="start">起端（水平带左端）</option>
+                            <option value="end">末端（水平带右端）</option>
+                          </select>
+                        </td>
+                        <td />
+                      </tr>
+                    ))
+                  )}
                   {kind === "conveyor_belt" && Array.isArray(stage.segments) && stage.segments.map((seg, j) => {
                     const sObj = (seg && typeof seg === "object" ? seg : {}) as Record<string, unknown>;
                     const updateSeg = (field: string, raw: string) => {
@@ -435,7 +458,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                     return (
                       <tr key={`conv-${j}`}><td colSpan={3}><table className="cond-table"><tbody>
                         {numberRow({ key: `a-${j}`, label: `带速段 ${j + 1} 加速度 a带`, unit: "m/s²", step: 0.5, path: `/stages/${index}/segments/${j}/accelerationMps2`, value: sObj.accelerationMps2, onChange: (raw) => updateSeg("accelerationMps2", raw) })}
-                        {numberRow({ key: `t-${j}`, label: `带速段 ${j + 1} 时长`, unit: "s", step: 0.5, path: `/stages/${index}/segments/${j}/durationSeconds`, value: sObj.durationSeconds, onChange: (raw) => updateSeg("durationSeconds", raw) })}
+                        {numberRow({ key: `t-${j}`, label: `带速段 ${j + 1} 时长`, unit: "s", step: 0.5, hint: "定长匀速时留空，算至实际离带或静止", path: `/stages/${index}/segments/${j}/durationSeconds`, value: sObj.durationSeconds, onChange: (raw) => updateSeg("durationSeconds", raw) })}
                       </tbody></table></td></tr>
                     );
                   })}

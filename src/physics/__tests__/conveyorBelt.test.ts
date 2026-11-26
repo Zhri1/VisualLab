@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { assembleScene, buildMotion, validateStagePlan } from "../index.ts";
+import { assembleScene, buildMotion, validateStagePlan, type StagePlanDraft } from "../index.ts";
+import { PHYSICS_RAG_CORPUS } from "../../rag/corpus.ts";
 
 const read = (name: string) => JSON.parse(readFileSync(new URL(`../../../fixtures/${name}`, import.meta.url), "utf8"));
 const acceptance = read("conveyor-belt.acceptance.json");
@@ -199,5 +200,143 @@ describe("传送带与滑块：共享基准与变式", () => {
     const end = motion.sampleAt(motion.durationSeconds);
     expect(end.xM).toBeGreaterThan(2.5);
     expect(end.yM).toBeCloseTo(-1.25, 6);
+  });
+});
+
+function flightPlan(stage: Record<string, unknown> = {}, initialVx = 0): StagePlanDraft {
+  return {
+    kind: "stage_plan", schemaVersion: 1, gravityMps2: 10,
+    initial: { vxMps: initialVx },
+    stages: [
+      { kind: "conveyor_belt", initialBeltSpeedMps: 2, kineticFrictionCoefficient: 0.2, beltLengthM: 6, ...stage },
+      { kind: "projectile", dropHeightM: 1.25 },
+    ],
+  };
+}
+
+describe("实际带端与后续抛体", () => {
+  it("指定观察时长内仍在带上，停在原阶段并保留当时速度", () => {
+    const motion = build(flightPlan({ segments: [{ accelerationMps2: 0, durationSeconds: 0.5 }] }));
+    expect(motion.endReason).toBe("prefix_end");
+    expect(motion.durationSeconds).toBe(0.5);
+    expect(motion.segments.map(({ kind }: { kind: string }) => kind)).toEqual(["conveyor_belt"]);
+    expect(motion.events.map(({ kind }: { kind: string }) => kind)).toEqual(["release", "force_segment_end"]);
+    expect(motion.geometry.projectile).toBeUndefined();
+    const end = motion.sampleAt(Infinity);
+    expect(end.xM).toBeCloseTo(0.25, 12);
+    expect(end.vxMps).toBeCloseTo(1, 12);
+  });
+
+  it.each([{}, { segments: [{ accelerationMps2: 0, durationSeconds: null }] }])("无观察截止的定长匀速带，求得超过 20 s 的真实离带", segments => {
+    const motion = build(flightPlan({ ...segments, initialBeltSpeedMps: 0.1, continuationExitEdge: "end" }));
+    const exit = motion.events.find(({ kind }: { kind: string }) => kind === "conveyor_exit");
+    expect(exit).toMatchObject({ conveyorExitEdge: "end", position: { xM: 6, yM: 0 } });
+    expect(exit.timeSeconds).toBeCloseTo(60.025, 10);
+    expect(motion.segments[1].startSeconds).toBe(exit.timeSeconds);
+    expect(motion.durationSeconds).toBeCloseTo(60.525, 10);
+    expect(motion.endReason).toBe("landed");
+    expect(motion.sampleAt(Infinity).xM).toBeCloseTo(6.05, 12);
+  });
+
+  it("物块从右端入带后返回同侧，远端接续不误发抛体", () => {
+    const motion = build(flightPlan({ initialBeltSpeedMps: 4, entryEdge: "end", continuationExitEdge: "start" }, -2));
+    expect(motion.sampleAt(0)).toMatchObject({ xM: 0, yM: 0, vxMps: -2 });
+    expect(motion.geometry.conveyor).toMatchObject({ originXM: -6, minXM: 0, maxXM: 6 });
+    expect(motion.events.find(({ kind }: { kind: string }) => kind === "turn_around")?.timeSeconds).toBeCloseTo(1, 12);
+    const exit = motion.events.at(-1);
+    expect(exit).toMatchObject({ kind: "conveyor_exit", conveyorExitEdge: "end", position: { xM: 0, yM: 0 } });
+    expect(exit.explanation).toContain("右端");
+    expect(motion.durationSeconds).toBeCloseTo(2, 12);
+    expect(motion.sampleAt(Infinity).vxMps).toBeCloseTo(2, 12);
+    expect(motion.geometry.projectile).toBeUndefined();
+    expect(motion.endReason).toBe("conveyor_exit");
+  });
+
+  it("到滚轮时速度变零并保持静止，不发离带事件", () => {
+    const motion = build(flightPlan({ initialBeltSpeedMps: 0, beltLengthM: 1, continuationExitEdge: "end" }, 2));
+    expect(motion.durationSeconds).toBeCloseTo(1, 12);
+    expect(motion.sampleAt(Infinity)).toMatchObject({ xM: 1, vxMps: 0 });
+    expect(motion.endReason).toBe("stopped");
+    expect(motion.events.at(-1)?.kind).toBe("stop");
+    expect(motion.events.some(({ kind }: { kind: string }) => kind === "conveyor_exit" || kind === "land")).toBe(false);
+  });
+
+  it("实际离带与观察截止同刻时接续抛体", () => {
+    const motion = build(flightPlan({
+      beltLengthM: 3, continuationExitEdge: "end", segments: [{ accelerationMps2: 0, durationSeconds: 2 }],
+    }));
+    const exit = motion.events.find(({ kind }: { kind: string }) => kind === "conveyor_exit");
+    expect(exit).toMatchObject({ timeSeconds: 2, conveyorExitEdge: "end" });
+    expect(motion.events.some(({ kind }: { kind: string }) => kind === "force_segment_end")).toBe(false);
+    expect(motion.durationSeconds).toBeCloseTo(2.5, 12);
+    expect(motion.endReason).toBe("landed");
+  });
+
+  it("RAG #13 的去回程共享固定带端，只在左端真实离带后落地", () => {
+    const belt = { kind: "conveyor_belt", initialBeltSpeedMps: -4, beltLengthM: 3, kineticFrictionCoefficient: 0.2 };
+    const up = { kind: "incline_slide", direction: "up", lengthM: null, angleDeg: Math.atan2(3, 4) * 180 / Math.PI, kineticFrictionCoefficient: 0 };
+    const plan = flightPlan({}, 6);
+    plan.stages = [
+      { ...belt, entryEdge: "start", continuationExitEdge: "end" }, up,
+      { ...belt, entryEdge: "end", continuationExitEdge: "start" }, plan.stages[1],
+    ];
+    const source = PHYSICS_RAG_CORPUS.find(({ id }) => id === "gk-conveyor-rebound-projectile-13")!;
+    expect(source.stageSignature).toEqual(plan.stages.map(({ kind }) => kind));
+    const motion = build(plan);
+    const [right, left] = motion.events.filter(({ kind }: { kind: string }) => kind === "conveyor_exit");
+    expect(right).toMatchObject({ conveyorExitEdge: "end", position: { xM: 3, yM: 0 } });
+    expect(right.velocityAfter.vxMps).toBeCloseTo(2 * Math.sqrt(6), 12);
+    expect(left).toMatchObject({ conveyorExitEdge: "start", position: { xM: 0, yM: 0 } });
+    expect(left.velocityAfter.vxMps).toBeCloseTo(-4, 12);
+    expect(motion.durationSeconds - left.timeSeconds).toBeCloseTo(0.5, 12);
+    expect(motion.sampleAt(Infinity).xM).toBeCloseTo(-2, 12);
+  });
+
+  it("斜面回到右端的滑块在带上再次折返，离开右端时不接左端抛体", () => {
+    const plan = flightPlan();
+    const belt = plan.stages[0];
+    plan.stages = [
+      { ...belt, initialBeltSpeedMps: 4, entryEdge: "start", continuationExitEdge: "end" },
+      { kind: "incline_slide", direction: "up", lengthM: null, angleDeg: 30, kineticFrictionCoefficient: 0 },
+      { ...belt, initialBeltSpeedMps: 4, entryEdge: "end", continuationExitEdge: "start" },
+      plan.stages[1],
+    ];
+    const motion = build(plan);
+    const exits = motion.events.filter(({ kind }: { kind: string }) => kind === "conveyor_exit");
+    expect(exits.map(({ conveyorExitEdge }: { conveyorExitEdge: string }) => conveyorExitEdge)).toEqual(["end", "end"]);
+    const turn = motion.events.find(({ kind }: { kind: string }) => kind === "turn_around");
+    expect(motion.sampleAt(turn.timeSeconds).xM).toBeCloseTo(2, 12);
+    expect(exits[1].position).toEqual({ xM: 6, yM: 0 });
+    expect(motion.sampleAt(Infinity).vxMps).toBeCloseTo(4, 12);
+    expect(motion.durationSeconds).toBeCloseTo(8.1, 12);
+    expect(motion.endReason).toBe("conveyor_exit");
+    expect(motion.geometry.projectile).toBeUndefined();
+  });
+
+  it("RAG #14 镜像题仍为相向运动，滑块从右端以 2√5 m/s 离开", () => {
+    const plan = flightPlan();
+    plan.initial = { speedMps: 0 };
+    plan.stages.unshift(
+      { kind: "incline_slide", direction: "down", lengthM: 3.6, angleDeg: 30, kineticFrictionCoefficient: 0, slidesAfterRelease: true },
+      { kind: "lossless_turn", lossless: true },
+    );
+    plan.stages[2] = { ...plan.stages[2], initialBeltSpeedMps: -2, beltLengthM: 4, entryEdge: "start", continuationExitEdge: "end" };
+    const source = PHYSICS_RAG_CORPUS.find(({ id }) => id === "gk-incline-conveyor-projectile-14")!;
+    expect(source.stem).toContain("以 v_带 = 2 m/s 向左匀速运行");
+    expect(source.stageSignature).toEqual(plan.stages.map(({ kind }) => kind));
+    const motion = build(plan);
+    const exit = motion.events.find(({ kind }: { kind: string }) => kind === "conveyor_exit");
+    expect(exit.conveyorExitEdge).toBe("end");
+    expect(exit.velocityAfter.vxMps).toBeCloseTo(2 * Math.sqrt(5), 12);
+    expect(motion.sampleAt(Infinity).xM).toBeCloseTo(4 + Math.sqrt(5), 12);
+  });
+
+  it("显式带端要求带长，未知端点值不通过共享校验", () => {
+    expect(validateStagePlan(flightPlan({ beltLengthM: null, continuationExitEdge: "end" }))).toMatchObject({
+      ok: false, missingKeys: expect.arrayContaining(["/stages/0/beltLengthM"]),
+    });
+    expect(validateStagePlan(flightPlan({ entryEdge: "middle" }))).toMatchObject({
+      ok: false, code: "UNSUPPORTED", fieldErrors: expect.arrayContaining([expect.objectContaining({ path: "/stages/0/entryEdge" })]),
+    });
   });
 });

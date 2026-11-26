@@ -25,7 +25,7 @@ export type { BodyState, BodySnapshot, BodyDefinition, StringState, MotionStatus
 export type { HorizontalInitial, InitialBody, HorizontalApproach, HorizontalCollision, CollisionValues } from './horizontalTypes.ts';
 export type { BlockPlankStage, PostCommonForce, PlankGeometry } from './blockPlankTypes.ts';
 export type { PulleyStage, PulleySurface, PulleyGeometry } from './pulleyTypes.ts';
-export type { ConveyorBeltStage, ConveyorBeltSegment, ConveyorReading, ConveyorGeometry } from './conveyorBelt.ts';
+export type { ConveyorBeltStage, ConveyorBeltSegment, ConveyorEdge, ConveyorReading, ConveyorGeometry } from './conveyorBelt.ts';
 export { solveMovableArc } from './movableArc.ts';
 export type { MovableArcStage } from './movableArc.ts';
 export { solveSpringPair } from './springPair.ts';

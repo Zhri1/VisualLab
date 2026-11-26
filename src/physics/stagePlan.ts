@@ -338,7 +338,13 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
     }
     if (source.kind === "conveyor_belt") {
       numberField(source, stage, "staticFrictionCoefficient", path + "/staticFrictionCoefficient", nonnegative, false);
-      numberField(source, stage, "beltLengthM", path + "/beltLengthM", positive, false);
+      numberField(source, stage, "beltLengthM", path + "/beltLengthM", positive, source.entryEdge != null || source.continuationExitEdge != null);
+      for (const key of ["entryEdge", "continuationExitEdge"] as const) {
+        const value = source[key];
+        if (value == null) continue;
+        if (typeof value !== "string") issue(path + "/" + key, "TYPE", "传送带端点须为字符串。");
+        else if (value !== "start" && value !== "end") issue(path + "/" + key, "UNSUPPORTED", "仅支持 start（沿带起端）或 end（沿带末端）。");
+      }
       numberField(source, stage, "angleDeg", path + "/angleDeg", (v) => v >= 0 && v < 90, false);
       if (source.inclineDirection != null) {
         if (typeof source.inclineDirection !== "string") issue(path + "/inclineDirection", "TYPE", "倾斜方向须为字符串。");
@@ -352,8 +358,8 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       let hasAccel = false;
       if (source.segments == null || (Array.isArray(source.segments) && source.segments.length === 0)) {
         if (hasBeltLength) {
-          // 题面给定带长且未给分段变速时，视为匀速传送带运行至滑块离带。
-          stage.segments = [{ accelerationMps2: 0, durationSeconds: 20 }];
+          // 定长匀速且未给时长，按实际离带或停下结束。
+          stage.segments = [{ accelerationMps2: 0, durationSeconds: null }];
         } else {
           stage.segments = null;
           missingKeys.push(path + "/segments");
@@ -368,8 +374,7 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
           const copy: Record<string, unknown> = { ...rawSeg };
           numberField(rawSeg, copy, "accelerationMps2", sp + "/accelerationMps2", finite);
           if (hasBeltLength && rawSegs.length === 1 && copy.accelerationMps2 === 0 && rawSeg.durationSeconds == null) {
-            // 匀速定长传送带题面通常不给运行时间，默认给足窗口直至滑块离带。
-            copy.durationSeconds = 20;
+            copy.durationSeconds = null;
           } else {
             numberField(rawSeg, copy, "durationSeconds", sp + "/durationSeconds", positive);
           }

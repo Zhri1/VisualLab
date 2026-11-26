@@ -226,7 +226,7 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     solutionOutline:
       "物块加速加速度 a = 2 m/s²，经 t_共 = 2 s 达共速 4 m/s，对地位移 x_物 = 4 m < 6 m，此后匀速运动 0.5 s。共速期间传送带位移 x_带 = 8 m，划痕 Δs = 4 m，摩擦生热 Q = 16 J，电动机多耗能 16 + 16 = 32 J。",
     planHint:
-      "stages: conveyor_belt(initialBeltSpeedMps:4, segments:[{a:0,dt:3}], μ:0.2, beltLengthM:6)",
+      "stages: conveyor_belt(initialBeltSpeedMps:4, kineticFrictionCoefficient:0.2, beltLengthM:6)，未给时长，按实际带端结束",
   },
   {
     id: "gk-conveyor-horizontal-segmented-10",
@@ -300,15 +300,12 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     difficulty: "拔高",
     stageSignature: [
       "conveyor_belt",
-      "lossless_turn",
       "incline_slide",
-      "incline_slide",
-      "lossless_turn",
       "conveyor_belt",
       "projectile",
     ],
     tags: ["水平传送带", "光滑斜面折返", "双向相对运动", "桌沿平抛"],
-    stem: "长 L = 3 m、距地面高 H = 1.25 m 的水平传送带左端悬空，右端平滑连接倾角 37°、足够长的光滑斜面。传送带以 v_带 = 4 m/s 逆时针（向左）匀速运行，质量 m = 1 kg 的物块以 v₀ = 6 m/s 从传送带左端向右滑上，物块与传送带间 μ = 0.2，g = 10 m/s²，求物块滑上斜面的最大位移及最终从左端平抛落地的水平射程。",
+    stem: "长 L = 3 m、距地面高 H = 1.25 m 的水平传送带左端悬空，右端平滑连接倾角 θ 约为 37°（取 sinθ = 0.6、cosθ = 0.8）、足够长的光滑斜面。传送带以 v_带 = 4 m/s 逆时针（向左）匀速运行，质量 m = 1 kg 的物块以 v₀ = 6 m/s 从传送带左端向右滑上，物块与传送带间 μ = 0.2，g = 10 m/s²，求物块滑上斜面的最大位移及最终从左端平抛落地的水平射程。",
     keyFormulas: [
       "右行减速：v_右² = v₀² - 2μgL",
       "光滑斜面折返：v_返 = v_右，s_斜 = v_右² / (2gsinθ)",
@@ -321,29 +318,29 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     solutionOutline:
       "右行受向左摩擦力 a = 2 m/s²，到达右端速度 v_右 = 2√6 m/s，冲上光滑斜面最大位移 s_斜 = 24/(2×6) = 2 m。原速返回传送带左端方向，因 2√6 > 4 m/s，先以 2 m/s² 减速 2 m 至共速 4 m/s，再匀速 1 m 从左端平抛，落地时间 0.5 s，水平射程 2 m。",
     planHint:
-      "stages: conveyor_belt(v:-4, L:3) -> lossless_turn -> incline_slide(up, μ:0) -> incline_slide(down, μ:0) -> lossless_turn -> conveyor_belt(v:-4, L:3) -> projectile(dropHeightM:1.25)",
+      "stages: conveyor_belt(initialBeltSpeedMps:-4, beltLengthM:3, kineticFrictionCoefficient:0.2, entryEdge:'start', continuationExitEdge:'end') -> incline_slide(direction:'up', lengthM:null, angleDeg:36.86989764584402, kineticFrictionCoefficient:0) -> conveyor_belt(initialBeltSpeedMps:-4, beltLengthM:3, kineticFrictionCoefficient:0.2, entryEdge:'end', continuationExitEdge:'start') -> projectile(dropHeightM:1.25)",
   },
   {
     id: "gk-incline-conveyor-projectile-14",
-    title: "光滑斜面滑下接逆向水平传送带后左端平抛",
-    source: "高考经典母题 · 斜面传送带平抛组合",
+    title: "光滑斜面滑下接逆向水平传送带后右端平抛",
+    source: "镜像变式 · 斜面传送带平抛组合",
     difficulty: "中档",
     stageSignature: ["incline_slide", "lossless_turn", "conveyor_belt", "projectile"],
     tags: ["斜面下滑", "逆向传送带", "匀减速出射", "平抛运动"],
-    stem: "倾角 30°、长 L₁ = 3.6 m 的光滑斜面底端平滑连接高 H = 1.25 m、长 L₂ = 4 m 的水平传送带右端，传送带左端悬空并以 v_带 = 2 m/s 顺时针（向右）匀速运行。质量 m = 1 kg 的物块从斜面顶端由静止释放，物块与传送带间 μ = 0.2，g = 10 m/s²，求物块离开传送带左端的速度及落地点距左端的水平距离。",
+    stem: "倾角 30°、长 L₁ = 3.6 m 的光滑斜面底端平滑连接高 H = 1.25 m、长 L₂ = 4 m 的水平传送带左端，传送带右端悬空，带面以 v_带 = 2 m/s 向左匀速运行。质量 m = 1 kg 的物块从斜面顶端由静止释放，物块与传送带间 μ = 0.2，g = 10 m/s²，求物块离开传送带右端的速度及落地点距右端的水平距离。",
     keyFormulas: [
       "v_底 = √(2gL₁·sinθ)",
-      "v_左² = v_底² - 2μgL₂",
-      "x = v_左·√(2H/g)",
+      "v_右² = v_底² - 2μgL₂",
+      "x = v_右·√(2H/g)",
     ],
     pitfalls: [
       "物块逆着传送带方向滑行时，只要未减速至零，全程均受与运动方向相反的滑动摩擦力",
-      "平抛初速度由传送带左端出射速度 v_左 决定，而非传送带自身速度 v_带",
+      "平抛初速度由传送带右端出射速度 v_右 决定，而非传送带自身速度 v_带",
     ],
     solutionOutline:
-      "物块从光滑斜面滑下得底端速度 v_底 = √(2×10×0.5×3.6) = 6 m/s（向左）。在向右运行的传送带上以 a = 2 m/s² 匀减速滑过 4 m，离开左端速度 v_左 = √(36 - 16) = 2√5 m/s。平抛落地用时 0.5 s，水平射程 x = √5 m。",
+      "物块从光滑斜面滑下得底端速度 v_底 = √(2×10×0.5×3.6) = 6 m/s（向右）。在向左运行的传送带上以 a = 2 m/s² 匀减速滑过 4 m，离开右端速度 v_右 = √(36 - 16) = 2√5 m/s。平抛落地用时 0.5 s，水平射程 x = √5 m。",
     planHint:
-      "stages: incline_slide(down, angleDeg:30, lengthM:3.6, μ:0) -> lossless_turn -> conveyor_belt(v:2, μ:0.2, beltLengthM:4) -> projectile(dropHeightM:1.25)",
+      "stages: incline_slide(down, angleDeg:30, lengthM:3.6, μ:0) -> lossless_turn -> conveyor_belt(initialBeltSpeedMps:-2, kineticFrictionCoefficient:0.2, beltLengthM:4, entryEdge:'start', continuationExitEdge:'end') -> projectile(dropHeightM:1.25)",
   },
 
   // =========================================================================

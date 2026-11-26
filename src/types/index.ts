@@ -144,6 +144,7 @@ export interface MotionEvent {
   id: EventId | string;
   /** 新计划保留原事件 kind 与执行顺序，避免同刻事件靠数组猜测。 */
   eventKind?: string;
+  conveyorExitEdge?: import("../physics/conveyorBelt").ConveyorEdge;
   stageIndex?: number;
   order?: number;
   timeSeconds: number;
