@@ -204,6 +204,276 @@ describe('真实 AI 物理助教对话入口（Node 与 Qoder 双端一致）', 
     expect(sys).toContain('严禁非法混拼');
     expect(sys).toContain('严禁空间几何自相矛盾');
     expect(sys).toContain('严禁遗漏必需数值与前提');
+    expect(sys).toContain('严禁分情形变参题与脆弱长链');
+    expect(sys).toContain('可调 / 待定 / 变化');
+    expect(sys).toContain('2~4 段');
+  });
+
+  it.each([
+    ['Node handlePlan', handlePlan],
+    ['Qoder handler', qoderHandler],
+  ])('%s 过滤 similar 中含“可调/待定”未定变参的相似题，全部不合规时自动重写恢复', async (_name, fn) => {
+    // 场景 1：混合返回 1 道含“可调”变参题 + 1 道合规题 → 过滤掉“可调”题，只保留合规题
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  summary: '推荐 2 道磁场偏转变式题',
+                  similarProblems: [
+                    {
+                      title: '可调宽度磁场偏转（应被过滤）',
+                      tags: ['匀强磁场'],
+                      difficulty: '中档',
+                      stem: '质量 m = 0.01 kg、电荷量 q = +0.02 C 的粒子以 4 m/s 垂直射入磁场 B = 2 T，磁场宽度 d 可调。(1) 求粒子穿出右边界时 d 的最大值；(2) 当 d = 1.5 m 时求运动时间。',
+                      focus: '变参讨论',
+                      hint: 'R = mv/(qB)',
+                    },
+                    {
+                      title: '定宽匀强磁场偏转',
+                      tags: ['匀强磁场', '偏转角'],
+                      difficulty: '中档',
+                      stem: '质量 m = 0.01 kg、电荷量 q = +0.02 C 的带电粒子以 v₀ = 8 m/s 垂直左边界射入 B = 2 T、宽度 d = 1.0 m 的垂直纸面向里匀强磁场（不计重力），求偏转角与运动时间。',
+                      focus: '唯一确定宽度几何偏转。',
+                      hint: 'R = mv/(qB) = 2 m，sinθ = d/R = 0.5，θ = 30°。',
+                    },
+                  ],
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    const mixedRes = await fn(chatRequest('推荐磁场相似题', { currentTimeSeconds: 0 }, { chatMode: 'similar' }));
+    expect(mixedRes.status).toBe(200);
+    const mixedBody = (await mixedRes.json()) as { status: string; similarProblems: Array<{ title: string; stem: string }> };
+    expect(mixedBody.status).toBe('ok');
+    expect(mixedBody.similarProblems).toHaveLength(1);
+    expect(mixedBody.similarProblems[0].title).toBe('定宽匀强磁场偏转');
+    expect(mixedBody.similarProblems[0].stem).not.toContain('可调');
+
+    fetchMock.mockReset();
+
+    // 场景 2：首轮全部为“可调”题 → 自动触发重写提示并成功返回合规变式题
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    summary: '变参题',
+                    similarProblems: [
+                      {
+                        title: '磁场宽度待定题',
+                        tags: ['磁场'],
+                        stem: '磁场宽度 d 可调，求 d 的取值范围。',
+                        focus: '变参',
+                        hint: 'R = mv/(qB)',
+                      },
+                    ],
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    summary: '重写后的定参磁场偏转变式题',
+                    similarProblems: [
+                      {
+                        title: '定宽磁场半圆出射',
+                        tags: ['匀强磁场', '半圆出射'],
+                        difficulty: '基础',
+                        stem: '质量 m = 0.01 kg、电荷量 q = +0.02 C 的粒子以 v₀ = 4 m/s 垂直左边界射入 B = 2 T、宽度 d = 2.0 m 的垂直纸面向里匀强磁场（不计重力），求轨道半径与运动时间。',
+                        focus: '固定宽度半圆出射。',
+                        hint: 'R = 1 m < d，半圆出射 t = πm/(qB)。',
+                      },
+                    ],
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+
+    const retryRes = await fn(chatRequest('推荐磁场相似题', { currentTimeSeconds: 0 }, { chatMode: 'similar' }));
+    expect(retryRes.status).toBe(200);
+    const retryBody = (await retryRes.json()) as { status: string; similarProblems: Array<{ title: string }> };
+    expect(retryBody.status).toBe('ok');
+    expect(retryBody.similarProblems).toHaveLength(1);
+    expect(retryBody.similarProblems[0].title).toBe('定宽磁场半圆出射');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const secondCall = JSON.parse(String(fetchMock.mock.calls[1][1]?.body)) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    expect(secondCall.messages[secondCall.messages.length - 1].content).toContain('未定变参');
+  });
+
+  it('Node 与 Qoder 双端支持 chatMode=socratic（含 form 与 context.mode），系统提示词逐字一致且注入母题 RAG 与多轮历史', async () => {
+    const chatContext = {
+      problemText: '质量 m = 1 kg 物块从倾角 37°、长 4 m 粗糙斜面（μ = 0.25）由静止下滑后压缩轻弹簧 k = 400 N/m，g = 10 m/s²。',
+      reading: {
+        kind: 'stage_plan',
+        schemaVersion: 1,
+        stages: [
+          { kind: 'incline_slide' },
+          { kind: 'lossless_turn' },
+          { kind: 'horizontal_slide' },
+          { kind: 'spring_contact' },
+        ],
+      },
+      history: [
+        { role: 'user', text: '带我一步步做这道题' },
+        { role: 'assistant', text: '这道题分斜面下滑、水平滑行和压缩弹簧三段。先看第 1 段斜面下滑：物块受哪几个力？沿斜面向下的加速度怎么列式？' },
+      ],
+    };
+
+    const prompts: string[] = [];
+    const refsList: unknown[] = [];
+
+    for (const [fn, useContextMode] of [
+      [handlePlan, false],
+      [qoderHandler, true],
+    ] as const) {
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: '思路很对！沿斜面方向 a = g(sin37° - μcos37°) = 4 m/s²。那滑到 4 m 坡底时速度是多少？',
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+
+      const req = useContextMode
+        ? chatRequest('沿斜面向下加速度是 g(sin37° - μcos37°)', { ...chatContext, mode: 'socratic' })
+        : chatRequest('沿斜面向下加速度是 g(sin37° - μcos37°)', chatContext, { chatMode: 'socratic' });
+
+      const res = await fn(req);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        status: string;
+        reply: string;
+        ragReferences?: Array<{ id: string; score: number }>;
+      };
+      expect(body.status).toBe('ok');
+      expect(body.reply).toContain('4 m/s²');
+      expect(Array.isArray(body.ragReferences)).toBe(true);
+      expect(body.ragReferences!.length).toBeGreaterThan(0);
+      refsList.push(body.ragReferences);
+
+      const sent = JSON.parse(String(fetchMock.mock.calls[fetchMock.mock.calls.length - 1][1]?.body)) as {
+        messages: Array<{ role: string; content: string }>;
+      };
+      // 保留多轮对话 history
+      expect(sent.messages.slice(1).map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+      prompts.push(sent.messages[0].content);
+    }
+
+    // 剥离 context 中的 mode 字段差异后比对：用相同 context 再做双端逐字一致断言
+    const exactPrompts: string[] = [];
+    for (const fn of [handlePlan, qoderHandler]) {
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ choices: [{ message: { content: '我们先看第 1 阶段受力分析，你觉得沿斜面有哪些力？' } }] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+      const res = await fn(chatRequest('请分步带我做这题', chatContext, { chatMode: 'socratic' }));
+      expect(res.status).toBe(200);
+      const sent = JSON.parse(String(fetchMock.mock.calls[fetchMock.mock.calls.length - 1][1]?.body)) as {
+        messages: Array<{ role: string; content: string }>;
+      };
+      exactPrompts.push(sent.messages[0].content);
+    }
+
+    expect(exactPrompts[0]).toBe(exactPrompts[1]);
+    expect(refsList[0]).toEqual(refsList[1]);
+    const sys = exactPrompts[0];
+    expect(sys).toContain('苏格拉底式高中物理老师（分步带练模式）');
+    expect(sys).toContain('严禁一次性给出完整全过程解答');
+    expect(sys).toContain('80~160 字');
+    expect(sys).toContain('第 1 阶段');
+    expect(sys).toContain('参考高考物理母题知识库');
+  });
+
+  it.each([
+    ['Node handlePlan', handlePlan],
+    ['Qoder handler', qoderHandler],
+  ])('%s 圆弧后抛体误用 dropHeightM 触发定向纠错时，附带 landingPlaneYM 换算公式指引并一次修正成功', async (_name, fn) => {
+    vi.stubEnv('API_CONTRACT_MODE', 'stage_plan');
+    const badReading = {
+      kind: 'stage_plan',
+      schemaVersion: 1,
+      gravityMps2: 10,
+      massKg: 1,
+      initial: { speedMps: 6 },
+      stages: [
+        { kind: 'vertical_arc', radiusM: 0.5, endAngleDeg: 180, side: 'inside', frictionless: true },
+        { kind: 'projectile', dropHeightM: 1.0 },
+      ],
+      assumptions: [],
+    };
+    const fixedReading = {
+      ...badReading,
+      stages: [
+        badReading.stages[0],
+        { kind: 'projectile', landingPlaneYM: 0 },
+      ],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(badReading) } }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(fixedReading) } }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+
+    const form = new FormData();
+    form.set('text', '质量 1 kg 小球以 6 m/s 从半径 0.5 m 竖直光滑半圆轨道最低点进入，从最高点飞出落回水平地面，g = 10 m/s²。');
+    const res = await fn(new Request('http://127.0.0.1:8787/api/animation/plan', { method: 'POST', body: form }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string };
+    expect(body.status).toBe('ok');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const retryPayload = JSON.parse(String(fetchMock.mock.calls[1][1]?.body)) as {
+      messages: Array<{ role: string; content: Array<{ type: string; text?: string }> }>;
+    };
+    const retryText = retryPayload.messages[1].content.map((c) => c.text ?? '').join('\n');
+    expect(retryText).toContain('圆弧后抛体修正指引');
+    expect(retryText).toContain('landingPlaneYM');
+    expect(retryText).toContain('2R - h');
+    vi.unstubAllEnvs();
   });
 
   it('空提问或混用图片字段时返回 400', async () => {

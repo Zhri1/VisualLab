@@ -28,7 +28,7 @@
 - **只输出一个 JSON 对象**。不要 markdown 代码块，不要前后说明文字，不要注释。
 - 顶层必须有 `kind`、`schemaVersion`、`initial`、`stages` 四个字段，`stages` 非空。
 - 数字用 JSON number，不加引号、不带单位（单位写在字段名里）。小数用点号，不写分数，不写 `3.6m`、`30°` 这类字符串。
-- **题面没给的必填值一律写 `null`，不要猜、不要用图按比例估算。**
+- **题面没给的必填值一律写 `null`，不要猜、不要用图按比例估算。**（但若题干前文写某量「可调/未知/待定」、后续小问给出具体仿真值如「当 d = 1.5 m 时」「若 F = 6 N」，必须直接采用该具体数值，严禁填 `null`，见第 5.3 节）
 - `assumptions` 与 `unsupportedReason` 是保留字段，**不属于 reading**，后端会剥离后再校验。
 
 ```json
@@ -102,7 +102,7 @@
 | `spring_contact` | `springConstantNpm`、`unattached`，以及互斥的 `frictionless: true` 或 `kineticFrictionCoefficient`（粗糙面，见第 12 节） | `unattached` 指滑块与弹簧不连接，为 `false` → 超范围；回弹脱离后可继续接续下一阶段（见第 12.1 节） |
 | `spring_release` | `springConstantNpm`、`initialCompressionM`、`kineticFrictionCoefficient`、`unattached`、`slidesAfterRelease`，必要时releaseCompleteByM | 静止预压释放首段；完整或缺参条件见第8节，由B计算能量与精确范围 |
 | `vertical_arc` | `radiusM`（可为 `null`）、可选 `verticalDropM`、旧 `endAngleDeg` 或互斥的显式 `path`、`side`、`frictionless` | 旧模式为最低点向右的半圆范围；完整内轨或不同角度入口按第11节提取显式 `path`（后继段应省略 `path.center` 由物理库自动衔接）；题面只给高度差与圆心角未给半径时填 `radiusM: null` + `verticalDropM`；临界过顶未给半径时填 `radiusM: null` + 顶层 `constraints: [{ kind: "critical_arc_top", stageIndex }]`；`side` 支持 `"inside"`（单内轨，过顶临界 `v≥√(gR)`）或 `"rod"`（轻杆/双轨/光滑管，过顶临界 `v≥0`，不脱轨），未知事实填 `null` |
-| `projectile` | `dropHeightM`、`landingPlaneYM` 或 `end: { kind: "tangent_to_next_arc" }`，三者互斥只能保留一个键 | 旧 `dropHeightM` 是相对发射点的非负落差；`landingPlaneYM` 是固定世界坐标落地高度（圆弧后必须用它）；题面写「恰好沿切线滑入下一段圆弧」且未给落差时使用 `end: { kind: "tangent_to_next_arc" }`。依据不足填 `null`，不要按图像或脱轨位置猜地面 |
+| `projectile` | `dropHeightM`、`landingPlaneYM` 或 `end: { kind: "tangent_to_next_arc" }`，三者互斥只能保留一个键 | 旧 `dropHeightM` 是相对发射点的非负落差；`landingPlaneYM` 是固定世界坐标落地高度（**只要前一段是 `vertical_arc`，无论旧 `endAngleDeg` 还是显式 `path`，都严禁写 `dropHeightM`，必须只写 `landingPlaneYM`**：落回与圆弧最低点同高的水平地面直接填 `0`，从半圆最高点 `y = 2R` 向下落差 `h` 则填 `2R - h`）；题面写「恰好沿切线滑入下一段圆弧」且未给落差时使用 `end: { kind: "tangent_to_next_arc" }`。依据不足填 `null`，不要按图像或脱轨位置猜地面 |
 | *通用地标标注* | 可选 `startLabel`、`endLabel` | 任意阶段均可附带题图字母地标（如 `"startLabel": "A", "endLabel": "B"`），便于前端与阶段说明对应题面节点 |
 | `pendulum_swing` | bodyIds、lengthM、initialAngleDeg、initialStringState、理想绳/支点事实、end；碰后用inheritFromStageIndex | 第9节；不能将60°按小角近似、不能把绳当可推的杆 |
 | `collision_1d` | bodyIds、mode、normalXM、contact、targetApproach、externalImpulseNegligible | 第9节；两质量和带方向速度，碰撞算式由B执行 |
@@ -203,6 +203,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - **弹簧段的质量**：`massKg` 写在顶层，不要写进 `stages`。
 - 第9、10、14、15、16、17、18节已登记的专用模型应分别按对应章节输出，不得混拼单物体多过程与 `block_plank`/`pulley_system`。
 - **题面有多个小问**：只解析与当前运动链对应的那一问；主体是别的运动则超范围。
+- **题干写「可调/未知/待定」但后续小问给出具体仿真值**：当题干前文写某物理量「可调」「待定」「变化」或「未知」，但后续小问给出了具体仿真值（例如「磁场宽度 d 可调……(1) 求 d 最大值；(2) 当 d = 1.5 m 时，求粒子在磁场中的运动时间」或「若 F = 6 N 时」），**必须直接采用该具体数值填入对应字段**（如 `"regionWidthM": 1.5`）以生成代表性动画，**严禁因前文“可调”而填 `null` 报缺项**，并在 `assumptions` 中写明取值依据（如 `"按第(2)问取 d = 1.5 m"`）。
 
 ### 5.4 重力加速度
 
@@ -307,9 +308,11 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 ## 8. 预压弹簧与临界条件
 
-现在支持首段 `spring_release`：从静止的预压弹簧释放，字段为springConstantNpm、initialCompressionM、kineticFrictionCoefficient、unattached、slidesAfterRelease。质量必给；压缩阶段同样使用本段μ。与已有spring_contact入射压缩反弹独立。后接水平段时，题面AB从初始A量总长应写 `end:{kind:"distance_from_stage_start",stageIndex:0,distanceM:AB}`，不要把AB误作脱离后还要走的距离。
+现在支持首段 `spring_release`：从静止的预压弹簧释放，字段为springConstantNpm、initialCompressionM、kineticFrictionCoefficient、unattached、slidesAfterRelease。质量必给；压缩阶段同样使用本段μ。与已有spring_contact入射压缩反弹独立。后接水平段时，若题面给的是**从初始压缩点 A 到圆弧入口 B 的总长 AB**，写 `end:{kind:"distance_from_stage_start",stageIndex:0,distanceM:AB}`；若题面给的是**物块脱离弹簧后**继续滑行的水平距离 d，直接写 `end:{kind:"distance",distanceM:d}`，不要混淆两者。
 
-题面只有“恰好通过最高点”时：保留未知k/c为null，添加 `constraints:[{kind:"critical_arc_top",stageIndex:圆弧下标}]`，圆弧必须为180°光滑内侧。若明确在B前或B点已恢复原长，releaseCompleteByM填写已知AB，表示初压缩量c不超过该值；无法确认则null。不要按图像比例猜压缩量，不要计算E或B速度，B会生成固定能量及来源记录。完整参数可由B计算是否已释放，无需额外上界。允许摩擦区不同，不要将其整题判为超范围。
+**已知 `k` 和初始压缩量 `x₀` 时的防冲突铁律**：只要题面已经给出 `k` 和 `x₀`，**只填 `springConstantNpm` 和 `initialCompressionM`，严禁画蛇添足填顶层 `energy`、不要填 `releaseCompleteByM`、也不要多余添加 `constraints`**（由物理引擎自动按 `½kx₀²` 精确求解全程，避免因手算舍入或上界冲突触发 `PRECONDITION_CONFLICT`）。
+
+题面只有“恰好通过最高点”且 `k` 或 `x₀` 未知时：保留未知k/c为null，添加 `constraints:[{kind:"critical_arc_top",stageIndex:圆弧下标}]`，圆弧必须为180°光滑内侧。若明确在B前或B点已恢复原长，releaseCompleteByM填写已知AB，表示初压缩量c不超过该值；无法确认则null。不要按图像比例猜压缩量，不要计算E或B速度，B会生成固定能量及来源记录。完整参数可由B计算是否已释放，无需额外上界。允许摩擦区不同，不要将其整题判为超范围。
 
 例如原题m=.1kg、g=10、AB=2、μ=.2、R=.4，初态静止，k/c未知：
 

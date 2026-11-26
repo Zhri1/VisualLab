@@ -208,9 +208,10 @@ function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: Motion
     };
   }
 
-  const dx = cos;
+  const horizDir = stageIndex > 0 && start.vxMps < -1e-9 ? -1 : 1;
+  const dx = horizDir * cos;
   const dy = -sin;
-  const acceleration = gravity * (sin - stage.kineticFrictionCoefficient * dx);
+  const acceleration = gravity * (sin - stage.kineticFrictionCoefficient * cos);
   const lengthM = stage.lengthM!;
   const boundary = travel(speed, acceleration, lengthM);
   const endPoint = stageIndex === 0 ? { xM: 0, yM: 0 } : { xM: start.xM + lengthM * dx, yM: start.yM + lengthM * dy };
@@ -549,9 +550,10 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     if (stage.kind === "projectile" && stage.landingPlaneYM !== undefined && stage.landingPlaneYM > state.yM) {
       return failure("固定落地平面不能高于实际发射点。", "/stages/" + index + "/landingPlaneYM", "PRECONDITION_CONFLICT");
     }
-    if (stage.kind === "incline_slide" && stage.direction !== "up" && index > 0 && incomingSpeed > 0) {
+    if (stage.kind === "incline_slide" && stage.direction !== "up" && index > 0 && incomingSpeed > 0 && prevKind !== "lossless_turn") {
       const angle = stage.angleDeg * Math.PI / 180;
-      if (tangentAngleDiff(state.vxMps, state.vyMps, Math.cos(angle), -Math.sin(angle)) > TANGENT_TOL_RAD) {
+      const horizDir = state.vxMps < -1e-9 ? -1 : 1;
+      if (tangentAngleDiff(state.vxMps, state.vyMps, horizDir * Math.cos(angle), -Math.sin(angle)) > TANGENT_TOL_RAD) {
         return failure("来向速度方向与斜面切向不一致，无法切向进入斜面。", "/stages/" + index, "PRECONDITION_CONFLICT");
       }
     }
