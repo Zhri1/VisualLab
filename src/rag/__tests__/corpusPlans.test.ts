@@ -37,12 +37,18 @@ describe("母题提示的阶段组合可通过正式装配和求解", () => {
     expect(motion.events.slice(-2).map((event) => event.kind)).toEqual(["arc_lowest", "arc_range_end"]);
   });
 
-  it("第 22 题离槽后先滑到桌沿，再开始平抛", () => {
-    const motion = build("gk-movable-arc-recoil-projectile-22", {
+  it("第 22 题拟题变式按题给距离滑到桌沿，再平抛落地", () => {
+    const id = "gk-movable-arc-recoil-projectile-22";
+    const entry = PHYSICS_RAG_CORPUS.find((item) => item.id === id)!;
+    const slideDistanceM = 0.35;
+    expect(entry.source).toContain("拟题变式");
+    expect(entry.stem).toContain(`d = ${slideDistanceM} m`);
+    expect(entry.planHint).toContain(`distanceM:${slideDistanceM}`);
+    const motion = build(id, {
       ...base, massKg: 1, initial: { speedMps: 0 },
       stages: [
         { kind: "movable_arc", radiusM: 0.6, grooveMassKg: 2, exitDirection: -1 },
-        { kind: "horizontal_slide", kineticFrictionCoefficient: 0, end: { kind: "distance", distanceM: 0.2 } },
+        { kind: "horizontal_slide", kineticFrictionCoefficient: 0, end: { kind: "distance", distanceM: slideDistanceM } },
         { kind: "projectile", dropHeightM: 1.25 },
       ],
     });
@@ -50,8 +56,10 @@ describe("母题提示的阶段组合可通过正式装配和求解", () => {
     const launch = motion.events.find((event) => event.kind === "leave_table")!;
     const launchXM = motion.sampleAt(launch.timeSeconds).xM;
     expect(motion.sampleAt(exit.timeSeconds).xM).toBeCloseTo(-0.4, 10);
-    expect(launchXM).toBeCloseTo(-0.6, 10);
-    expect(launch.timeSeconds).toBeGreaterThan(exit.timeSeconds);
+    expect(launchXM).toBeCloseTo(-0.75, 10);
+    expect(motion.movableArcAt!(0).grooveXM - launchXM).toBeCloseTo(0.15, 10);
+    expect(launch.timeSeconds - exit.timeSeconds).toBeCloseTo(slideDistanceM / (2 * Math.SQRT2), 10);
+    expect(motion.durationSeconds - exit.timeSeconds).toBeCloseTo(slideDistanceM / (2 * Math.SQRT2) + 0.5, 10);
     expect(launchXM - motion.sampleAt(Infinity).xM).toBeCloseTo(Math.SQRT2, 10);
   });
 
