@@ -89,8 +89,10 @@ function solve(plan: ResolvedStagePlan): StageMotion {
         }else throw new PlanError('/stages/2/end','没有有限目标轨道决定共同播放范围。',true);
       }else endAge=postPendulum.endTime(pendStage!.end.kind);
       const landing=targetRun?.reason==='landed'?targetRun.duration:Infinity;
-      endAge=Math.min(endAge,postPendulum.limit);
-      if(landing<endAge||close(landing,endAge))endAge=landing;
+      const firstBoundary=Math.min(endAge,postPendulum.limit,landing);
+      if(close(postPendulum.limit,firstBoundary))endAge=postPendulum.limit;
+      else if(close(landing,firstBoundary))endAge=landing;
+      else endAge=firstBoundary;
       postAge=endAge;
       if(!Number.isFinite(endAge))throw new PlanError('/stages/2/end','当前运动没有所指定的有限终点。');
       duration=tc+endAge;
@@ -148,7 +150,9 @@ function solve(plan: ResolvedStagePlan): StageMotion {
     return {bodies,constraints};
   }
   const events:StageEvent[]=[],states:BodySnapshot[]=[];
-  raw.sort((a,b)=>a.time-b.time||a.stageIndex-b.stageIndex||a.track-b.track);
+  const endKind=scopeReason==='landed'?'land':scopeReason;
+  const isEnd=(event:RawEvent)=>Number(event.time===duration&&event.kind===endKind);
+  raw.sort((a,b)=>a.time-b.time||a.stageIndex-b.stageIndex||isEnd(a)-isEnd(b)||a.track-b.track);
   for(const item of raw){
     if(item.time>duration)continue;
     const before=item.kind==='collision'?snapshot(item.time,true):snapshot(item.time,item.pre,item.pendBefore,item.targetBefore);

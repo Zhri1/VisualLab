@@ -29,12 +29,31 @@ describe('独立水平正碰公开入口',()=>{
   close(b.one.vxMps,-3.5);close(b.two.vxMps,1.5);close(c.one.xM,5-3.5*e+e*e);close(c.two.xM,5+1.5*e-e*e);
  });
  it.each([.1,.2,1.25])('高度%s保留精确局部落地边界及入射末态',h=>{const p=read('flight');p.stages[2].tracks[1].stages[0].landingPlaneYM=-h;const m=run(p),last=m.events[m.events.length-1];expect(last.kind).toBe('land');expect(last.timeSeconds).toBe(m.durationSeconds);expect(m.sampleAt(m.durationSeconds).bodies!.two.status).toBe('landed');close(m.sampleAt(Infinity).bodies!.two.yM,-h);close(m.sampleAt(Infinity).bodies!.two.vyMps,-Math.sqrt(20*h));});
- it('名义同时到达的水平目标和落地保留两个末点事件',()=>{
+ it.each([[-1,false],[0,true],[1,false],[-1,true],[0,false],[1,true]] as const)('同刻水平目标与接地保留两个末点事件，浮点偏差=%s，重排轨道=%s',(offset,reverse)=>{
   const p=read('scene-end');
-  p.stages[2].tracks[0].stages[0].end={kind:'distance',distanceM:1.4-Number.EPSILON};
+  p.stages[2].tracks[0].stages[0].end={kind:'distance',distanceM:1.4+offset*Number.EPSILON};
+  if(reverse)p.stages[2].tracks.reverse();
   const m=run(p);
   expect(m.events.filter(e=>e.timeSeconds===m.durationSeconds).map(e=>e.kind)).toEqual(['reach_target','land']);
+  expect(m.endReason).toBe('landed');
+  expect(m.events.find(e=>e.id===m.termination.eventId)?.kind).toBe('land');
   expect(m.sampleAt(Infinity).bodies!.two.status).toBe('landed');
+ });
+ it.each([false,true])('接地与再次张紧同刻时以模型边界终止，重排轨道=%s',reverse=>{
+  const p=read('pendulum'),parallel=p.stages[2];
+  p.initial.bodies[0].vxMps=12;
+  parallel.end={kind:'all_finite_tracks'};
+  parallel.tracks[1].stages[0].slackContinuation={kind:'free_flight_until_retaut'};
+  parallel.tracks[0].stages[0].end.distanceM=18;
+  const base=run(p),age=base.durationSeconds-base.events.find(e=>e.kind==='collision')!.timeSeconds;
+  parallel.tracks[0].stages[0].end.distanceM=0.6;
+  parallel.tracks[0].stages.push({kind:'projectile',landingPlaneYM:-5*(age-0.1)**2});
+  if(reverse)parallel.tracks.reverse();
+  const m=run(p);
+  expect(m.events.filter(e=>e.timeSeconds===m.durationSeconds).map(e=>e.kind)).toEqual(['land','string_retaut_boundary']);
+  expect(m.termination).toMatchObject({reason:'string_retaut_boundary',eventId:m.events[m.events.length-1].id});
+  expect(m.sampleAt(Infinity).bodies!.one.status).toBe('landed');
+  expect(m.sampleAt(Infinity).bodies!.two.status).toBe('model_boundary');
  });
  it('水平跟随段只允许光滑、碰后并行末段',()=>{
   const p=read('scene-end');

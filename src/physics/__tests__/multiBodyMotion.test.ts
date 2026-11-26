@@ -49,10 +49,25 @@ describe('多物体装配、统一时钟和事件',()=>{
         bodyIds:['target'],stages:[{kind:'projectile',landingPlaneYM:-5*age**2*(1+offset*4*Number.EPSILON)}],
       }],
     }]};
+    if(offset>0)p.stages[2].tracks!.reverse();
     const m=motion(p);
+    expect(m.endReason).toBe('landed');
     expect(m.events.filter(e=>e.timeSeconds===m.durationSeconds).map(e=>e.kind)).toEqual(['pendulum_turn','land']);
+    expect(m.events.find(e=>e.id===m.termination.eventId)?.kind).toBe('land');
     expect(m.sampleAt(Infinity).bodies!.target.status).toBe('landed');
     expect(m.sampleAt(Infinity).bodies!.bob.status).toBe('turning');
+  });
+  it('目标落地与轻绳再次张紧同刻时，终止指向模型边界且保留接地状态',()=>{
+    const p=clone(elastic) as any;
+    p.stages[1].targetApproach.velocityXMps=-Math.sqrt(30);
+    p.stages[2].tracks[0].stages[0].slackContinuation={kind:'free_flight_until_retaut'};
+    const base=motion(p),age=base.durationSeconds-base.events.find(e=>e.kind==='collision')!.timeSeconds;
+    p.stages[2].tracks[1].stages=[{kind:'projectile',landingPlaneYM:-5*age**2}];
+    const m=motion(p);
+    expect(m.events.filter(e=>e.timeSeconds===m.durationSeconds).map(e=>e.kind)).toEqual(['land','string_retaut_boundary']);
+    expect(m.termination).toMatchObject({reason:'string_retaut_boundary',eventId:m.events[m.events.length-1].id});
+    expect(m.sampleAt(Infinity).bodies!.target.status).toBe('landed');
+    expect(m.sampleAt(Infinity).bodies!.bob.status).toBe('model_boundary');
   });
   it('目标预碰位置来自真实带符号匀速前提，物体表次序不改变绑定',()=>{const p=clone(moving);p.bodies.reverse();const m=motion(p);expect(m.sampleAt(0).bodies!.target.xM).toBeCloseTo(ref.movingTarget.initialXM,10);expect(m.sampleAt(0).bodies!.target.vxMps).toBe(-1);expect(m.sampleAt(m.events.find(e=>e.kind==='collision')!.timeSeconds).bodies!.target.vxMps).toBeCloseTo(Math.sqrt(10),10);});
   it('切换主物体只改变兼容投影，不交换ID和物理状态',()=>{const p=clone(unequal);p.primaryBodyId='target';const a=motion(unequal),b=motion(p),t=.8;expect(a.sampleAt(t).bodies).toEqual(b.sampleAt(t).bodies);expect(b.sampleAt(t).xM).toBe(b.sampleAt(t).bodies!.target.xM);});
