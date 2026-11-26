@@ -329,18 +329,31 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
       if (typeof stage.staticFrictionCoefficient === "number" && typeof stage.kineticFrictionCoefficient === "number" && stage.staticFrictionCoefficient < stage.kineticFrictionCoefficient) {
         issue(path + "/staticFrictionCoefficient", "RANGE", "静摩擦因数不应小于动摩擦因数。");
       }
+      const hasBeltLength = typeof stage.beltLengthM === "number" && stage.beltLengthM > 0;
       let hasAccel = false;
-      if (source.segments == null) { stage.segments = null; missingKeys.push(path + "/segments"); }
-      else if (!Array.isArray(source.segments)) issue(path + "/segments", "TYPE", "传送带速度分段须为数组。");
-      else if (source.segments.length === 0) missingKeys.push(path + "/segments");
+      if (source.segments == null || (Array.isArray(source.segments) && source.segments.length === 0)) {
+        if (hasBeltLength) {
+          // 题面给定带长且未给分段变速时，视为匀速传送带运行至滑块离带。
+          stage.segments = [{ accelerationMps2: 0, durationSeconds: 20 }];
+        } else {
+          stage.segments = null;
+          missingKeys.push(path + "/segments");
+        }
+      } else if (!Array.isArray(source.segments)) issue(path + "/segments", "TYPE", "传送带速度分段须为数组。");
       else {
+        const rawSegs = source.segments;
         const segs: Record<string, unknown>[] = [];
-        source.segments.forEach((rawSeg, j) => {
+        rawSegs.forEach((rawSeg, j) => {
           const sp = `${path}/segments/${j}`;
           if (!record(rawSeg)) { issue(sp, "TYPE", "传送带分段须为对象。"); return; }
           const copy: Record<string, unknown> = { ...rawSeg };
           numberField(rawSeg, copy, "accelerationMps2", sp + "/accelerationMps2", finite);
-          numberField(rawSeg, copy, "durationSeconds", sp + "/durationSeconds", positive);
+          if (hasBeltLength && rawSegs.length === 1 && copy.accelerationMps2 === 0 && rawSeg.durationSeconds == null) {
+            // 匀速定长传送带题面通常不给运行时间，默认给足窗口直至滑块离带。
+            copy.durationSeconds = 20;
+          } else {
+            numberField(rawSeg, copy, "durationSeconds", sp + "/durationSeconds", positive);
+          }
           if (typeof copy.accelerationMps2 === "number" && copy.accelerationMps2 !== 0) hasAccel = true;
           segs.push(copy);
         });
@@ -393,16 +406,17 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
     const previous = stages[i - 1]?.kind;
     const permitted = i === 0 ? source.kind !== "lossless_turn"
       : previous == null ? true
-      : previous === "incline_slide" ? source.kind === "lossless_turn" || source.kind === "projectile" || source.kind === 'vertical_arc' && Object.prototype.hasOwnProperty.call(source, 'path')
-      : previous === "lossless_turn" ? source.kind === "horizontal_slide" || source.kind === "spring_contact" || source.kind === "vertical_arc" || source.kind === "constant_force_1d"
-      : previous === "horizontal_slide" ? source.kind === "spring_contact" || source.kind === "projectile" || source.kind === "vertical_arc" || source.kind === "constant_force_1d" || source.kind === "magnetic_deflection"
-      : previous === "constant_force_1d" ? ["constant_force_1d", "horizontal_slide", "spring_contact", "projectile", "vertical_arc"].includes(source.kind)
-      : previous === "vertical_arc" ? ["projectile", "horizontal_slide", "incline_slide", "spring_contact", "constant_force_1d", "vertical_arc"].includes(source.kind)
+      : previous === "incline_slide" ? source.kind === "lossless_turn" || source.kind === "projectile" || source.kind === "conveyor_belt" || (source.kind === "vertical_arc" && Object.prototype.hasOwnProperty.call(source, "path"))
+      : previous === "lossless_turn" ? ["horizontal_slide", "spring_contact", "vertical_arc", "constant_force_1d", "conveyor_belt", "spring_pair"].includes(source.kind)
+      : previous === "horizontal_slide" ? ["spring_contact", "projectile", "vertical_arc", "constant_force_1d", "magnetic_deflection", "conveyor_belt", "spring_pair"].includes(source.kind)
+      : previous === "constant_force_1d" ? ["constant_force_1d", "horizontal_slide", "spring_contact", "projectile", "vertical_arc", "conveyor_belt", "spring_pair"].includes(source.kind)
+      : previous === "vertical_arc" ? ["projectile", "horizontal_slide", "incline_slide", "spring_contact", "constant_force_1d", "vertical_arc", "conveyor_belt", "spring_pair"].includes(source.kind)
       : previous === "projectile" ? source.kind === "vertical_arc" || source.kind === "incline_slide"
-      : previous === "spring_release" ? ["horizontal_slide", "spring_contact", "vertical_arc", "projectile", "constant_force_1d"].includes(source.kind)
-      : previous === "conveyor_belt" ? source.kind === "projectile" || source.kind === "horizontal_slide"
-      : previous === "magnetic_deflection" ? source.kind === "projectile" || source.kind === "horizontal_slide" || source.kind === "constant_force_1d"
-      : previous === "movable_arc" ? source.kind === "spring_pair" || source.kind === "horizontal_slide"
+      : previous === "spring_release" ? ["horizontal_slide", "spring_contact", "vertical_arc", "projectile", "constant_force_1d", "conveyor_belt", "spring_pair"].includes(source.kind)
+      : previous === "conveyor_belt" ? ["projectile", "horizontal_slide", "spring_contact", "vertical_arc", "constant_force_1d", "incline_slide", "spring_pair"].includes(source.kind)
+      : previous === "magnetic_deflection" ? ["projectile", "horizontal_slide", "constant_force_1d", "conveyor_belt"].includes(source.kind)
+      : previous === "movable_arc" ? ["spring_pair", "horizontal_slide", "spring_contact", "vertical_arc", "projectile", "conveyor_belt"].includes(source.kind)
+      : previous === "spring_pair" ? ["horizontal_slide", "projectile", "vertical_arc"].includes(source.kind)
       : false;
     if (!permitted) issue(path + "/kind", "UNSUPPORTED", "当前版本不支持该阶段接续。");
     if (i > 0 && previous === "horizontal_slide") {

@@ -508,7 +508,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 ## 15. 传送带与滑块（水平与倾斜）
 
-共享契约 `CONVEYOR_BELT.md`。水平或倾斜传送带（匀速或分段恒加速）与滑块使用 `initial: { vxMps: 带符号沿带初速 }`、顶层 `gravityMps2` 与单段 `conveyor_belt`：
+共享契约 `CONVEYOR_BELT.md`。水平或倾斜传送带（匀速或分段恒加速）既可独立作为首段（用 `initial: { vxMps: 带符号沿带初速 }`），也可串联在 `incline_slide → lossless_turn`、`horizontal_slide`、`vertical_arc`、`spring_release` 之后，后接 `projectile`、`horizontal_slide`、`spring_contact`、`vertical_arc` 等阶段：
 
 ```json
 {

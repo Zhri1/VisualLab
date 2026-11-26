@@ -174,4 +174,30 @@ describe("传送带与滑块：共享基准与变式", () => {
     badDir.stages[0].inclineDirection = "left";
     expect((validateStagePlan(badDir) as any).fieldErrors[0]).toMatchObject({ path: "/stages/0/inclineDirection", code: "UNSUPPORTED" });
   });
+
+  it("多过程串联（斜面→转向→定长匀速传送带→平抛）且未给 durationSeconds 时正常装配并连续求解", () => {
+    const motion = build({
+      kind: "stage_plan",
+      schemaVersion: 1,
+      gravityMps2: 10,
+      initial: { speedMps: 0 },
+      stages: [
+        { kind: "incline_slide", lengthM: 1, angleDeg: 37, kineticFrictionCoefficient: 0.2, slidesAfterRelease: true },
+        { kind: "lossless_turn", lossless: true },
+        {
+          kind: "conveyor_belt",
+          initialBeltSpeedMps: 2,
+          beltLengthM: 2,
+          kineticFrictionCoefficient: 0.2,
+          segments: [{ accelerationMps2: 0, durationSeconds: null }],
+        },
+        { kind: "projectile", dropHeightM: 1.25 },
+      ],
+    });
+    expect(motion.endReason).toBe("landed");
+    expect(motion.events.some((e: any) => e.kind === "conveyor_exit")).toBe(true);
+    const end = motion.sampleAt(motion.durationSeconds);
+    expect(end.xM).toBeGreaterThan(2.5);
+    expect(end.yM).toBeCloseTo(-1.25, 6);
+  });
 });
