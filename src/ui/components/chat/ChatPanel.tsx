@@ -58,11 +58,17 @@ export function ChatPanel({ ws, className }: Props) {
   );
 
   const firstMessageId = ws.messages[0]?.id ?? null;
+  const prevFirstMessageIdRef = useRef<string | null>(firstMessageId);
   useEffect(() => {
-    setQuickOpen(false);
-    setShowAnalyzeOptions(false);
-    setShowParamSuggestions(false);
-    setLocalQaActive(false);
+    const prev = prevFirstMessageIdRef.current;
+    prevFirstMessageIdRef.current = firstMessageId;
+    // 仅在切题（首条消息替换）或回首页清空（非空 -> null）时重置，避免空对话首次推入引导气泡时误关局部答疑
+    if (prev !== null && prev !== firstMessageId) {
+      setQuickOpen(false);
+      setShowAnalyzeOptions(false);
+      setShowParamSuggestions(false);
+      setLocalQaActive(false);
+    }
   }, [firstMessageId]);
 
   useEffect(() => {

@@ -344,6 +344,15 @@ export function useWorkspace() {
         setPhase("workspace");
         setTutorStyle("tutor");
         setProblemText(input.similarId && input.text?.trim() ? input.text.trim() : null);
+        setSampleId(null);
+        setCompareOn(false);
+        if (!input.file) {
+          setImageFile(null);
+          setImageUrl((prev) => {
+            revokeIfBlob(prev);
+            return null;
+          });
+        }
         setReading(shell);
         setMotion(null);
         setAppliedReading(null);
@@ -360,10 +369,22 @@ export function useWorkspace() {
 
       if (res.status === "unsupported") {
         setNotice({ kind: "info", text: res.message, showSample: true });
+        if (isSimilarInWorkspace) {
+          setMessages((prev) => [
+            ...prev,
+            { id: uid(), role: "assistant", text: `该变式题暂无法生成动画：${res.message}。当前动画与对话保持不变。`, error: true },
+          ]);
+        }
         return res;
       }
 
       setNotice({ kind: "error", text: res.message });
+      if (isSimilarInWorkspace) {
+        setMessages((prev) => [
+          ...prev,
+          { id: uid(), role: "assistant", text: `生成变式题动画失败：${res.message}。当前动画与对话保持不变。`, error: true },
+        ]);
+      }
       return res;
     },
     [applyReading]

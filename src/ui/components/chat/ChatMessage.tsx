@@ -203,12 +203,17 @@ function SimilarProblemCard({
       };
     }
     setCanShowCancel(false);
-    setIsHovered(false);
     if (delayTimerRef.current !== null) {
       window.clearTimeout(delayTimerRef.current);
       delayTimerRef.current = null;
     }
   }, [isCurrentGenerating]);
+
+  useEffect(() => {
+    if (isOtherGenerating) {
+      setIsHovered(false);
+    }
+  }, [isOtherGenerating]);
 
   const primaryClassName =
     "similar-btn similar-btn-primary" +
