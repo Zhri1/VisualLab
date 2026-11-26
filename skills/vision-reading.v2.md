@@ -342,7 +342,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 物体ID必须稳定；独立摆bodies只有一项。正碰bodyIds顺序为[摆锤,目标]，mode是elastic或perfectly_inelastic，normalXM是从摆锤指向目标的接触法线x分量（±1）。目标碰前静止可用uniform_horizontal和速度0，**不要求粗糙面变光滑，不添加targetApproach.frictionless**。目标带速度则保留正负号；只有题面已确认碰前匀速并与摆锤在最低点同步接触时，才填uniform_horizontal与endsAtContact:true。仅给碰前瞬时速度而前段运动不明，保留对应缺项；不要推测目标初位。题面另给初始x可填initialXM，由B核对。externalImpulseNegligible确认水平碰撞外冲量可忽略。
 
-弹性后分两条轨道：摆锤用inheritFromStageIndex继承首段绳，end为scene_end；目标按题面走horizontal_slide（μ可为正），可从实际桌沿接固定landingPlaneYM的projectile。parallel_motion.end为all_finite_tracks，摆锤在目标停止/飞行期间继续摆，不因第一个转折就冻结。仅题面明确看到摆锤首转折时用end:{kind:"pendulum_turn",bodyId:摆锤ID}。粘连后用同绳继承摆、bodyIds仍列两个ID，end由观察范围选first_turn或first_return_lowest。独立角度静止释放到对侧首转折用first_turn；到首次最低点用lowest_point。B负责非线性时间、张力、碰前后速度、松绳和实际范围，不由模型删掉尚未执行的模块或填计算答案。
+弹性后分两条轨道：摆锤用inheritFromStageIndex继承首段绳，end为scene_end；目标按题面走horizontal_slide（μ可为正），可从实际桌沿接固定landingPlaneYM的projectile。parallel_motion.end为all_finite_tracks，摆锤在目标停止/飞行期间继续摆，不因第一个转折就冻结。题面求摆锤最大上摆高度等明确以首转折为观察终点时，用并行end:{kind:"pendulum_turn",bodyId:摆锤ID}；仍在光滑水平面匀速的目标用horizontal_slide(kineticFrictionCoefficient:0,end:{kind:"scene_end"})跟随。粘连后用同绳继承摆、bodyIds仍列两个ID，end由观察范围选first_turn或first_return_lowest。独立角度静止释放到对侧首转折用first_turn；到首次最低点用lowest_point。B负责非线性时间、张力、碰前后速度、松绳和实际范围，不由模型删掉尚未执行的模块或填计算答案。
 
 开发输入（不是整题模板；数值按本例题设）：L=1、g=10，左侧60°静止释放，两质量1 kg，目标静止在O，弹性碰后目标沿μ=.2水平面直到停止：
 
@@ -387,7 +387,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - contact_or_rest表示求实际接触或全体静止；明确有限观察时长用`end:{kind:"time_limit",durationSeconds:题给时长}`。无法确定有限范围时留end待补，不能用想象的碰撞时间代替。
 - normalXM从第一ID指向第二ID；不同初位可省略，由B核对方向。初位恰同点时必须从题面明确方向填1或-1，不靠速度编法线。不要写摆的targetApproach/pendulumStageIndex。
 - 弹性碰后两ID各一条parallel_motion轨道；粘连用mode=perfectly_inelastic，两ID同一轨道，共用题给μ或同一根已有绳。不能分开两条轨道假装粘连。
-- 滑动用horizontal_slide，距离从真实碰后起点沿实际速度方向量正值；光滑面正速要有题给有限距离，不能要求摩擦停止。共同结束用all_finite_tracks或题设明确的pendulum_turn/bodyId。
+- 滑动用horizontal_slide，距离从真实碰后起点沿实际速度方向量正值；光滑面上仍匀速运动的物体可在并行轨道末段填kineticFrictionCoefficient:0、end:{kind:"scene_end"}来跟随另一路的实际落地等有限终点，不填假想距离或摩擦停止；并行仍须有可求的共同终点。共同结束用all_finite_tracks或题设明确的pendulum_turn/bodyId。
 - 碰撞处直接飞行的首个projectile须给landingPlaneYM、supportAbsentAtStart:true、supportBoundary:{edgeXM, supportedSide:"left"或"right"}，明确哪侧有支撑。预碰物体不能已在无支撑侧却仍沿水平面行进；留在桌上的物体不能碰后水平走出该檐口。先走桌面再飞出，用定距水平段接projectile。无支撑/边界依据不足填null，不猜桌沿或地面。
 - 例如光滑桌面右檐x=5，初位(0,4)、初速(5,1)，两质量(1,3)：保留真实初态；题面若要求一体仍在桌面向左，另一体从右檐飞向y=-1.25，其直接projectile写supportBoundary:{edgeXM:5,supportedSide:"left"}。不要把反向来物从桌沿外的无支撑侧画成沿桌面接近。
 - 已有绳只在对应initial.bodies条目写constraint:{kind:"pendulum_string",pivotXM,lengthM,pivotFixed:true,lightInextensibleString:true,airResistanceNegligible:true,initialStringState:"taut"}。水平等待的已有绳物体须静止在最低点；非零水平初速仅能在t=0立即碰撞，不把绷紧摆误画成碰前直线运动。碰后pendulum_swing用inheritFromBodyId引用它，不能临时造绳或绕过张紧绳直接飞行；实际松绳由B判定。

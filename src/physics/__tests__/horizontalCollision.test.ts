@@ -29,6 +29,43 @@ describe('独立水平正碰公开入口',()=>{
   close(b.one.vxMps,-3.5);close(b.two.vxMps,1.5);close(c.one.xM,5-3.5*e+e*e);close(c.two.xM,5+1.5*e-e*e);
  });
  it.each([.1,.2,1.25])('高度%s保留精确局部落地边界及入射末态',h=>{const p=read('flight');p.stages[2].tracks[1].stages[0].landingPlaneYM=-h;const m=run(p),last=m.events[m.events.length-1];expect(last.kind).toBe('land');expect(last.timeSeconds).toBe(m.durationSeconds);expect(m.sampleAt(m.durationSeconds).bodies!.two.status).toBe('landed');close(m.sampleAt(Infinity).bodies!.two.yM,-h);close(m.sampleAt(Infinity).bodies!.two.vyMps,-Math.sqrt(20*h));});
+ it.each([[-1,false],[0,true],[1,false],[-1,true],[0,false],[1,true]] as const)('同刻水平目标与接地保留两个末点事件，浮点偏差=%s，重排轨道=%s',(offset,reverse)=>{
+  const p=read('scene-end');
+  p.stages[2].tracks[0].stages[0].end={kind:'distance',distanceM:1.4+offset*Number.EPSILON};
+  if(reverse)p.stages[2].tracks.reverse();
+  const m=run(p);
+  expect(m.events.filter(e=>e.timeSeconds===m.durationSeconds).map(e=>e.kind)).toEqual(['reach_target','land']);
+  expect(m.endReason).toBe('landed');
+  expect(m.events.find(e=>e.id===m.termination.eventId)?.kind).toBe('land');
+  expect(m.sampleAt(Infinity).bodies!.two.status).toBe('landed');
+ });
+ it.each([false,true])('接地与再次张紧同刻时以模型边界终止，重排轨道=%s',reverse=>{
+  const p=read('pendulum'),parallel=p.stages[2];
+  p.initial.bodies[0].vxMps=12;
+  parallel.end={kind:'all_finite_tracks'};
+  parallel.tracks[1].stages[0].slackContinuation={kind:'free_flight_until_retaut'};
+  parallel.tracks[0].stages[0].end.distanceM=18;
+  const base=run(p),age=base.durationSeconds-base.events.find(e=>e.kind==='collision')!.timeSeconds;
+  parallel.tracks[0].stages[0].end.distanceM=0.6;
+  parallel.tracks[0].stages.push({kind:'projectile',landingPlaneYM:-5*(age-0.1)**2});
+  if(reverse)parallel.tracks.reverse();
+  const m=run(p);
+  expect(m.events.filter(e=>e.timeSeconds===m.durationSeconds).map(e=>e.kind)).toEqual(['land','string_retaut_boundary']);
+  expect(m.termination).toMatchObject({reason:'string_retaut_boundary',eventId:m.events[m.events.length-1].id});
+  expect(m.sampleAt(Infinity).bodies!.one.status).toBe('landed');
+  expect(m.sampleAt(Infinity).bodies!.two.status).toBe('model_boundary');
+ });
+ it('水平跟随段只允许光滑、碰后并行末段',()=>{
+  const p=read('scene-end');
+  const follower=p.stages[2].tracks[0].stages[0];
+  const leaf='/stages/2/tracks/0/stages/0';
+  expect(validateStagePlan({kind:'stage_plan',schemaVersion:1,initial:{speedMps:1},stages:[follower]})).toMatchObject({ok:false,fieldErrors:expect.arrayContaining([expect.objectContaining({path:'/stages/0/end/kind',code:'UNSUPPORTED'})])});
+  follower.kineticFrictionCoefficient=0.2;
+  expect(validateStagePlan(p)).toMatchObject({ok:false,fieldErrors:expect.arrayContaining([expect.objectContaining({path:leaf+'/kineticFrictionCoefficient',code:'PRECONDITION_CONFLICT'})])});
+  follower.kineticFrictionCoefficient=0;
+  p.stages[2].tracks[0].stages.push({kind:'projectile',landingPlaneYM:-1.25});
+  expect(validateStagePlan(p)).toMatchObject({ok:false,fieldErrors:expect.arrayContaining([expect.objectContaining({path:leaf+'/end/kind',code:'PRECONDITION_CONFLICT'})])});
+ });
  it('tracks重排保持按ID寻址的停止事件和几何路径',()=>{const p=read('catch-after-stop');p.stages[0].tracks.reverse();const m=run(p);expect(m.events.find(e=>e.kind==='stop')!.stagePath).toBe('/stages/0/tracks/0');expect(m.geometry.bodyTracks!.find(t=>t.bodyIds[0]==='two')!.stagePath).toBe('/stages/0/tracks/0');close(m.events.find(e=>e.kind==='collision')!.timeSeconds,.8125);});
  it('无冲击接触只产生contact，保留共速2且不宣称静止',()=>{const p=read('elastic');p.initial.bodies=[{bodyId:'one',xM:0,vxMps:4},{bodyId:'two',xM:1,vxMps:2}];p.stages[0].tracks[0].kineticFrictionCoefficient=.2;const m=run(p);expect(m.endReason).toBe('contact_without_impact');expect(m.events.map(e=>e.kind)).toEqual(['release','contact']);close(m.durationSeconds,1);close(m.sampleAt(Infinity).bodies!.two.vxMps,2);expect(m.motionStatus?.state).toBe('range_end');});
  it('4.375s再次追及只交付入射状态，不执行第二次撞击',()=>{const p=read('slides');p.bodies[0].massKg=3;p.bodies[1].massKg=1;p.initial.bodies=[{bodyId:'one',xM:0,vxMps:3},{bodyId:'two',xM:3,vxMps:0}];p.stages[0].tracks[0].kineticFrictionCoefficient=0;p.stages[2].tracks[0].stages[0]={kind:'horizontal_slide',kineticFrictionCoefficient:0,end:{kind:'distance',distanceM:7}};const m=run(p);close(m.durationSeconds,4.375);expect(m.endReason).toBe('second_contact_boundary');expect(m.motionStatus?.state).toBe('model_limit');expect(m.events.filter(e=>e.kind==='collision')).toHaveLength(1);close(m.sampleAt(Infinity).bodies!.one.xM,8.0625);close(m.sampleAt(Infinity).bodies!.one.vxMps,1.5);close(m.sampleAt(Infinity).bodies!.two.vxMps,0);});

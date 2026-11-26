@@ -85,10 +85,21 @@ export function solveHorizontal(plan:HorizontalPlan) {
         if(age===0&&tracks.some(t=>t.at(0).status!=='resting'))throw new BodyPlanError('/stages/2/end','仍有运动物体，请明确共同终点。',true);
       }
       const firstBoundary=Math.min(...tracks.map(t=>t.limit));
-      if(firstBoundary<=age){age=firstBoundary;reason=tracks.find(t=>t.limit===age)!.reason;status=reason==='string_retaut_boundary'?'model_limit':'range_end';}
+      if(firstBoundary<=age||nearValue(firstBoundary,age)){
+        const boundary=tracks.find(t=>t.limit===firstBoundary)!;
+        const coincident=tracks.filter(t=>nearValue(t.limit,firstBoundary));
+        // 同刻保留各轨道事件，由绳约束边界或接地决定共同终止原因。
+        const stringBoundary=coincident.find(t=>t.reason==='string_retaut_boundary'||t.reason==='string_slack');
+        const landing=boundary.reason==='landed'?boundary:coincident.find(t=>t.reason==='landed');
+        const endTrack=stringBoundary??landing??boundary;
+        age=endTrack.limit;reason=endTrack.reason;status=reason==='string_retaut_boundary'?'model_limit':'range_end';
+      }
       else reason=parallel.end.kind==='pendulum_turn'?'pendulum_first_turn':'stopped';
       const crossing=tracks.length===2?secondContact(tracks[0],tracks[1],age):undefined;
-      if(crossing!==undefined&&crossing<=age){age=crossing;reason='second_contact_boundary';status='model_limit';}
+      if(crossing!==undefined&&(crossing<=age||nearValue(crossing,age))){
+        if(!nearValue(crossing,age))age=crossing;
+        reason='second_contact_boundary';status='model_limit';
+      }
       postAge=age;duration=tc+age;
       if(age>0&&duration===tc)throw new RangeError('碰后时长不能与碰撞时刻区分。');
       if(reason==='stopped'){status=tracks.every(t=>t.at(age).status==='resting')?'complete':'range_end';if(status==='range_end')reason='prefix_end';}
@@ -100,11 +111,16 @@ export function solveHorizontal(plan:HorizontalPlan) {
     }
     add(tc,'collision',1,'/stages/1',pair,preContact,postStart,collisionValues);
     if(parallel){
-      const age=postAge,all=tracks.flatMap((tr,i)=>tr.events.filter(e=>e.time<=age).map(e=>({tr,i,e}))).sort((a,b)=>a.e.time-b.e.time||a.i-b.i);
-      for(const {tr,e}of all){const before=postSnapshot(e.time),after=postSnapshot(e.time);
+      const age=postAge,endKind=reason==='landed'?'land':reason;
+      const isEnd=(kind:string,time:number)=>Number(time===age&&kind===endKind);
+      const all=tracks.flatMap((tr,i)=>tr.events
+        .filter(e=>e.time<=age||nearValue(e.time,age))
+        .map(e=>({tr,i,e,time:nearValue(e.time,age)?age:e.time})))
+        .sort((a,b)=>a.time-b.time||isEnd(a.e.kind,a.time)-isEnd(b.e.kind,b.time)||a.i-b.i);
+      for(const {tr,e,time}of all){const before=postSnapshot(time),after=postSnapshot(time);
         if(e.before)for(const id of tr.ids)Object.assign(before.bodies[id],e.before);
         if(e.after)for(const id of tr.ids)Object.assign(after.bodies[id],e.after);
-        add(tc+e.time,e.kind,2,e.path,tr.ids,before,after);
+        add(tc+time,e.kind,2,e.path,tr.ids,before,after);
       }
       if(reason==='second_contact_boundary')add(duration,'second_contact_boundary',2,'/stages/2',ids,postSnapshot(age));
       else if(!events.some(e=>e.timeSeconds===duration))add(duration,'range_end',2,'/stages/2',ids,postSnapshot(age));
@@ -125,8 +141,9 @@ export function solveHorizontal(plan:HorizontalPlan) {
   function makeTrack(stages:BodyTrackStage[],owners:string[],i:number):Track{
     const path=`/stages/2/tracks/${i}/stages/0`,head=stages[0],start=postStart.bodies[owners[0]];
     if(head.kind!=='pendulum_swing'){
-      const tr=linearBodyTrack(stages,start,owners,i,g),final=tr.at(tr.duration);
-      return {...tr,ids:owners,path,limit:final.status==='resting'?Infinity:tr.duration};
+      const tr=linearBodyTrack(stages,start,owners,i,g);
+      const limit=Number.isFinite(tr.duration)&&tr.at(tr.duration).status!=='resting'?tr.duration:Infinity;
+      return {...tr,ids:owners,path,limit};
     }
     const origin=initial(head.inheritFromBodyId!),c=origin.constraint!,mass=owners.reduce((s,id)=>s+postStart.bodies[id].massKg,0),p=createPendulum(c.lengthM,g,mass,0,start.vxMps,!!head.slackContinuation);
     if(!nearValue(start.xM,c.pivotXM))throw new BodyPlanError(path+'/inheritFromBodyId','碰后位置不在已有绳最低点。');
@@ -137,7 +154,10 @@ export function solveHorizontal(plan:HorizontalPlan) {
     const geometryPendulum={constraintId:key,bodyIds:owners.slice(),definitionStageIndex:0,pivot:{xM:c.pivotXM,yM:c.lengthM},lowestPoint:{xM:c.pivotXM,yM:0},lengthM:c.lengthM,initialPosition:{xM:origin.xM,yM:0}};
     // 事件仅在共同范围确定后填充，避免为scene_end无界生成无限事件。
     const result:Track={ids:owners,path,duration,reason:p.limitKind,limit:p.limit,pieces:p.equilibrium?[{start:0,end:Infinity,x:c.pivotXM,y:0,vx:0,vy:0,ax:0,ay:0}]:[],segments:[],events:[],geometry:[],at:t=>translate(p.at(t)),stringAt,pendulum:p,geometryPendulum};
-    Object.defineProperty(result,'events',{get(){const age=Number.isFinite(duration)?Math.min(duration,globalAge()):globalAge();return[{time:0,kind:'pendulum_enter',path},...p.eventsUntil(age).map(e=>({time:e.time,kind:e.kind,path,before:translate(e.before),after:translate(e.after)}))];}});
+    Object.defineProperty(result,'events',{get(){
+      const age=Math.min(duration,globalAge()),eventAge=nearValue(p.firstTurn,age)?Math.max(age,p.firstTurn):age;
+      return[{time:0,kind:'pendulum_enter',path},...p.eventsUntil(eventAge).map(e=>({time:e.time,kind:e.kind,path,before:translate(e.before),after:translate(e.after)}))];
+    }});
     Object.defineProperty(result,'segments',{get(){const age=globalAge(),arc=Math.min(age,p.lossTime);return[...(arc>0&&!p.equilibrium?[{stageIndex:2,stagePath:path,bodyIds:owners,kind:'pendulum_swing' as const,startSeconds:0,endSeconds:arc}]:[]),...(age>p.lossTime?[{stageIndex:2,stagePath:path+'/slackContinuation',bodyIds:owners,kind:'projectile' as const,startSeconds:p.lossTime,endSeconds:age}]:[])];}});
     if(Number.isFinite(p.lossTime)){const s=translate(p.loss);result.pieces.push({start:p.lossTime,end:p.limit,x:s.xM,y:s.yM,vx:s.vxMps,vy:s.vyMps,ax:0,ay:-g});result.geometry.push({start:p.lossTime,value:{bodyIds:owners,stagePath:path+'/slackContinuation',projectile:{launch:{xM:s.xM,yM:s.yM}}}});}
     return result;

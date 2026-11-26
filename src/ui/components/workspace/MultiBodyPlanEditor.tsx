@@ -32,7 +32,7 @@ export function MultiBodyPlanEditor({draft,onChange,missingKeys,fieldErrors}:{dr
   const choices=(pairs:[unknown,string][])=>pairs.map(([value,label])=>({value,label}));
   const facts=[{value:true,label:'是'},{value:false,label:'否'}];
   const ref=(p:string,label:string)=>select(p,label,ids.map(id=>({value:id,label:id})));
-  function stage(s:Obj,path:string,owners:string[],index:number):React.ReactNode{
+  function stage(s:Obj,path:string,owners:string[],index:number,trackTail=false):React.ReactNode{
     const owner=owners.join(' + ')||'物体',kind=s.kind;
     return <section className="stage-editor-card" data-stage-path={path} key={path}><p className="body-stage-title">{owner} · {kind==='pulley_system'?'轻绳与定滑轮':kind==='block_plank'?'滑块与可移动木板':kind==='horizontal_approach'?'水平接近':kind==='pendulum_swing'?'轻绳摆':kind==='horizontal_slide'?'水平滑动':kind==='projectile'?'抛体运动':kind==='collision_1d'?'水平正碰':'同步运动'}</p><table className="cond-table"><tbody>
       {kind==='pulley_system'&&<>
@@ -85,7 +85,7 @@ export function MultiBodyPlanEditor({draft,onChange,missingKeys,fieldErrors}:{dr
       </>}
       {kind==='horizontal_slide'&&<>
         {number(path+'/kineticFrictionCoefficient',`${owner} 动摩擦因数 μ`,'')}
-        {select(path+'/end/kind',`${owner} 水平结束条件`,choices([['distance','指定距离 / 桌沿'],['stop','摩擦停止']]),v=>set(path+'/end',v==='distance'?{kind:v,distanceM:record(s.end).distanceM??null}:v?{kind:v}:null))}
+        {select(path+'/end/kind',`${owner} 水平结束条件`,[...choices([['distance','指定距离 / 桌沿'],['stop','摩擦停止']]),...(trackTail?choices([['scene_end','光滑匀速至共同终点']]):[])],v=>set(path+'/end',v==='distance'?{kind:v,distanceM:record(s.end).distanceM??null}:v?{kind:v}:null))}
         {record(s.end).kind==='distance'&&number(path+'/end/distanceM',`${owner} 距目标 / 桌沿`,'m')}
       </>}
       {kind==='projectile'&&<>{number(path+'/landingPlaneYM',`${owner} 落地平面 y`,'m',horizontal?'沿用题面世界坐标，不重置碰撞点。':'与摆最低点共用世界坐标。')}
@@ -131,7 +131,7 @@ export function MultiBodyPlanEditor({draft,onChange,missingKeys,fieldErrors}:{dr
         {record(s.end).kind==='pendulum_turn'&&ref(path+'/end/bodyId','结束时跟随的摆锤 ID')}
       </>}
     </tbody></table>
-    {kind==='parallel_motion'&&list(s.tracks).map((track,j)=>{const tr=record(track),owners=list(tr.bodyIds).filter((v):v is string=>typeof v==='string');return <div className="body-track-editor" key={j}><table className="cond-table"><tbody>{list(tr.bodyIds).map((_id,k)=>ref(path+`/tracks/${j}/bodyIds/${k}`,`轨道${j+1} 物体${k+1} ID`))}</tbody></table>{list(tr.stages).map((leaf,k)=>stage(record(leaf),path+`/tracks/${j}/stages/${k}`,owners,index))}</div>;})}
+    {kind==='parallel_motion'&&list(s.tracks).map((track,j)=>{const tr=record(track),owners=list(tr.bodyIds).filter((v):v is string=>typeof v==='string');return <div className="body-track-editor" key={j}><table className="cond-table"><tbody>{list(tr.bodyIds).map((_id,k)=>ref(path+`/tracks/${j}/bodyIds/${k}`,`轨道${j+1} 物体${k+1} ID`))}</tbody></table>{list(tr.stages).map((leaf,k,leaves)=>stage(record(leaf),path+`/tracks/${j}/stages/${k}`,owners,index,k===leaves.length-1))}</div>;})}
     </section>;
   }
   const initial=record(root.initial),signed='tangentialSpeedMps'in initial;
