@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, type RefObject } from "react";
 import { ArrowUp, ImagePlus } from "lucide-react";
 
 interface Props {
@@ -6,11 +6,14 @@ interface Props {
   onChange: (v: string) => void;
   onSend: () => void;
   disabled?: boolean;
+  placeholder?: string;
+  inputRef?: RefObject<HTMLTextAreaElement>;
   onImagePick: (file: File) => void;
 }
 
-export function ChatComposer({ value, onChange, onSend, disabled, onImagePick }: Props) {
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+export function ChatComposer({ value, onChange, onSend, disabled, placeholder, inputRef, onImagePick }: Props) {
+  const fallbackRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = inputRef ?? fallbackRef;
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const resize = () => {
@@ -25,7 +28,7 @@ export function ChatComposer({ value, onChange, onSend, disabled, onImagePick }:
       <textarea
         ref={textareaRef}
         className="chat-input"
-        placeholder="提问或修改物理条件…"
+        placeholder={placeholder ?? "提问或修改物理条件…"}
         rows={1}
         value={value}
         disabled={disabled}

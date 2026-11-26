@@ -236,7 +236,11 @@ export type PlanResponse =
 
 export type ChatRole = "user" | "assistant" | "system";
 
+export type ChatMode = "tutor" | "similar" | "socratic";
+export type TutorStyle = "tutor" | "socratic";
+
 export interface SimilarProblem {
+  id?: string;
   title: string;
   tags: string[];
   difficulty?: string;
