@@ -113,9 +113,9 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     title: "足够长粗糙斜面上滑与下滑加速度不对称往返",
     source: "高考经典母题 · 斜面往返动力学",
     difficulty: "中档",
-    stageSignature: ["incline_slide", "incline_slide"],
+    stageSignature: ["incline_slide"],
     tags: ["斜面上滑", "原路返回", "加速度不对称", "往返时间"],
-    stem: "足够长的粗糙斜面倾角 37°，动摩擦因数 μ = 0.25（最大静摩擦力等于滑动摩擦力）。质量 m = 1 kg 的物块从底端以 v₀ = 8 m/s 沿斜面向上冲出，g = 10 m/s²，求物块上滑的最大距离、返回底端时的速度及往返总时间。",
+    stem: "足够长的粗糙斜面倾角 θ 约为 37°（取 sinθ = 0.6、cosθ = 0.8），动摩擦因数 μ = 0.25（最大静摩擦力等于滑动摩擦力）。质量 m = 1 kg 的物块从底端以 v₀ = 8 m/s 沿斜面向上冲出，g = 10 m/s²，求物块上滑的最大距离、返回底端时的速度及往返总时间。",
     keyFormulas: [
       "a_上 = g(sinθ + μcosθ)，a_下 = g(sinθ - μcosθ)",
       "t_上 = v₀ / a_上，t_下 = √(2s_max / a_下)",
@@ -128,7 +128,7 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     solutionOutline:
       "上滑加速度 a_上 = 8 m/s²，经 t_上 = 1 s 到达最高点 s_max = 4 m。因 μ = 0.25 < tan37° = 0.75，物块加速下滑，a_下 = 4 m/s²，下滑时间 t_下 = √2 s，返回底端速度 v_返 = 4√2 m/s，往返总时间 (1 + √2) s。",
     planHint:
-      "stages: incline_slide(direction:'up', angleDeg:37, lengthM:null, μ:0.25) -> incline_slide(direction:'down', angleDeg:37, lengthM:4, μ:0.25)",
+      "stages: incline_slide(direction:'up', angleDeg:36.86989764584402, lengthM:null, kineticFrictionCoefficient:0.25, staticFrictionCoefficient:0.25)，整段自动求折返",
   },
   {
     id: "gk-incline-up-projectile-06",

@@ -87,12 +87,12 @@ Node 服务与 Qoder 云函数识别新题时使用同一张映射表。
 
 | 阶段 `kind` | 题设字段 | 求解结果 |
 |---|---|---|
-| `incline_slide` | `lengthM`、`angleDeg`、`kineticFrictionCoefficient`。静止释放需要 `slidesAfterRelease: true`。 | 沿斜面向下，计算到坡底或先停止的状态；扩展的正速末端直接接抛体见 [斜面斜抛约定](INCLINE_PROJECTILE.md#1-范围与输入)。 |
+| `incline_slide` | `lengthM`、`angleDeg`、`kineticFrictionCoefficient`。静止释放需要 `slidesAfterRelease: true`。冲上斜面用 `direction: "up"`，已知足够长时 `lengthM: null`。 | 计算到端点或先停止。沿同一斜面上滑再返回时，一段内计算静止点、折返与返回坡底；扩展的正速末端直接接抛体见 [斜面斜抛约定](INCLINE_PROJECTILE.md#1-范围与输入)。 |
 | `lossless_turn` | `lossless: true` 为常量，表示题设支持光滑且近似无高度差的转向。未知填 `null` 并提示核对，明确为 `false` 时返回超范围。 | 坡底位置和速率连续，速度转为水平。输出瞬时事件；还可按 [圆弧接续约定](VERTICAL_ARC.md#1-输入单位与范围) 接 `vertical_arc`。 |
 | `horizontal_slide` | `kineticFrictionCoefficient`，以及旧 `end: { kind: "distance", distanceM }` / `{ kind: "stop" }`；[预压扩展](PRECOMPRESSED_SPRING.md#2-距离和合法接续)另有 `distance_from_stage_start`。 | 旧 `distance` 只从本水平段起点量起，新引用距离可从A量总AB；摩擦停止可能先于目标。正速到达后还可按 [圆弧接续约定](VERTICAL_ARC.md#1-输入单位与范围) 接 `vertical_arc`。 |
 | `spring_contact` | `springConstantNpm`、`frictionless: true`、`unattached: true`，质量读计划顶层。 | 水平正速入射，计算接触、最大压缩和恢复原长后脱离。 |
 | `spring_release`（扩展） | `springConstantNpm`、`initialCompressionM`、`kineticFrictionCoefficient`、`unattached`、`slidesAfterRelease`；缺参后缀另需可确认的 `releaseCompleteByM`，见 [预压弹簧契约](PRECOMPRESSED_SPRING.md)。 | 预压后释放，仍压缩时也受摩擦；比较恢复原长与先停止。与旧 `spring_contact` 独立。 |
-| `vertical_arc` | `radiusM`、`endAngleDeg`、`side: "inside"`、`frictionless: true`，质量与重力读计划顶层；完整范围见 [圆弧扩展契约](VERTICAL_ARC.md#1-输入单位与范围)。 | 计算到端点飞出、提前失去接触或停下回滑，输出圆弧几何、约束状态和关键事件。 |
+| `vertical_arc` | `radiusM`、`endAngleDeg` 或显式 `path`、`side` 为 `"inside"` 或 `"rod"`、`frictionless: true`，质量与重力读计划顶层；完整范围见 [圆弧扩展契约](VERTICAL_ARC.md#1-输入单位与范围)。 | 计算到端点飞出、提前失去接触或停下回滑，输出圆弧几何、约束状态和关键事件。 |
 | `projectile` | 旧 `dropHeightM` 继续表示发射点到落地平面的非负落差，平面为 `launch.yM - dropHeightM`。扩展允许互斥的固定世界坐标 `landingPlaneYM`；圆弧后抛体必须选固定平面，详见 [固定地面约定](VERTICAL_ARC.md#2-接抛体时固定地面)。斜面末端直接抛出可选上述一种输入，详见 [檐口与地面坐标](INCLINE_PROJECTILE.md#2-坐标地面及绘图参考点)。 | 自实际发射状态起算，记录实际发生的最高点与落地；斜面接续保留向下竖直分量，不产生内部最高点。 |
 | `pendulum_swing` / `collision_1d` / `parallel_motion`（待实现扩展） | 具体字段、张力/松绳、两质量、带符号速度和碰后约束见 [摆与碰撞契约第2至4节](PENDULUM_COLLISION.md#2-有序阶段与受控并行)。 | 一根轻绳的非线性摆动、最低点瞬时正碰及碰后同钟轨道；不新增整题模板或任意规则求解器。 |
 | `magnetic_deflection` | `magneticTeslaB`（T，正值）、`chargeC`（C，非零带符号）、`regionWidthM`（m，正值）、`fieldDirection`（`into_page` / `out_of_page`，默认向里）、`exitKind`（`region_edge` / `half_circle`，默认按竖直边界出射）。 | 单粒子在垂直纸面的匀强磁场中忽略重力，按洛伦兹力求半径、实际出射位置和切向速度，记录 `magnetic_enter` 与 `magnetic_exit`。 |

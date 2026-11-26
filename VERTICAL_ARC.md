@@ -13,18 +13,18 @@ type VerticalArcStage = {
   kind: "vertical_arc";
   radiusM: number;
   endAngleDeg: number;
-  side: "inside";
+  side: "inside" | "rod";
   frictionless: true;
 };
 ```
 
 - `radiusM` 是质点运动轨迹半径，单位 m，有限且大于零。圆弧从最低点开始，入射切线水平向右；沿右半圆向上，到 `endAngleDeg` 所定端点结束。角度从最低点量起，单位度，有限且 `0 < endAngleDeg <= 180`。180° 是最高点，90° 是最右端。
-- `side: "inside"` 确认只有朝圆心的支撑力，允许失去接触；`frictionless: true` 确认光滑。外侧轨道、双面卡槽、滚动物体、圆弧摩擦、任意起始角及超过半圈的路径暂不支持。物体按不转动的质点计算。
+- `side: "inside"` 确认只有朝圆心的支撑力，允许失去接触；`frictionless: true` 确认光滑。`side: "rod"` 表示质点受固定半径的双向径向约束，例如理想轻杆、双面光滑圆管或等效双轨。物体按不转动的质点计算。外侧单面凸轨、摩擦圆弧、转动或变半径的约束超范围；任意起始角与更长圆轨见 [显式圆轨增量](CIRCULAR_TRACK.md)。
 - 含圆弧时，顶层 `gravityMps2`、`massKg` 都必需且为有限正数。质量用于输出法向力，不能由画面尺寸猜测。圆弧为首段时，`initial` 用 `{ speedMps }`，允许零；不得给速度分量。后续圆弧从上一段继承位置和速度。
 - 新增接续为：`horizontal_slide(distance) → vertical_arc → projectile`，或 `lossless_turn → vertical_arc`；圆弧可独立或作为前缀末段。进入圆弧必须是水平向右的切向状态。水平提前停或恰停时沿用旧停止分支，不执行圆弧，也不生成圆弧或抛体的实际运动几何。暂不接第二个圆弧或反向执行前序水平段。
 - 新阶段初始零速且位于最低点时保持静止，零时长结束，原因 `stopped`。不得产生回滑、脱轨或飞行事件。
 
-字段错误沿用共享校验唯一入口。已识别阶段缺值或 `null` 放入 `missingKeys`，例如 `/stages/0/radiusM`、`/stages/0/side`、`/massKg`。错误字段类型为 `TYPE / INVALID_READING`；非有限数为 `NOT_FINITE`，数值不在约定区间为 `RANGE`，均沿用已有可修正错误口径；已知字符串 `side` 非 `inside` 或明确 `frictionless: false` 为 `UNSUPPORTED`。初态形状或接续速度不相容为 `PRECONDITION_CONFLICT`，定位 `/initial` 或相应阶段路径。缺项、错误值及其他已知阶段的数据按已有草稿规则保留。
+字段错误沿用共享校验唯一入口。已识别阶段缺值或 `null` 放入 `missingKeys`，例如 `/stages/0/radiusM`、`/stages/0/side`、`/massKg`。错误字段类型为 `TYPE / INVALID_READING`；非有限数为 `NOT_FINITE`，数值不在约定区间为 `RANGE`，均沿用已有可修正错误口径；已知字符串 `side` 不属于 `inside` 或 `rod`，或明确 `frictionless: false`，为 `UNSUPPORTED`。初态形状或接续速度不相容为 `PRECONDITION_CONFLICT`，定位 `/initial` 或相应阶段路径。缺项、错误值及其他已知阶段的数据按已有草稿规则保留。
 
 ## 2. 接抛体时固定地面
 
