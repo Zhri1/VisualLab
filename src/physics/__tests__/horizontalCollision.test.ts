@@ -39,6 +39,22 @@ describe('独立水平正碰公开入口',()=>{
   expect(m.events.find(e=>e.id===m.termination.eventId)?.kind).toBe('land');
   expect(m.sampleAt(Infinity).bodies!.two.status).toBe('landed');
  });
+ it.each([-80,-4,4,80])('水平正碰后摆动首转折和接地同刻保留两项，浮点偏差=%s',offset=>{
+  const p=read('pendulum'),parallel=p.stages[2],base=run(p);
+  const turnAge=base.durationSeconds-base.events.find(e=>e.kind==='collision')!.timeSeconds;
+  const slideDistanceM=0.2;
+  parallel.tracks[0].stages[0].end.distanceM=slideDistanceM;
+  const landingPlaneYM=-5*(turnAge-slideDistanceM)**2*(1+offset*Number.EPSILON);
+  parallel.tracks[0].stages.push({kind:'projectile',landingPlaneYM});
+  if(offset>0)parallel.tracks.reverse();
+  const m=run(p);
+  expect(Math.sign(m.durationSeconds-base.durationSeconds)).toBe(Math.sign(offset));
+  expect(m.events.filter(e=>e.timeSeconds===m.durationSeconds).map(e=>e.kind)).toEqual(['pendulum_turn','land']);
+  expect(m.termination).toMatchObject({reason:'landed',eventId:m.events[m.events.length-1].id});
+  expect(m.sampleAt(Infinity).bodies!.one.status).toBe('landed');
+  expect(m.sampleAt(Infinity).bodies!.two.status).toBe('turning');
+  expect(m.sampleAt(Infinity).constraints!['string:two'].angularVelocityRadps).toBe(0);
+ });
  it.each([false,true])('接地与再次张紧同刻时以模型边界终止，重排轨道=%s',reverse=>{
   const p=read('pendulum'),parallel=p.stages[2];
   p.initial.bodies[0].vxMps=12;
