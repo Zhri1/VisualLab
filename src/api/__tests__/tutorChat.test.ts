@@ -215,4 +215,87 @@ describe('真实 AI 物理助教对话入口（Node 与 Qoder 双端一致）', 
     );
     expect(mixedRes.status).toBe(400);
   });
+
+  it('Node 与 Qoder 双端 RAG 助教与相似题注入一致，并回传 ragReferences', async () => {
+    const chatContext = {
+      problemText: '质量 M = 3 kg、半径 R = 0.6 m 的四分之一光滑圆弧槽静置于光滑水平面，小球 m1 = 1 kg 从槽顶静止滑下后压缩静止小球 m2 所连轻弹簧。',
+      reading: {
+        kind: 'stage_plan',
+        schemaVersion: 1,
+        stages: [{ kind: 'movable_arc' }, { kind: 'spring_pair' }],
+      },
+      currentTimeSeconds: 0.4,
+    };
+
+    const tutorSystemPrompts: string[] = [];
+    const tutorRefs: unknown[] = [];
+    for (const fn of [handlePlan, qoderHandler]) {
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: '系统仅水平方向合外力为零，因此水平动量守恒，竖直方向不守恒。' } }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+      const res = await fn(chatRequest('为什么圆弧槽只有水平动量守恒？', chatContext));
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        status: string;
+        reply: string;
+        ragReferences?: Array<{ id: string; title: string; score: number; matchedReasons: string[] }>;
+      };
+      expect(body.status).toBe('ok');
+      expect(Array.isArray(body.ragReferences)).toBe(true);
+      expect(body.ragReferences!.length).toBeGreaterThan(0);
+      expect(body.ragReferences![0].score).toBeGreaterThan(0);
+      expect(body.ragReferences![0].matchedReasons.some((r) => r.includes('阶段链匹配'))).toBe(true);
+      tutorRefs.push(body.ragReferences);
+
+      const sent = JSON.parse(String(fetchMock.mock.calls[fetchMock.mock.calls.length - 1][1]?.body)) as {
+        messages: Array<{ role: string; content: string }>;
+      };
+      tutorSystemPrompts.push(sent.messages[0].content);
+    }
+
+    expect(tutorSystemPrompts[0]).toBe(tutorSystemPrompts[1]);
+    expect(tutorSystemPrompts[0]).toContain('参考高考物理母题知识库');
+    expect(tutorSystemPrompts[0]).toContain('核心规律/二级结论');
+    expect(tutorRefs[0]).toEqual(tutorRefs[1]);
+
+    // 识图链路：有匹配题面文字时双端注入母题拆段参考，无关文字时不拼接
+    const formMatched = new FormData();
+    formMatched.append('text', '倾角37°粗糙斜面滑下接光滑水平面压缩轻弹簧，求最大压缩量');
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: JSON.stringify({ kind: 'stage_plan', schemaVersion: 1, stages: [], unsupportedReason: '测试' }) } }],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    await handlePlan(new Request('http://127.0.0.1:8787/api/animation/plan', { method: 'POST', body: formMatched }));
+    const matchedPayload = JSON.parse(String(fetchMock.mock.calls[fetchMock.mock.calls.length - 1][1]?.body)) as {
+      messages: Array<{ role: string; content: Array<{ type: string; text?: string }> }>;
+    };
+    const matchedUserText = matchedPayload.messages[1].content.map((c) => c.text ?? '').join('\n');
+    expect(matchedUserText).toContain('母题拆段参考');
+
+    const formUnmatched = new FormData();
+    formUnmatched.append('text', '有机化学苯环取代反应方程式配平');
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: JSON.stringify({ kind: 'stage_plan', schemaVersion: 1, stages: [], unsupportedReason: '测试' }) } }],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    await handlePlan(new Request('http://127.0.0.1:8787/api/animation/plan', { method: 'POST', body: formUnmatched }));
+    const unmatchedPayload = JSON.parse(String(fetchMock.mock.calls[fetchMock.mock.calls.length - 1][1]?.body)) as {
+      messages: Array<{ role: string; content: Array<{ type: string; text?: string }> }>;
+    };
+    const unmatchedUserText = unmatchedPayload.messages[1].content.map((c) => c.text ?? '').join('\n');
+    expect(unmatchedUserText).not.toContain('母题拆段参考');
+  });
 });

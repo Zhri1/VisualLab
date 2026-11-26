@@ -7,6 +7,8 @@ import type { EndReason, StageGeometry, ArcConstraint } from "../physics/stageMo
 export type { StageGeometry };
 import type { ResolvedStagePlan, StageKind, StagePlanDraft } from "../physics/stagePlan";
 import type { BodyState, StringState, MotionStatus } from '../physics/multiBodyTypes';
+import type { RagReference } from "../rag/types";
+export type { RagReference };
 
 export type TemplateId = "incline_spring";
 
@@ -275,10 +277,18 @@ export interface ChatMessage {
   assumptions?: string[];
   /** 相似变式题推荐列表 */
   similarProblems?: SimilarProblem[];
+  /** 领域物理 RAG 命中的参考母题条目 */
+  ragReferences?: RagReference[];
 }
 
 export type ChatIntent =
-  | { type: "answer"; text: string; action?: ChatMessage["action"]; similarProblems?: SimilarProblem[] }
+  | {
+      type: "answer";
+      text: string;
+      action?: ChatMessage["action"];
+      similarProblems?: SimilarProblem[];
+      ragReferences?: RagReference[];
+    }
   | { type: "update_conditions"; changes: Partial<Record<ConditionKey, number>>; text: string }
   | { type: "update_stage_plan"; nextReading: StagePlanDraft; changes: ConditionChange[]; text: string }
   | { type: "seek_event"; event: EventId | string; text?: string }
