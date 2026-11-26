@@ -347,7 +347,8 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     const ox = g.conveyor.originXM ?? 0;
     const oy = g.conveyor.originYM ?? 0;
     const sMin = g.conveyor.minXM - size;
-    const sMax = g.conveyor.maxXM + size;
+    // 右端齐平物理出口 maxXM，避免抛体离带后穿过右侧多余带体与滚轮。
+    const sMax = g.conveyor.maxXM;
     const p1x = X(ox + sMin * ux), p1y = Y(oy + sMin * uy);
     const p2x = X(ox + sMax * ux), p2y = Y(oy + sMax * uy);
     const beltLenPx = Math.max(24, Math.hypot(p2x - p1x, p2y - p1y));
@@ -647,10 +648,21 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     const uy = sample.velocity.y / speed;
     const length = Math.min(1.4, 0.45 + speed * 0.08, (hasArc ? 38 : 46) / S);
     const offset = hasArc ? 9 / S : (halfPx + 4) / S;
-    const startX = center.x + ux * offset;
-    const startY = center.y + uy * offset;
-    const endX = startX + ux * length;
-    const endY = startY + uy * length;
+    let startX = center.x + ux * offset;
+    let startY = center.y + uy * offset;
+    let endX = startX + ux * length;
+    let endY = startY + uy * length;
+    const landingPlanes = projectiles.map((p) => p.landingPlane.yM);
+    const hitGroundBelow =
+      uy < -0.05 &&
+      (Y(endY) > H - 10 || landingPlanes.some((planeY) => center.y >= planeY - 1e-4 && endY < planeY - 1e-4));
+    if (hitGroundBelow) {
+      // 落地瞬间或贴近底边时，将速度矢量改为指向物块入射侧，方向不变且不穿入地面/裁出画布。
+      endX = center.x - ux * offset;
+      endY = center.y - uy * offset;
+      startX = endX - ux * length;
+      startY = endY - uy * length;
+    }
     ctx.strokeStyle = "#3a3a36";
     ctx.lineWidth = 1.6;
     ctx.beginPath();

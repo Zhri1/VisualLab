@@ -301,59 +301,61 @@ export function WorkspaceLayout({ ws }: Props) {
               <h1 className="player-title">{title}</h1>
               <p className="player-sub">{subtitle}</p>
             </div>
-            {ws.sampleCompare && (
-              <button
-                className="ghost-button compare-toggle"
-                onClick={ws.toggleSampleCompare}
-                aria-pressed={ws.compareOn}
-                aria-label={ws.compareOn ? ws.sampleCompare.backLabel : ws.sampleCompare.label}
-                title={ws.compareOn ? ws.sampleCompare.backLabel : ws.sampleCompare.label}
-              >
-                <Repeat size={14} strokeWidth={1.8} />
-                <span className="btn-label">
-                  {ws.compareOn ? ws.sampleCompare.backLabel : ws.sampleCompare.label}
-                </span>
+            <div className="player-head-actions">
+              {ws.sampleCompare && (
+                <button
+                  className="ghost-button compare-toggle"
+                  onClick={ws.toggleSampleCompare}
+                  aria-pressed={ws.compareOn}
+                  aria-label={ws.compareOn ? ws.sampleCompare.backLabel : ws.sampleCompare.label}
+                  title={ws.compareOn ? ws.sampleCompare.backLabel : ws.sampleCompare.label}
+                >
+                  <Repeat size={14} strokeWidth={1.8} />
+                  <span className="btn-label">
+                    {ws.compareOn ? ws.sampleCompare.backLabel : ws.sampleCompare.label}
+                  </span>
+                </button>
+              )}
+              {motion && (
+                <ExportMenu
+                  getCanvas={() => frameBoxRef.current?.querySelector("canvas") ?? null}
+                  motion={motion}
+                  title={sampleTitle}
+                  problemText={ws.problemText ?? ""}
+                  wallMs={Math.round((motion.durationSeconds / Math.max(0.1, ws.playbackRate * (paceEnabled ? defaultPace : 1))) * 1000)}
+                  onSeek={ws.seek}
+                />
+              )}
+              {motion && (
+                <button
+                  type="button"
+                  className="ghost-button favorite-btn"
+                  onClick={toggleFavorite}
+                  aria-pressed={favorited}
+                  aria-label={favorited ? "取消收藏" : "收藏到错题本"}
+                  title={favorited ? "已收藏（点击取消）" : "收藏到错题本"}
+                >
+                  <Bookmark size={14} strokeWidth={1.8} fill={favorited ? "currentColor" : "none"} />
+                  <span className="btn-label">{favorited ? "已收藏" : "收藏"}</span>
+                </button>
+              )}
+              {motion && (
+                <button
+                  type="button"
+                  className={`ghost-button share-btn${copiedShare ? " is-copied" : ""}`}
+                  onClick={copyShare}
+                  aria-label="分享链接"
+                  title="复制包含当前条件与时刻的分享链接"
+                >
+                  {copiedShare ? <Check size={14} strokeWidth={2.2} /> : <Share2 size={14} strokeWidth={1.8} />}
+                  <span className="btn-label">{copiedShare ? "已复制" : "分享"}</span>
+                </button>
+              )}
+              <button className="ghost-button" onClick={() => setViewerOpen(true)} aria-label="查看原题">
+                <ImageIcon size={14} strokeWidth={1.8} />
+                <span className="btn-label">查看原题</span>
               </button>
-            )}
-            {motion && (
-              <ExportMenu
-                getCanvas={() => frameBoxRef.current?.querySelector("canvas") ?? null}
-                motion={motion}
-                title={sampleTitle}
-                problemText={ws.problemText ?? ""}
-                wallMs={Math.round((motion.durationSeconds / Math.max(0.1, ws.playbackRate * (paceEnabled ? defaultPace : 1))) * 1000)}
-                onSeek={ws.seek}
-              />
-            )}
-            {motion && (
-              <button
-                type="button"
-                className="ghost-button favorite-btn"
-                onClick={toggleFavorite}
-                aria-pressed={favorited}
-                aria-label={favorited ? "取消收藏" : "收藏到错题本"}
-                title={favorited ? "已收藏（点击取消）" : "收藏到错题本"}
-              >
-                <Bookmark size={14} strokeWidth={1.8} fill={favorited ? "currentColor" : "none"} />
-                <span className="btn-label">{favorited ? "已收藏" : "收藏"}</span>
-              </button>
-            )}
-            {motion && (
-              <button
-                type="button"
-                className={`ghost-button share-btn${copiedShare ? " is-copied" : ""}`}
-                onClick={copyShare}
-                aria-label="分享链接"
-                title="复制包含当前条件与时刻的分享链接"
-              >
-                {copiedShare ? <Check size={14} strokeWidth={2.2} /> : <Share2 size={14} strokeWidth={1.8} />}
-                <span className="btn-label">{copiedShare ? "已复制" : "分享"}</span>
-              </button>
-            )}
-            <button className="ghost-button" onClick={() => setViewerOpen(true)} aria-label="查看原题">
-              <ImageIcon size={14} strokeWidth={1.8} />
-              <span className="btn-label">查看原题</span>
-            </button>
+            </div>
           </div>
 
           <button
@@ -454,10 +456,10 @@ export function WorkspaceLayout({ ws }: Props) {
                 className="tool-toggle"
                 aria-pressed={annotationMode === "laser"}
                 onClick={() => setAnnotationMode((m) => (m === "laser" ? "off" : "laser"))}
-                title="激光教鞭指示"
+                title="临时标注（松手后自动渐隐）"
               >
                 <Pointer size={13} strokeWidth={2} />
-                <span>教鞭</span>
+                <span>临时标注</span>
               </button>
               <button
                 type="button"
