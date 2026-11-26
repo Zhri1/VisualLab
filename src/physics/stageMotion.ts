@@ -25,7 +25,7 @@ export type StageGeometry = BodyGeometry & {
   magnetic?: MagneticGeometry;
   magnetics?: MagneticGeometry[];
   movableArc?: { stageIndex: number; radiusM: number; grooveMassKg: number; exitDirection: -1 | 1; entryXM: number; entryYM: number; exitTimeSeconds: number; exitGrooveXM: number; exitGrooveVX: number };
-  springPair?: { stageIndex: number; yM: number; gapM: number; mass2Kg: number; targetEntryXM: number; contactTimeSeconds: number; separateTimeSeconds: number; springConstantNpm: number; incomingDir?: -1 | 1; maxCompressionM?: number };
+  springPair?: { stageIndex: number; yM: number; gapM: number; mass2Kg: number; targetEntryXM: number; contactTimeSeconds: number; separateTimeSeconds: number; springConstantNpm: number; incomingDir?: -1 | 1; maxCompressionM?: number; restLengthM?: number };
   spring?: { contact: Point; anchor: Point };
   springs?: Array<{ stageIndex: number; contact: Point; anchor: Point }>;
   projectile?: { launch: Point; landingPlane: { yM: number } };
@@ -617,6 +617,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
           targetEntryXM: solved.geometry.targetEntryXM, contactTimeSeconds: startTime + gap / Math.abs(state.vxMps),
           separateTimeSeconds: startTime + solved.durationSeconds, springConstantNpm: solved.geometry.springConstantNpm,
           incomingDir: solved.geometry.incomingDir, maxCompressionM: solved.geometry.maxCompressionM,
+          restLengthM: solved.geometry.restLengthM,
         };
         springPairEval = (q) => {
           const r = solved.at(Math.min(solved.durationSeconds, Math.max(0, q - startTime)));

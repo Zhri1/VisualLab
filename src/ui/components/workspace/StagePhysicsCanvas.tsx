@@ -111,10 +111,13 @@ export function stageWorldBounds(motion: Motion): WorldBounds {
   }
   if (g.springPair) {
     const pair = g.springPair;
+    const d = pair.incomingDir ?? -1;
+    const restLen = pair.restLengthM ?? 0.36;
+    const initX2 = pair.targetEntryXM + d * restLen;
     const endTarget = motion.springPairAt?.(motion.durationSeconds);
     points.push(
-      { x: pair.targetEntryXM - 0.6, y: pair.yM },
-      { x: (endTarget?.x2M ?? pair.targetEntryXM) + 0.6, y: pair.yM },
+      { x: Math.min(pair.targetEntryXM, initX2, endTarget?.x2M ?? initX2) - 0.35, y: pair.yM },
+      { x: Math.max(pair.targetEntryXM, initX2, endTarget?.x2M ?? initX2) + 0.35, y: pair.yM },
     );
   }
   if (g.springRelease) {
@@ -314,21 +317,23 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   }
   if (g.springPair) {
     const pair = g.springPair;
-    const ps = motion.springPairAt?.(time) ?? { x2M: pair.targetEntryXM, vx2Mps: 0, compressionM: 0 };
+    const d = pair.incomingDir ?? -1;
+    const restLen = pair.restLengthM ?? 0.36;
+    const ps = motion.springPairAt?.(time) ?? { x2M: pair.targetEntryXM + d * restLen, vx2Mps: 0, compressionM: 0 };
     ctx.strokeStyle = INK; ctx.lineWidth = 1.6;
     ctx.beginPath(); ctx.moveTo(X(worldBounds.minX), Y(pair.yM)); ctx.lineTo(X(worldBounds.maxX), Y(pair.yM)); ctx.stroke();
-    const contacting = time >= pair.contactTimeSeconds && time <= pair.separateTimeSeconds && ps.compressionM > 1e-9;
-    // 弹簧固定在靶球朝向入射球的一侧：incomingDir = -1（球向左来）在右侧，= 1 在左侧。
-    const sideSign = -(pair.incomingDir ?? -1);
-    const restLen = Math.min(0.44, Math.max(0.2, pair.gapM * 0.7));
-    const maxComp = Math.max(pair.maxCompressionM ?? 0.2, 1e-6);
-    const curLen = contacting ? Math.max(0.06, restLen * (1 - 0.72 * Math.min(1, ps.compressionM / maxComp))) : restLen;
-    const springAnchor = ps.x2M + sideSign * 0.04;
-    const springTip = springAnchor + sideSign * curLen;
-    ctx.strokeStyle = SOFT; ctx.lineWidth = 1.4;
+    // 弹簧固定在靶球朝向入射球的一侧（sideSign = -d），自由端坐标严格为 x2 + sideSign·(restLen − compressionM)，
+    // 接触瞬间与压缩期间与 m1 坐标 1:1 贴合，绝不穿模。
+    const sideSign = -d;
+    const curLen = Math.max(0.05, restLen - ps.compressionM);
+    const springAnchor = ps.x2M + sideSign * 0.03;
+    const springTip = ps.x2M + sideSign * curLen;
+    ctx.strokeStyle = SOFT; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(X(springAnchor), Y(pair.yM));
     for (let i = 1; i <= 12; i += 1) ctx.lineTo(X(springAnchor + (springTip - springAnchor) * i / 12), Y(pair.yM) + (i % 2 ? -5 : 5));
     ctx.lineTo(X(springTip), Y(pair.yM)); ctx.stroke();
+    // 自由端小挡片，便于看清弹簧接触端位置
+    ctx.beginPath(); ctx.moveTo(X(springTip), Y(pair.yM) - 6); ctx.lineTo(X(springTip), Y(pair.yM) + 6); ctx.stroke();
     ctx.save(); ctx.beginPath(); ctx.arc(X(ps.x2M), Y(pair.yM), 6, 0, 2 * Math.PI); ctx.fillStyle = "#8e8e88"; ctx.fill(); ctx.restore();
     ctx.fillStyle = SOFT; ctx.font = `500 12px ${SANS}`; ctx.textAlign = "center"; ctx.textBaseline = "top";
     ctx.fillText(`m₂ = ${pair.mass2Kg} kg`, X(ps.x2M), Y(pair.yM) + 10);

@@ -40,16 +40,26 @@ describe("弹簧双球：反求/给定两路与简谐接触过程", () => {
     expect(a.durationSeconds).toBeCloseTo(0.5 / 3 + Math.PI / Math.sqrt(50 / mu), 9);
   });
 
-  it("gap 匀速段：接触前 compression=0、m2 静止、m1 匀速", () => {
+  it("gap 匀速段：接触前 compression=0、m2 静止在弹簧原长后方、m1 匀速，全程不穿模", () => {
     const sol = solveSpringPair(stage({ separationSpeedMps: 1 }), entry, m1);
     const tc = sol.events[0].timeSeconds;
+    const L0 = sol.geometry.restLengthM;
+    expect(L0).toBeGreaterThan(sol.geometry.maxCompressionM);
     expect(tc).toBeCloseTo(0.5 / 3, 9);
     const s = sol.at(tc / 2);
     expect(s.x1M).toBeCloseTo(3 * (tc / 2), 9);
     expect(s.vx1Mps).toBeCloseTo(3, 9);
-    expect(s.x2M).toBeCloseTo(0.5, 9);
+    expect(s.x2M).toBeCloseTo(0.5 + L0, 9);
     expect(s.vx2Mps).toBe(0);
     expect(s.compressionM).toBe(0);
+    // 接触瞬间两球间距恰等于弹簧原长 L0，且整个压缩期严格保持 x2 - x1 = L0 - compression > 0
+    const atContact = sol.at(tc);
+    expect(atContact.x2M - atContact.x1M).toBeCloseTo(L0, 9);
+    for (const f of [0.25, 0.5, 0.75, 1]) {
+      const sc = sol.at(tc + (sol.durationSeconds - tc) * f);
+      expect(sc.x2M - sc.x1M).toBeCloseTo(L0 - sc.compressionM, 9);
+      expect(sc.x2M - sc.x1M).toBeGreaterThan(0);
+    }
   });
 
   it("共速时刻压缩最大且 Ep=½k x²；分离后压缩归零", () => {
