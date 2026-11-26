@@ -329,8 +329,15 @@ function isUsableReply(text: string): boolean {
   return Boolean(trimmed) && !NULLISH_REPLY_RE.test(trimmed);
 }
 
-/** 兼容多形态与推理模型回包，并过滤字面 NULL / undefined 等无效空回复。 */
-export function extractTutorReply(payload: unknown): string {
+/**
+ * 兼容多形态与推理模型回包，并过滤字面 NULL / undefined 等无效空回复。
+ * 相似题模式必须关闭 reasoning 回退：思考链（英文推导稿）不是答案，
+ * 一旦被当成正文返回，前端就会拿到 0 道题 + 几千字思考稿。
+ */
+export function extractTutorReply(
+  payload: unknown,
+  options?: { allowReasoningFallback?: boolean },
+): string {
   const choice = (
     payload as {
       choices?: Array<{
@@ -343,11 +350,13 @@ export function extractTutorReply(payload: unknown): string {
   const primary = extractTextFromField(choice?.message?.content);
   if (isUsableReply(primary)) return primary;
 
-  const reasoning = extractTextFromField(choice?.message?.reasoning_content);
-  if (isUsableReply(reasoning)) return reasoning;
-
   const legacyText = extractTextFromField(choice?.text);
   if (isUsableReply(legacyText)) return legacyText;
+
+  if (options?.allowReasoningFallback === false) return '';
+
+  const reasoning = extractTextFromField(choice?.message?.reasoning_content);
+  if (isUsableReply(reasoning)) return reasoning;
 
   return '';
 }
@@ -565,6 +574,9 @@ async function callTutorOnce(
         temperature: mode === 'similar' ? 0.5 : 0.35,
         max_tokens: Math.min(maxTokens(), mode === 'similar' ? 2000 : 1400),
         messages,
+        // 相似题要求纯 JSON 输出：开着思考链会把 max_tokens 全耗在 reasoning_content 上，
+        // content 为空，前端只能拿到空题目列表。未知该参数的模型会忽略它（实测不报错）。
+        ...(mode === 'similar' ? { enable_thinking: false } : {}),
       }),
       signal: controller.signal,
     });
@@ -589,7 +601,7 @@ async function callTutorOnce(
   }
 
   const payload = await response.json().catch(() => null);
-  const rawReply = extractTutorReply(payload);
+  const rawReply = extractTutorReply(payload, { allowReasoningFallback: mode !== 'similar' });
 
   if (!rawReply) throw new VisionError('parse', 'AI 助教返回了无效空内容');
 

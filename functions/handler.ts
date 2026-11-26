@@ -735,7 +735,7 @@ function isUsableReply(text: string): boolean {
   return Boolean(trimmed) && !NULLISH_REPLY_RE.test(trimmed);
 }
 
-function extractTutorReply(payload: unknown): string {
+function extractTutorReply(payload: unknown, options?: { allowReasoningFallback?: boolean }): string {
   const choice = (
     payload as {
       choices?: Array<{
@@ -748,11 +748,14 @@ function extractTutorReply(payload: unknown): string {
   const primary = extractTextFromField(choice?.message?.content);
   if (isUsableReply(primary)) return primary;
 
-  const reasoning = extractTextFromField(choice?.message?.reasoning_content);
-  if (isUsableReply(reasoning)) return reasoning;
-
   const legacyText = extractTextFromField(choice?.text);
   if (isUsableReply(legacyText)) return legacyText;
+
+  // 相似题模式必须关闭 reasoning 回退：思考链（英文推导稿）不是答案。
+  if (options?.allowReasoningFallback === false) return "";
+
+  const reasoning = extractTextFromField(choice?.message?.reasoning_content);
+  if (isUsableReply(reasoning)) return reasoning;
 
   return "";
 }
@@ -966,6 +969,8 @@ async function callTutorChat(request: {
           model,
           temperature: mode === "similar" ? 0.5 : 0.35,
           max_tokens: Math.min(maxTokens(), mode === "similar" ? 2000 : 1400),
+          // 相似题要求纯 JSON 输出：开着思考链会把 max_tokens 全耗在 reasoning_content 上。
+          ...(mode === "similar" ? { enable_thinking: false } : {}),
           messages,
         }),
         signal: controller.signal,
@@ -983,7 +988,7 @@ async function callTutorChat(request: {
       throw new VisionError("upstream", `AI 助教服务返回 ${response.status}：${detail || "无详细信息"}`);
     }
     const payload = await response.json().catch(() => null);
-    const rawReply = extractTutorReply(payload);
+    const rawReply = extractTutorReply(payload, { allowReasoningFallback: mode !== "similar" });
     if (!rawReply) throw new VisionError("parse", "AI 助教返回了无效空内容");
     if (mode === "similar") {
       const parsed = parseSimilarResponseDetailed(rawReply);
