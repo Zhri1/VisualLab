@@ -10,7 +10,7 @@ export type PlaybackScope = { mode: "full" | "suffix" | "state_only"; startStage
 export type SingleStageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release" | "constant_force_1d" | "conveyor_belt" | "magnetic_deflection" | "movable_arc" | "spring_pair";
 export type StageKind = SingleStageKind | BodyStage['kind'];
 export type SingleStage =
-  | { kind: "incline_slide"; lengthM: number; angleDeg: number; kineticFrictionCoefficient: number; slidesAfterRelease?: boolean | null }
+  | { kind: "incline_slide"; direction?: "down" | "up"; lengthM?: number | null; angleDeg: number; kineticFrictionCoefficient: number; staticFrictionCoefficient?: number | null; slidesAfterRelease?: boolean | null }
   | { kind: "lossless_turn"; lossless: true }
   | { kind: "horizontal_slide"; kineticFrictionCoefficient: number; end: { kind: "distance"; distanceM: number } | { kind: "stop" } | { kind: "distance_from_stage_start"; stageIndex: number; distanceM: number } }
   | { kind: "constant_force_1d"; netForceXN: number; end: { kind: "duration"; durationSeconds: number } | { kind: "stop" } }
@@ -212,11 +212,32 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
         stage.radiusM = null;
         continue;
       }
+      if (source.kind === "incline_slide" && key === "lengthM" && source.direction === "up") {
+        // 冲上斜面允许 lengthM 为空或 null，表示斜面足够长。
+        numberField(source, stage, key, path + "/" + key, rule, false);
+        continue;
+      }
       numberField(source, stage, key, path + "/" + key, rule);
     }
-    if (source.kind === "incline_slide" && i === 0 && normalizedInitial.speedMps === 0) fact(stage, "slidesAfterRelease", path + "/slidesAfterRelease");
-    else if (source.kind === "incline_slide" && source.slidesAfterRelease != null && typeof source.slidesAfterRelease !== "boolean") {
-      issue(path + "/slidesAfterRelease", "TYPE", "前提事实须为布尔值或 null。");
+    if (source.kind === "incline_slide") {
+      if (source.direction != null) {
+        if (typeof source.direction !== "string") issue(path + "/direction", "TYPE", "斜面方向须为字符串。");
+        else if (source.direction !== "down" && source.direction !== "up") issue(path + "/direction", "UNSUPPORTED", "斜面方向仅支持 down（下滑）或 up（上滑）。");
+        else stage.direction = source.direction;
+      }
+      numberField(source, stage, "staticFrictionCoefficient", path + "/staticFrictionCoefficient", nonnegative, false);
+      if (typeof stage.staticFrictionCoefficient === "number" && typeof stage.kineticFrictionCoefficient === "number" && stage.staticFrictionCoefficient < stage.kineticFrictionCoefficient) {
+        issue(path + "/staticFrictionCoefficient", "RANGE", "静摩擦因数不应小于动摩擦因数。");
+      }
+      if (source.direction === "up") {
+        if (i === 0 && normalizedInitial.speedMps === 0) {
+          issue("/initial/speedMps", "PRECONDITION_CONFLICT", "冲上斜面需要正的初速度。");
+        }
+      } else if (i === 0 && normalizedInitial.speedMps === 0) {
+        fact(stage, "slidesAfterRelease", path + "/slidesAfterRelease");
+      } else if (source.slidesAfterRelease != null && typeof source.slidesAfterRelease !== "boolean") {
+        issue(path + "/slidesAfterRelease", "TYPE", "前提事实须为布尔值或 null。");
+      }
     }
     if (source.kind === "lossless_turn") fact(stage, "lossless", path + "/lossless");
     if (source.kind === "spring_release") {
@@ -405,13 +426,14 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
     const permitted = i === 0 ? source.kind !== "lossless_turn"
       : previous == null ? true
       : previous === "incline_slide" ? source.kind === "lossless_turn" || source.kind === "projectile" || source.kind === "conveyor_belt" || (source.kind === "vertical_arc" && Object.prototype.hasOwnProperty.call(source, "path"))
-      : previous === "lossless_turn" ? ["horizontal_slide", "spring_contact", "vertical_arc", "constant_force_1d", "conveyor_belt", "spring_pair"].includes(source.kind)
-      : previous === "horizontal_slide" ? ["spring_contact", "projectile", "vertical_arc", "constant_force_1d", "magnetic_deflection", "conveyor_belt", "spring_pair"].includes(source.kind)
-      : previous === "constant_force_1d" ? ["constant_force_1d", "horizontal_slide", "spring_contact", "projectile", "vertical_arc", "conveyor_belt", "spring_pair"].includes(source.kind)
-      : previous === "vertical_arc" ? ["projectile", "horizontal_slide", "incline_slide", "spring_contact", "constant_force_1d", "vertical_arc", "conveyor_belt", "spring_pair"].includes(source.kind)
+      : previous === "lossless_turn" ? ["horizontal_slide", "spring_contact", "vertical_arc", "constant_force_1d", "conveyor_belt", "spring_pair", "incline_slide"].includes(source.kind)
+      : previous === "horizontal_slide" ? ["spring_contact", "projectile", "vertical_arc", "constant_force_1d", "magnetic_deflection", "conveyor_belt", "spring_pair", "lossless_turn", "incline_slide"].includes(source.kind)
+      : previous === "constant_force_1d" ? ["constant_force_1d", "horizontal_slide", "spring_contact", "projectile", "vertical_arc", "conveyor_belt", "spring_pair", "lossless_turn"].includes(source.kind)
+      : previous === "vertical_arc" ? ["projectile", "horizontal_slide", "incline_slide", "spring_contact", "constant_force_1d", "vertical_arc", "conveyor_belt", "spring_pair", "lossless_turn"].includes(source.kind)
       : previous === "projectile" ? source.kind === "vertical_arc" || source.kind === "incline_slide"
-      : previous === "spring_release" ? ["horizontal_slide", "spring_contact", "vertical_arc", "projectile", "constant_force_1d", "conveyor_belt", "spring_pair"].includes(source.kind)
-      : previous === "conveyor_belt" ? ["projectile", "horizontal_slide", "spring_contact", "vertical_arc", "constant_force_1d", "incline_slide", "spring_pair"].includes(source.kind)
+      : previous === "spring_release" ? ["horizontal_slide", "spring_contact", "vertical_arc", "projectile", "constant_force_1d", "conveyor_belt", "spring_pair", "lossless_turn", "incline_slide"].includes(source.kind)
+      : previous === "spring_contact" ? ["horizontal_slide", "lossless_turn", "incline_slide", "vertical_arc", "conveyor_belt", "projectile"].includes(source.kind)
+      : previous === "conveyor_belt" ? ["projectile", "horizontal_slide", "spring_contact", "vertical_arc", "constant_force_1d", "incline_slide", "spring_pair", "lossless_turn"].includes(source.kind)
       : previous === "magnetic_deflection" ? ["projectile", "horizontal_slide", "constant_force_1d", "conveyor_belt"].includes(source.kind)
       : previous === "movable_arc" ? ["spring_pair", "horizontal_slide", "spring_contact", "vertical_arc", "projectile", "conveyor_belt"].includes(source.kind)
       : previous === "spring_pair" ? ["horizontal_slide", "projectile", "vertical_arc"].includes(source.kind)
@@ -428,7 +450,7 @@ export function validateStagePlan(input: unknown): StagePlanValidation {
   }
   // 只判定已知的起动矛盾，停止与到达谁先发生留给运动计算。
   const first = stages[0];
-  if (first.kind === "incline_slide" && normalizedInitial.speedMps === 0
+  if (first.kind === "incline_slide" && first.direction !== "up" && normalizedInitial.speedMps === 0
     && typeof draft.gravityMps2 === "number" && draft.gravityMps2 > 0
     && typeof first.angleDeg === "number" && first.angleDeg > 0 && first.angleDeg < 90
     && typeof first.kineticFrictionCoefficient === "number" && first.kineticFrictionCoefficient >= 0) {

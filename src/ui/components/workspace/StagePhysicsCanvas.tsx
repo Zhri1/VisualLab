@@ -211,20 +211,50 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
     ? verticalArcs.find((arc) => ("stageIndex" in arc ? arc.stageIndex === constrainedStageIndex : verticalArcs.length === 1))
     : undefined;
 
-  // 斜面：几何来自 StageGeometry（支持多段斜面），而不是由当前位置反推。
+  // 斜面：几何来自 StageGeometry（支持多段斜面及上滑/左向斜面），而不是由当前位置反推。
   for (const inc of inclines) {
     const { start, end } = inc;
+    const high = start.yM >= end.yM ? start : end;
+    const low = start.yM >= end.yM ? end : start;
+    const isUpSlope = start.yM < end.yM;
     const isActiveIncline = active?.kind === "incline" && (inc.stageIndex < 0 || active.stageIndex === inc.stageIndex);
     ctx.beginPath();
-    ctx.moveTo(X(start.xM), Y(start.yM));
-    ctx.lineTo(X(end.xM), Y(end.yM));
-    ctx.lineTo(X(start.xM), Y(end.yM));
+    ctx.moveTo(X(low.xM), Y(low.yM));
+    ctx.lineTo(X(high.xM), Y(high.yM));
+    ctx.lineTo(X(high.xM), Y(low.yM));
     ctx.closePath();
     ctx.fillStyle = FILL;
     ctx.fill();
     ctx.strokeStyle = INK;
     ctx.lineWidth = isActiveIncline ? 2.4 : 1.6;
     ctx.stroke();
+    // 底角倾角弧线与 θ 标注（兼容左向与右向、上滑与下滑斜面）
+    const lowPxX = X(low.xM), lowPxY = Y(low.yM);
+    const highPxX = X(high.xM), highPxY = Y(high.yM);
+    const basePx = Math.abs(highPxX - lowPxX);
+    const slopePx = Math.hypot(highPxX - lowPxX, highPxY - lowPxY);
+    if (basePx > 28 && slopePx > 32) {
+      const arcR = Math.min(22, basePx * 0.32);
+      const thetaRad = Math.atan2(lowPxY - highPxY, basePx);
+      const goesRight = high.xM >= low.xM;
+      ctx.save();
+      ctx.strokeStyle = SOFT;
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      if (goesRight) {
+        ctx.arc(lowPxX, lowPxY, arcR, 0, -thetaRad, true);
+      } else {
+        ctx.arc(lowPxX, lowPxY, arcR, Math.PI, Math.PI + thetaRad, false);
+      }
+      ctx.stroke();
+      const midA = goesRight ? -thetaRad / 2 : Math.PI + thetaRad / 2;
+      ctx.fillStyle = SOFT;
+      ctx.font = `italic 12px ${MATH}`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("θ", lowPxX + (arcR + 10) * Math.cos(midA), lowPxY + (arcR + 10) * Math.sin(midA));
+      ctx.restore();
+    }
     if (inclines.length === 1 && !g.landmarks?.length) {
       ctx.fillStyle = SOFT;
       ctx.font = `500 12px ${SANS}`;
@@ -232,8 +262,8 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
       ctx.textBaseline = "bottom";
       ctx.fillText("AB", X((start.xM + end.xM) / 2), Y((start.yM + end.yM) / 2) - 10);
       if (inclineLaunch) {
-        ctx.textAlign = "right";
-        ctx.fillText("檐口 B", X(end.xM) - 10, Y(end.yM) + 20);
+        ctx.textAlign = isUpSlope ? "left" : "right";
+        ctx.fillText(isUpSlope ? "坡顶" : "檐口 B", X(end.xM) + (isUpSlope ? 8 : -10), Y(end.yM) + (isUpSlope ? -6 : 20));
       }
     }
   }
@@ -283,11 +313,12 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
       ctx.lineTo(X(hor.plannedEnd.xM), Y(floorY));
       ctx.stroke();
       ctx.restore();
+      const goesLeft = hor.plannedEnd.xM < start.xM;
       ctx.fillStyle = SOFT;
       ctx.font = `500 12px ${SANS}`;
-      ctx.textAlign = "left";
+      ctx.textAlign = goesLeft ? "right" : "left";
       ctx.textBaseline = "bottom";
-      ctx.fillText("桌沿", X(hor.plannedEnd.xM) + 7, Y(hor.plannedEnd.yM) - 5);
+      ctx.fillText("桌沿", X(hor.plannedEnd.xM) + (goesLeft ? -7 : 7), Y(hor.plannedEnd.yM) - 5);
     }
   }
   if (g.movableArc) {
@@ -573,8 +604,13 @@ export function drawStageScene(ctx: CanvasRenderingContext2D, W: number, H: numb
   const activeIncline = active?.kind === "incline"
     ? (inclines.find((inc) => inc.stageIndex === active.stageIndex) ?? inclines[0])
     : inclines[0];
+  // 始终从左端点指向右端点计算斜面倾角，确保 cos(rotation) > 0（法线永远朝斜面正上方，滑块与标注不倒置/穿模）。
   const inclineAngle = activeIncline
-    ? Math.atan2(activeIncline.start.yM - activeIncline.end.yM, activeIncline.end.xM - activeIncline.start.xM)
+    ? (() => {
+        const left = activeIncline.start.xM <= activeIncline.end.xM ? activeIncline.start : activeIncline.end;
+        const right = left === activeIncline.start ? activeIncline.end : activeIncline.start;
+        return Math.atan2(left.yM - right.yM, right.xM - left.xM);
+      })()
     : 0;
   const onIncline = active?.kind === "incline";
   const conveyorAngleRad = g.conveyor?.angleDeg

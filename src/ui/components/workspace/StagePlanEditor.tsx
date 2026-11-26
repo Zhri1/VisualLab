@@ -37,9 +37,10 @@ const NUMBER_FIELDS: Partial<Record<StageKind, NumberMeta[]>> = {
     { key: "releaseCompleteByM", label: "释放完成位移上界", unit: "m", step: .1, hint: "题设确认c不超过此值；不是实际压缩量" },
   ],
   incline_slide: [
-    { key: "lengthM", label: "斜面长度 L", unit: "m", step: 0.1 },
+    { key: "lengthM", label: "斜面长度 L", unit: "m", step: 0.1, hint: "上滑留空表示斜面足够长" },
     { key: "angleDeg", label: "斜面倾角 θ", unit: "°", step: 1, hint: "0° < θ < 90°" },
     { key: "kineticFrictionCoefficient", label: "斜面动摩擦因数 μ", unit: "", step: 0.05 },
+    { key: "staticFrictionCoefficient", label: "斜面静摩擦因数 μₛ（可选）", unit: "", step: 0.05, hint: "上滑最高点判断用，留空默认等于 μ" },
   ],
   horizontal_slide: [
     { key: "kineticFrictionCoefficient", label: "水平动摩擦因数 μ", unit: "", step: 0.05 },
@@ -302,13 +303,33 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
             {known && (
               <table className="cond-table">
                 <tbody>
-                  {[...(NUMBER_FIELDS[kind] ?? []), ...(kind === "spring_contact" && isRoughSpring(stage) ? ROUGH_SPRING_FIELDS : [])].filter(meta=>!(kind==='vertical_arc'&&meta.key==='endAngleDeg'&&Object.prototype.hasOwnProperty.call(stage,'path'))).map((meta) => numberRow({
+                  {[...(NUMBER_FIELDS[kind] ?? []), ...(kind === "spring_contact" && isRoughSpring(stage) ? ROUGH_SPRING_FIELDS : [])]
+                    .filter((meta) => !(kind === "vertical_arc" && meta.key === "endAngleDeg" && Object.prototype.hasOwnProperty.call(stage, "path")))
+                    .filter((meta) => !(kind === "incline_slide" && meta.key === "staticFrictionCoefficient" && stage.direction !== "up" && !("staticFrictionCoefficient" in stage)))
+                    .map((meta) => numberRow({
                     ...meta,
                     path: `/stages/${index}/${meta.key}`,
                     value: stage[meta.key],
                     onChange: (raw) => setStageNumber(index, meta.key, raw),
                   }))}
-                  {kind === "incline_slide" && ("slidesAfterRelease" in stage || missingKeys.includes(`/stages/${index}/slidesAfterRelease`)
+                  {kind === "incline_slide" && (
+                    <tr data-field-path={`/stages/${index}/direction`}>
+                      <td className="name">斜面运动方向</td>
+                      <td className="val">
+                        <select
+                          className={"stage-select" + (flagged(`/stages/${index}/direction`) ? " invalid" : "")}
+                          aria-label={`阶段 ${index + 1} 斜面运动方向`}
+                          value={stage.direction === "up" ? "up" : "down"}
+                          onChange={(event) => setStage(index, { ...stage, direction: event.target.value })}
+                        >
+                          <option value="down">沿斜面向下（从顶到底）</option>
+                          <option value="up">沿斜面向上（冲上斜面）</option>
+                        </select>
+                      </td>
+                      <td />
+                    </tr>
+                  )}
+                  {kind === "incline_slide" && stage.direction !== "up" && ("slidesAfterRelease" in stage || missingKeys.includes(`/stages/${index}/slidesAfterRelease`)
                     || ("speedMps" in initial && initial.speedMps === 0)) && factRow(index, "slidesAfterRelease", "释放后下滑")}
                   {kind === "lossless_turn" && factRow(index, "lossless", "无损转向")}
                   {kind === "spring_release" && <>{factRow(index, "unattached", "滑块与弹簧不连接")}{factRow(index, "slidesAfterRelease", "释放后开始滑动")}</>}

@@ -96,10 +96,10 @@
 
 | `kind` | 字段 | 说明 |
 |---|---|---|
-| `incline_slide` | `lengthM`、`angleDeg`、`kineticFrictionCoefficient`、`slidesAfterRelease` | 沿斜面**长度**（不是水平投影）；倾角 0–90 度；μ 可为 0；`slidesAfterRelease` 是题设确认，见 3.4 |
+| `incline_slide` | `lengthM`、`angleDeg`、`kineticFrictionCoefficient`、`slidesAfterRelease`，可选 `direction`（`"down"` / `"up"`）、`staticFrictionCoefficient` | 沿斜面**长度**（不是水平投影；若题面给斜面高 `h` 与倾角 `θ`，必须换算 `lengthM = h / sinθ`）；倾角 0–90 度；μ 可为 0；默认 `direction: "down"` 下滑，初速冲上斜面填 `direction: "up"`，题干写「斜面足够长」时 `lengthM: null`（见第 15.1 节）；`slidesAfterRelease` 是首段静止下滑的题设确认，见 3.4 |
 | `lossless_turn` | `lossless` | 恒为 `true`；题面没写转向是否光滑填 `null`；明确有能量损失 → 超范围 |
-| `horizontal_slide` | `kineticFrictionCoefficient`、`end` | `end` 二选一：`{ "kind": "distance", "distanceM": 5 }` 或 `{ "kind": "stop" }`。`distanceM` **从本水平段起点量起**（通常就是坡底/转向点） |
-| `spring_contact` | `springConstantNpm`、`frictionless`、`unattached` | `frictionless` 指水平接触面光滑；`unattached` 指滑块与弹簧不连接。二者为 `false` → 超范围 |
+| `horizontal_slide` | `kineticFrictionCoefficient`、`end` | `end` 二选一：`{ "kind": "distance", "distanceM": 5 }` 或 `{ "kind": "stop" }`。`distanceM` **从本水平段起点量起**（通常就是坡底/转向点）；支持反向运动（如弹簧回弹或斜面折返后向左滑行） |
+| `spring_contact` | `springConstantNpm`、`unattached`，以及互斥的 `frictionless: true` 或 `kineticFrictionCoefficient`（粗糙面，见第 12 节） | `unattached` 指滑块与弹簧不连接，为 `false` → 超范围；回弹脱离后可继续接续下一阶段（见第 12.1 节） |
 | `spring_release` | `springConstantNpm`、`initialCompressionM`、`kineticFrictionCoefficient`、`unattached`、`slidesAfterRelease`，必要时releaseCompleteByM | 静止预压释放首段；完整或缺参条件见第8节，由B计算能量与精确范围 |
 | `vertical_arc` | `radiusM`（可为 `null`）、可选 `verticalDropM`、旧 `endAngleDeg` 或互斥的显式 `path`、`side`、`frictionless` | 旧模式为最低点向右的半圆范围；完整内轨或不同角度入口按第11节提取显式 `path`（后继段应省略 `path.center` 由物理库自动衔接）；题面只给高度差与圆心角未给半径时填 `radiusM: null` + `verticalDropM`；临界过顶未给半径时填 `radiusM: null` + 顶层 `constraints: [{ kind: "critical_arc_top", stageIndex }]`；`side` 支持 `"inside"`（单内轨，过顶临界 `v≥√(gR)`）或 `"rod"`（轻杆/双轨/光滑管，过顶临界 `v≥0`，不脱轨），未知事实填 `null` |
 | `projectile` | `dropHeightM`、`landingPlaneYM` 或 `end: { kind: "tangent_to_next_arc" }`，三者互斥只能保留一个键 | 旧 `dropHeightM` 是相对发射点的非负落差；`landingPlaneYM` 是固定世界坐标落地高度（圆弧后必须用它）；题面写「恰好沿切线滑入下一段圆弧」且未给落差时使用 `end: { kind: "tangent_to_next_arc" }`。依据不足填 `null`，不要按图像或脱轨位置猜地面 |
@@ -128,23 +128,24 @@
 
 V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
-1. `incline_slide` → `lossless_turn`，或题面明确到檐口沿坡切线飞出时直接接 `projectile`（见下方及样例D）；题设明确末端切向进入有半径圆弧时可直接接带显式path的vertical_arc（第11节）
-2. `lossless_turn` → `horizontal_slide`、`spring_contact` 或 `vertical_arc`
-3. `horizontal_slide`（定距） → `spring_contact`、`projectile` 或 `vertical_arc`
-4. `vertical_arc` → `projectile`（使用固定 `landingPlaneYM`）、`horizontal_slide`、`incline_slide`、`spring_contact`、`constant_force_1d` 或另一段 `vertical_arc`；同一题可出现多个 `vertical_arc` 或 `horizontal_slide`。实际到端点、先脱轨或回滑由物理库判定，不由模型预先删段
-5. `projectile` → `vertical_arc`（切向入弧）或 `incline_slide`（切向落入斜面）；若为「恰好沿切线进入下一段圆弧」则用 `end: { kind: "tangent_to_next_arc" }`
-6. 单段独立：`incline_slide`、`horizontal_slide`、`spring_contact`、`projectile`、`vertical_arc` 都可以单独出现
-7. `spring_release`作为首段可独立，或接水平、弹簧接触、圆弧、抛体；接续和距离/能量前提见第8节。
-8. `pendulum_swing → collision_1d → parallel_motion`（弹性）或碰后同绳`pendulum_swing`（粘连）；独立摆也合法，详细字段见第9节。
-9. `horizontal_approach → collision_1d → parallel_motion`，或只给有依据的前缀；字段见第10节，碰后可以滑动、飞行或继承已有绳。由B判定是否实际发生碰撞，不预删未发生的计划后段。
-10. `movable_arc → spring_pair`（球离槽后冲向带自由弹簧的静止球）或 `movable_arc → horizontal_slide`；`spring_pair` 为末段，之后不接任何段。字段见第17、18节。
+1. `incline_slide` → `lossless_turn`、`conveyor_belt`，或题面明确到檐口/坡顶沿坡切线飞出时直接接 `projectile`（见下方及样例D）；题设明确末端切向进入有半径圆弧时可直接接带显式path的vertical_arc（第11节）。上滑斜面（`direction: "up"`）可直接接在 `horizontal_slide`、`conveyor_belt`、`spring_contact`、`spring_release`、`lossless_turn`、`vertical_arc`、`projectile` 之后（无需强求中间一定写 `lossless_turn`）
+2. `lossless_turn` → `horizontal_slide`、`spring_contact`、`vertical_arc`、`conveyor_belt`、`incline_slide`、`constant_force_1d`、`spring_pair`
+3. `horizontal_slide`（定距） → `spring_contact`、`projectile`、`vertical_arc`、`conveyor_belt`、`incline_slide`、`lossless_turn`、`constant_force_1d`、`magnetic_deflection`、`spring_pair`
+4. `spring_contact` → 回弹脱离后可接 `horizontal_slide`、`lossless_turn`、`incline_slide`、`vertical_arc`、`conveyor_belt`、`projectile`（见第 12.1 节）
+5. `vertical_arc` → `projectile`（使用固定 `landingPlaneYM`）、`horizontal_slide`、`incline_slide`、`lossless_turn`、`spring_contact`、`constant_force_1d`、`conveyor_belt`、`spring_pair` 或另一段 `vertical_arc`；同一题可出现多个 `vertical_arc` 或 `horizontal_slide`。实际到端点、先脱轨或回滑由物理库判定，不由模型预先删段
+6. `projectile` → `vertical_arc`（切向入弧）或 `incline_slide`（切向落入斜面）；若为「恰好沿切线进入下一段圆弧」则用 `end: { kind: "tangent_to_next_arc" }`
+7. `conveyor_belt` → `projectile`、`horizontal_slide`、`spring_contact`、`vertical_arc`、`constant_force_1d`、`incline_slide`、`lossless_turn`、`spring_pair`（见第 15.1 节）
+8. 单段独立：`incline_slide`、`horizontal_slide`、`spring_contact`、`projectile`、`vertical_arc`、`conveyor_belt`、`constant_force_1d`、`magnetic_deflection`、`movable_arc`、`spring_pair` 都可以单独出现
+9. `spring_release`作为首段可独立，或接水平、弹簧接触、圆弧、抛体、传送带、斜面、转向；接续和距离/能量前提见第8节。
+10. `pendulum_swing → collision_1d → parallel_motion`（弹性）或碰后同绳`pendulum_swing`（粘连）；独立摆也合法，详细字段见第9节。
+11. `horizontal_approach → collision_1d → parallel_motion`，或只给有依据的前缀；字段见第10节，碰后可以滑动、飞行或继承已有绳。由B判定是否实际发生碰撞，不预删未发生的计划后段。
+12. `movable_arc → spring_pair`（球离槽后冲向带自由弹簧的静止球）或 `movable_arc → horizontal_slide`；字段见第17、18节。
 
 > 「只看斜面」这类截断请求会生成只有 `incline_slide` 的前缀计划，必须能通过校验，终止原因为 `prefix_end`。
 
 **不支持**（按超范围处理）：
 
-- 斜面直接接弹簧（中间缺转向）
-- 弹簧之后再接任何段
+- 下滑斜面直接接弹簧（中间缺光滑转向 `lossless_turn`）
 - 抛体之后接非 `vertical_arc` / 非 `incline_slide` 的其他段
 - 连续两个 `incline_slide`、连续两个 `lossless_turn`
 - 转向之后直接抛体（缺水平段）
@@ -196,11 +197,11 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 ### 5.3 常见坑
 
-- **斜长 vs 水平投影**：标在斜边上才是 `lengthM`；标在水平投影上需 L = 投影 ÷ cosθ，依据不足填 `null`。
+- **斜长 vs 水平投影 / 斜面高度**：标在斜边上才是 `lengthM`；题面给斜面高 `h` 与倾角 `θ` 时，必须换算 `lengthM = h / sinθ`（不要直接把 `h` 填进 `lengthM`）；标在水平投影上需 `L = 投影 ÷ cosθ`，依据不足填 `null`。
 - **桌面长度 vs 桌沿位置**：`distanceM` 是从水平段起点到桌沿的距离，不是桌面自身的长度，也不是"滑块滑了多远"。
 - **桌高**：题面给"桌面高 1.25 m"时 `dropHeightM = 1.25`；只给落地时间时**不要反推**，填 `null`。
 - **弹簧段的质量**：`massKg` 写在顶层，不要写进 `stages`。
-- 第9、10节已登记的正碰以外，多物体连接体（滑块+木板等）、传送带：尚未登记，不套最低点碰撞或独立水平正碰。
+- 第9、10、14、15、16、17、18节已登记的专用模型应分别按对应章节输出，不得混拼单物体多过程与 `block_plank`/`pulley_system`。
 - **题面有多个小问**：只解析与当前运动链对应的那一问；主体是别的运动则超范围。
 
 ### 5.4 重力加速度
@@ -465,6 +466,30 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - 最大压缩量、是否停在最大压缩、残余压缩量、脱离速度、用时以及动能/势能/累计摩擦耗能全部由 B 计算，模型不要输出这些答案，也不要把粗糙面改写成 `frictionless: true`。
 - 光滑面入射弹簧继续使用 `{ "kind": "spring_contact", "springConstantNpm": ..., "frictionless": true, "unattached": true }`。
 
+### 12.1 弹簧回弹脱离后接续下一阶段
+
+`spring_contact`（光滑或粗糙可回弹）脱离弹簧后会以反向速度（`vx < 0`）继续运动，支持在 `spring_contact` 之后直接接续 `horizontal_slide`、`lossless_turn`、`incline_slide`（`direction: "up"`）、`vertical_arc`、`conveyor_belt` 或 `projectile`：
+- 若物块压缩弹簧反弹后沿粗糙水平面向左滑行直至停下，直接后接 `horizontal_slide`（`end: { "kind": "stop" }`）；
+- 若物块反弹后经水平段（或直接）冲上原斜面/另一斜面，后接 `horizontal_slide`（若有距离）→ `incline_slide`（`direction: "up"`，若斜面足够长填 `lengthM: null`）；
+- 物理引擎会自动处理反向速度 `vx < 0` 的推进与终止，无需手动翻转符号，也不因担心粗糙弹簧卡住而预先删掉后续阶段。
+
+示例（质量 1 kg 滑块以 4 m/s 沿光滑水平面压缩 k = 100 N/m 的轻质弹簧，反弹脱离后向左进入动摩擦因数 μ = 0.2 的粗糙水平面直至停下，g = 10 m/s²）：
+
+```json
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "massKg": 1,
+  "initial": { "speedMps": 4 },
+  "stages": [
+    { "kind": "spring_contact", "springConstantNpm": 100, "frictionless": true, "unattached": true },
+    { "kind": "horizontal_slide", "kineticFrictionCoefficient": 0.2, "end": { "kind": "stop" } }
+  ],
+  "assumptions": []
+}
+```
+
 ## 13. 常力作用与分段匀变速
 
 共享契约 `CONSTANT_FORCE_MOTION.md`。物体受分段的水平恒定合力作用时，使用一个或多个 `constant_force_1d` 阶段，顶层必填 `massKg`，每段给出带符号的水平合力 `netForceXN`（向右为正、向左为负、0 为匀速）与结束条件 `end`（`{ "kind": "duration", "durationSeconds": 正数 }` 或 `{ "kind": "stop" }`）：
@@ -523,9 +548,57 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 }
 ```
 
-- 匀速水平带只需 `accelerationMps2: 0`，此时不要求 `staticFrictionCoefficient`；存在非零带加速度时，必须提取题给 `staticFrictionCoefficient`（未给填 `null`，**绝不默认等于 μₖ**）。
+- 匀速水平带只需 `accelerationMps2: 0`，此时不要求 `staticFrictionCoefficient`；**定长匀速传送带统一填 `segments: [{ "accelerationMps2": 0, "durationSeconds": 20 }]`**（确保仿真时间窗口足够物块离带）；存在非零带加速度时，必须提取题给 `staticFrictionCoefficient`（未给填 `null`，**绝不默认等于 μₖ**）。
 - **倾斜传送带**：填 `angleDeg`（`0 < θ < 90`）与 `inclineDirection`（`"up"` 表示 +s 沿斜面向上、底端放上；`"down"` 表示 +s 沿斜面向下、顶端放上）；匀速倾斜带未单列静摩擦因数时可省略 `staticFrictionCoefficient`，B 自动按 `μ ≥ tanθ`（共速后匀速）与 `μ < tanθ`（共速后摩擦力反向继续加速/减速折返）精确分叉。
 - 题面给定带长时填 `beltLengthM`；未给则省略。对地位移、相对带面位移、共速时刻及是否重新滑动均由 B 计算。
+
+### 15.1 上滑斜面往返与传送带多段组合（`incline_slide` `direction: "up"`）
+
+1. **`incline_slide` 上滑与往返规则**：
+   - 物块以非零初速沿斜面**向上**冲时，必须填 `"direction": "up"`（下滑默认 `"down"`）；
+   - 若题面写「斜面足够长」「物块不会从斜面顶端滑出」，填 `"lengthM": null`；物理引擎会自动计算上滑最高点，并根据静/动摩擦因数判断停在最高点（`μ ≥ tanθ`）或原路折返滑回坡底（`μ < tanθ`，如光滑斜面 `μ = 0`）并继续执行后续阶段；
+   - 若题面给出斜面**高度 `h`** 与倾角 `θ` 而非斜边长，必须换算 `"lengthM": h / sinθ`（如 `h = 1.5 m, θ = 30°` → `lengthM = 3`）；若定长斜面能冲过坡顶并飞出，可直接后接 `projectile`；
+   - 粗糙上滑斜面若题面给出静摩擦因数可填 `staticFrictionCoefficient`，未给则省略。
+2. **传送带与斜面/弹簧/平抛多段组合**：
+   - 按物块**实际经历的物理时间顺序**拆段；例如「水平传送带右端平滑连接足够长光滑斜面、左端离地 h 悬空，物块从传送带左端向右运动、冲上斜面折返后再次经过传送带并从左端水平飞出」应拆为：`conveyor_belt → incline_slide(direction: "up", lengthM: null) → conveyor_belt → projectile`；
+   - 返程再次经过同一条水平传送带时，后一段 `conveyor_belt` 填相同的 `initialBeltSpeedMps`、`beltLengthM`、`kineticFrictionCoefficient` 与 `segments: [{ "accelerationMps2": 0, "durationSeconds": 20 }]`，B 会自动处理向左入射（`vx < 0`）的减速、折返或从左端飞出。
+
+示例（水平传送带向右以 4 m/s 匀速运行，长 6 m，μ = 0.2，左端离地 1.25 m，右端平滑连接倾角 30° 的足够长光滑斜面；质量 1 kg 物块从左端静止放上，冲上斜面返回后再经传送带，g = 10 m/s²）：
+
+```json
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "massKg": 1,
+  "initial": { "vxMps": 0 },
+  "stages": [
+    {
+      "kind": "conveyor_belt",
+      "initialBeltSpeedMps": 4,
+      "beltLengthM": 6,
+      "segments": [{ "accelerationMps2": 0, "durationSeconds": 20 }],
+      "kineticFrictionCoefficient": 0.2
+    },
+    {
+      "kind": "incline_slide",
+      "direction": "up",
+      "lengthM": null,
+      "angleDeg": 30,
+      "kineticFrictionCoefficient": 0
+    },
+    {
+      "kind": "conveyor_belt",
+      "initialBeltSpeedMps": 4,
+      "beltLengthM": 6,
+      "segments": [{ "accelerationMps2": 0, "durationSeconds": 20 }],
+      "kineticFrictionCoefficient": 0.2
+    },
+    { "kind": "projectile", "dropHeightM": 1.25 }
+  ],
+  "assumptions": []
+}
+```
 
 ## 16. 轻绳与理想定滑轮连接体
 
