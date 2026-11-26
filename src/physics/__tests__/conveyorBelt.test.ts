@@ -261,6 +261,44 @@ describe("实际带端与后续抛体", () => {
     expect(motion.events.some(({ kind }: { kind: string }) => kind === "conveyor_exit" || kind === "land")).toBe(false);
   });
 
+  it.each([
+    { entryEdge: "start", exitEdge: "end", direction: 1 },
+    { entryEdge: "end", exitEdge: "start", direction: -1 },
+  ])("小数条件恰停在 $exitEdge 端，舍入误差不触发飞行", ({ entryEdge, exitEdge, direction }) => {
+    const motion = build(flightPlan({
+      initialBeltSpeedMps: 0, kineticFrictionCoefficient: 0.18, beltLengthM: 8.1,
+      entryEdge, continuationExitEdge: exitEdge,
+    }, direction * 5.4));
+    expect(motion.durationSeconds).toBeCloseTo(3, 14);
+    expect(motion.sampleAt(Infinity)).toMatchObject({ xM: direction * 8.1, vxMps: 0 });
+    expect(motion.endReason).toBe("stopped");
+    expect(motion.events.map(({ kind }: { kind: string }) => kind)).toEqual(["release", "conveyor_common_velocity", "stop"]);
+    expect(motion.geometry.projectile).toBeUndefined();
+  });
+
+  it.each([
+    { beltLengthM: 8.099999999999998, initialVx: 5.4 },
+    { beltLengthM: 8.1, initialVx: 5.400000000000001 },
+  ])("带长 $beltLengthM、初速 $initialVx 时保留微小的正速离带", ({ beltLengthM, initialVx }) => {
+    const motion = build(flightPlan({
+      initialBeltSpeedMps: 0, kineticFrictionCoefficient: 0.18, beltLengthM, continuationExitEdge: "end",
+    }, initialVx));
+    const exit = motion.events.find(({ kind }: { kind: string }) => kind === "conveyor_exit");
+    expect(exit.timeSeconds).toBeLessThan(3);
+    expect(exit.velocityAfter.vxMps).toBeGreaterThan(0);
+    expect(motion.endReason).toBe("landed");
+  });
+
+  it("略长的带面仍保留带内停止位置", () => {
+    const beltLengthM = 8.1 + 1e-12;
+    const motion = build(flightPlan({
+      initialBeltSpeedMps: 0, kineticFrictionCoefficient: 0.18, beltLengthM, continuationExitEdge: "end",
+    }, 5.4));
+    expect(motion.sampleAt(Infinity).xM).toBeLessThan(beltLengthM);
+    expect(motion.endReason).toBe("stopped");
+    expect(motion.geometry.projectile).toBeUndefined();
+  });
+
   it("实际离带与观察截止同刻时接续抛体", () => {
     const motion = build(flightPlan({
       beltLengthM: 3, continuationExitEdge: "end", segments: [{ accelerationMps2: 0, durationSeconds: 2 }],

@@ -48,7 +48,7 @@ type ConveyorBeltStage = {
    - 比较 \(|a_{\text{belt}}|\) 与静摩擦上限 \(\mu_s g\)：
      - \(|a_{\text{belt}}| \le \mu_s g(1 + 64\varepsilon)\)：静摩擦可维持共速，滑块随带以 \(a = a_{\text{belt}}\) 运动（相对速度保持 0，相对带面位移不变）。
      - \(|a_{\text{belt}}| > \mu_s g\)：静摩擦不足以维持，发 `conveyor_reslide`，滑块相对带面朝 \(-\operatorname{sgn}(a_{\text{belt}})\) 方向滑出，加速度切换为 \(a = \operatorname{sgn}(a_{\text{belt}})\,\mu_k g\)。
-3. **离带与观察边界**：仅向带外跨过固定滚轮时产生 `conveyor_exit`，事件携带 `conveyorExitEdge`（`start` / `end`）和实际位置，保留离带瞬间速度。到端速度为零并折回带内时仍在带上。真实离带与给定时长同刻时，离带优先。
+3. **离带与观察边界**：仅向带外跨过固定滚轮时产生 `conveyor_exit`，事件携带 `conveyorExitEdge`（`start` / `end`）和实际位置，保留离带瞬间速度。到端速度为零后静止或折回时仍在带上，判别式的舍入误差不计为正速离带。真实离带与给定时长同刻时，离带优先。
    - 若给出 `continuationExitEdge`，只有实际离开该端才接续下一阶段；从另一端离开的计算止于 `conveyor_exit`。未指定端点的历史计划仍可在实际离开任一端时接续。抛体从同一位置、时间和实际速度分量起算。
    - 截至给定时长仍在带上时发 `force_segment_end`，以 `prefix_end` 结束。定长匀速、未给时长且物块达到可持续静止时发 `stop`，以 `stopped` 结束。两种情况均不生成后续落地或其他运动。
 

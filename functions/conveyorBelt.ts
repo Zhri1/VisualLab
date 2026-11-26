@@ -64,9 +64,15 @@ function solveExitTime(distance: number, outwardSpeed: number, outwardAccelerati
     return outwardSpeed < 0 && outwardAcceleration > 0 ? -2 * outwardSpeed / outwardAcceleration : Infinity;
   }
   if (outwardAcceleration === 0) return outwardSpeed > 0 ? distance / outwardSpeed : Infinity;
-  const discriminant = outwardSpeed * outwardSpeed + 2 * outwardAcceleration * distance;
-  // 在滚轮处相切、随后回到带内，不构成离带。
-  if (discriminant <= 0 || (outwardSpeed <= 0 && outwardAcceleration < 0)) return Infinity;
+  if (outwardSpeed <= 0 && outwardAcceleration < 0) return Infinity;
+  const speedSquared = outwardSpeed * outwardSpeed;
+  const accelerationTerm = 2 * outwardAcceleration * distance;
+  const discriminant = speedSquared + accelerationTerm;
+  // 向外减速时，判别式两项的抵消误差可把滚轮处的零速相切算成正速。
+  const roundoff = outwardAcceleration < 0
+    ? 2 * Number.EPSILON * Math.max(speedSquared, Math.abs(accelerationTerm))
+    : 0;
+  if (discriminant <= roundoff) return Infinity;
   const crossingSpeed = Math.sqrt(discriminant);
   return outwardSpeed >= 0
     ? 2 * distance / (outwardSpeed + crossingSpeed)
@@ -177,7 +183,12 @@ export function solveConveyorBelt(stage: ConveyorBeltStage, startXM: number, sta
         }
       }
 
-      const x1 = exitEdge === "start" ? 0 : exitEdge === "end" ? L! : x + v * dt + 0.5 * a * dt * dt;
+      const advancedX = x + v * dt + 0.5 * a * dt * dt;
+      // 留在带上的计算点贴合滚轮时，消除位置计算的末位出界。
+      const x1 = L === null ? advancedX
+        : exitEdge === "start" ? 0
+        : exitEdge === "end" ? L
+        : Math.max(0, Math.min(L, advancedX));
       let v1 = v + a * dt;
       const xb1 = xb + vb * dt + 0.5 * ab * dt * dt;
       const vb1 = vb + ab * dt;
