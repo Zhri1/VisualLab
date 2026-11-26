@@ -11,7 +11,8 @@
 | **轻绳摆 / 最低点正碰 / 独立水平两物体正碰** | 多体摆与正碰（第 9、10 节） | 顶层 `bodies` + `primaryBodyId`；摆用 `{ speedMps: 0 }` 或 `{ tangentialSpeedMps }`，水平正碰用 `initial.bodies` | **不写顶层 `massKg`**；独立水平正碰不套摆的 `targetApproach` |
 | **滑块-木板 / 传送带 / 轻绳定滑轮连接体** | 专用力学模型（第 14、15、16 节） | 木板/滑轮用 `bodies` + `primaryBodyId`；传送带用 `initial: { vxMps }` | 静摩擦未给填 `null`，绝不默认 `μs = μk` |
 | **可自由滑动的圆弧槽 / 不锚墙弹簧连两球** | 动量守恒专用模型（第 17、18 节） | 顶层 `massKg`（入射球/下滑球）+ `initial: { speedMps: 0 }`；槽质量写段内 `grooveMassKg`，靶球质量写段内 `targetMassKg` | 不写 `bodies`；槽/靶球不是跟踪主体；「恰好不再滑上」写 `separationSpeedMps` 反求，不代算 m₂ |
-| **不支持题型**（电磁、天体、热光原、机械波、未登记模型等） | 超范围（第 6 节） | `stages: []` + 非空 `unsupportedReason` | 不硬套不匹配的阶段 |
+| **匀强磁场偏转**（垂直纸面的匀强磁场，区内忽略重力；可接仅受重力的抛体） | 单物体多阶段（第 20 节） | 顶层 `massKg` 必填；磁场首段水平向右用 `{ speedMps }`，分量初态用 `{ vxMps, vyMps }`；接抛体需顶层 `gravityMps2` | 不把实际出射速度写成新初态，不把对入射地面的高度写成出射点落差 |
+| **不支持题型**（未登记的电磁模型、天体、热光原、机械波等） | 超范围（第 6 节） | `stages: []` + 非空 `unsupportedReason` | 不硬套不匹配的阶段 |
 
 轻绳摆和最低点两物体正碰另按第9节输出，使用body表，不套旧顶层massKg。
 
@@ -71,8 +72,8 @@
 |---|---|---|---|
 | `kind` | 固定 `"stage_plan"` | 总是 | — |
 | `schemaVersion` | 固定 `1` | 总是 | — |
-| `gravityMps2` | 重力加速度 g | 含斜面、含摩擦的水平段/接近阶段、初态已有绳、抛体或竖直圆弧时必需；只有光滑水平运动或弹簧接触时可省略 | 题面未给填 `null`，**不要默认 10** |
-| `massKg` | 运动物体质量 | 含 `spring_contact`、`vertical_arc`、`movable_arc` 或 `spring_pair` 时必需且为有限正数；其余可省略 | `null` |
+| `gravityMps2` | 重力加速度 g | 含斜面、含摩擦的水平段/接近阶段、初态已有绳、抛体或竖直圆弧时必需；只有光滑水平运动、光滑弹簧接触或磁场偏转时可省略 | 题面未给填 `null`，**不要默认 10** |
+| `massKg` | 运动物体质量 | 含 `spring_contact`、`vertical_arc`、`magnetic_deflection`、`movable_arc` 或 `spring_pair` 时必需且为有限正数；其余可省略 | `null` |
 | `initial` | 初态速度，见 3.2 | 总是 | — |
 | `stages` | 有序阶段列表，非空 | 总是 | — |
 | `bodies`、`primaryBodyId` | 轻绳摆及正碰的稳定物体ID、各自质量与默认跟踪对象 | 第9、10节；独立摆也有一项body表 | 质量未知写null，不能猜等质量；不再提交顶层massKg |
@@ -89,8 +90,9 @@
 |---|---|---|
 | 斜面 / 水平 / 弹簧 / 竖直圆弧 | `{ "speedMps": 0 }` | 标量速率，非负；旧圆弧从最低点水平向右，显式path由入口角和direction确定切线，见第11节 |
 | 抛体 | `{ "vxMps": 4, "vyMps": 0 }` | 分量可带符号，y 向上为正 |
+| 磁场偏转 | `{ "speedMps": 2 }` 或 `{ "vxMps": 2, "vyMps": 0 }` | 两种形状互斥；水平向右可用标量，斜入射保留两个带符号分量（第 20 节） |
 
-同时写标量和分量是错误；首段不是抛体却用分量也是错误。
+同时写标量和分量是错误；其他专用模型的初态见对应章节。
 
 ### 3.3 阶段
 
@@ -108,6 +110,7 @@
 | `collision_1d` | bodyIds、mode、normalXM、contact、targetApproach、externalImpulseNegligible | 第9节；两质量和带方向速度，碰撞算式由B执行 |
 | `parallel_motion` | tracks、end | 第9节；碰后摆与目标同时运动，不顺序串成两个时间段 |
 | `horizontal_approach` | tracks:[{bodyId,kineticFrictionCoefficient}]、end | 第10节；按两体初态计算实际接近或先停止，不猜碰撞时刻 |
+| `magnetic_deflection` | `magneticTeslaB`（T）、`chargeC`（C，带符号）、`regionWidthM`（m）、`fieldDirection`、`exitKind` | 第 20 节；单粒子在垂直纸面的匀强磁场中偏转，区内忽略重力；出射速度由物理库计算 |
 | `movable_arc` | `radiusM`、`grooveMassKg`、可选 `exitDirection`（-1 默认向左离槽 / 1 向右） | 第17节；四分之一光滑槽静置光滑地面可自由滑动；球从槽顶静止释放；离槽速度由动量+能量守恒由 B 计算 |
 | `spring_pair` | 可选 `springConstantNpm`（未给填 `null` 默认 100）、`targetMassKg`（可 `null`）、`separationSpeedMps`（可 `null`）、可选 `matchGrooveSpeed`、`gapM` | 第18节；弹簧不锚墙、另一端自由；`targetMassKg`、`separationSpeedMps`、`matchGrooveSpeed: true`（紧接 `movable_arc` 且题面称「恰好不能再次滑上圆弧槽」）三者至少给一个；k 未给时直接填 `null`（不影响速度、质量与最大弹性势能） |
 
@@ -140,6 +143,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 10. `pendulum_swing → collision_1d → parallel_motion`（弹性）或碰后同绳`pendulum_swing`（粘连）；独立摆也合法，详细字段见第9节。
 11. `horizontal_approach → collision_1d → parallel_motion`，或只给有依据的前缀；字段见第10节，碰后可以滑动、飞行或继承已有绳。由B判定是否实际发生碰撞，不预删未发生的计划后段。
 12. `movable_arc → spring_pair`（球离槽后冲向带自由弹簧的静止球）或 `movable_arc → horizontal_slide`；字段见第17、18节。
+13. `magnetic_deflection → projectile`：离开磁场后只受重力，继承实际出射位置和两个速度分量；平台相对入射地面给定时用固定 `landingPlaneYM`（见第 20 节）。
 
 > 「只看斜面」这类截断请求会生成只有 `incline_slide` 的前缀计划，必须能通过校验，终止原因为 `prefix_end`。
 
@@ -213,7 +217,8 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 出现下列任一情况，输出 `kind: "stage_plan"`、`stages: []`、`gravityMps2: null`、`initial: { "speedMps": null }`，并在 `unsupportedReason` 写一句中文：
 
-- 电磁学、未登记的圆周轨道、天体、第9、10、14、15、16、17、18节以外的碰撞/连接体/槽/弹簧系统、浮力热学、光学原子物理、机械波；轻绳摆、最低点正碰、独立水平正碰、传送带、可移动圆弧槽与自由弹簧双球已支持
+- 第 20 节以外的电磁模型，如电路、电磁感应、带电粒子同时受电场和磁场作用，或磁区内重力不可忽略。匀强磁场偏转及出场后仅受重力的抛体按第 20 节处理。
+- 未登记的圆周轨道、天体、第9、10、14、15、16、17、18节以外的碰撞/连接体/槽/弹簧系统、浮力热学、光学原子物理、机械波；轻绳摆、最低点正碰、独立水平正碰、传送带、可移动圆弧槽与自由弹簧双球已支持
 - 圆弧槽固定不动却写 `movable_arc`，或槽面/地面粗糙（本模型只支持双光滑）；弹簧另一端锚墙却写 `spring_pair`（锚墙用 `spring_contact`）
 - 不符合第8节前提的预压释放/能量题
 - 斜面直接接弹簧（缺题设支持的转向）；斜面沿切向直接抛出已支持
@@ -694,3 +699,29 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 9. 超范围时 `stages` 是否为 `[]` 且 `unsupportedReason` 非空？
 10. 摆/碰撞是否按bodyId绑定各质量、碰前带符号速度与碰后轨道？是否误填旧顶层massKg或AI自算的时刻/速度？
 11. 斜面沿切向离檐是否直接接projectile，檐口高度是否从正确参考点量起？是否误加转向/水平段或自算水平发射速度？
+
+## 20. 匀强磁场偏转及出射后抛体
+
+单粒子以非零速度进入左右边界竖直的匀强磁场，磁场垂直运动平面，磁区内忽略重力。磁场接抛体时，题面必须支持出场后仅受重力。若有其他场、障碍或未登记边界决定出射，按第 6 节处理。
+
+- 顶层 `massKg` 填粒子质量（kg）。`magneticTeslaB` 填磁感应强度的正值（T），`chargeC` 保留电荷正负号（C），`regionWidthM` 填两竖直边界的水平距离（m）。垂直纸面向里写 `fieldDirection: "into_page"`，向外写 `"out_of_page"`。
+- 由区域宽度决定离场边界时用 `exitKind: "region_edge"`。题面明确为水平入射后转半圆、从入口侧离开时可用 `"half_circle"`。不要把题目所求的出射点、半径、偏转角或速度作为识别字段。
+- 出场后接 `projectile`，顶层填题给的 `gravityMps2`。物理库以实际出射时刻、位置和两个速度分量起算。即使题面简称「平抛」，也不把竖直速度置零。
+- 入射点在世界坐标 (0,0)、贴地水平入射时，以这一入射地面作为 y=0。平台在这块地面下方 h 米，填 `landingPlaneYM: -h`；若题面明确给出从实际出射点量起的落差 h，才用 `dropHeightM: h`。仅选择一种高度字段，题面未给可用的高度时保留 `null`。
+
+例如：质量 1 g、电荷 +1 mC 的粒子以 2 m/s 沿地面向右入射。磁场宽 1 m、B=1 T 向里，区内忽略重力，出场后 g=10 m/s²，接收平台比入射地面低 0.2 m。
+
+```json
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "massKg": 0.001,
+  "gravityMps2": 10,
+  "initial": { "speedMps": 2 },
+  "stages": [
+    { "kind": "magnetic_deflection", "magneticTeslaB": 1, "chargeC": 0.001, "regionWidthM": 1, "fieldDirection": "into_page", "exitKind": "region_edge" },
+    { "kind": "projectile", "landingPlaneYM": -0.2 }
+  ],
+  "assumptions": []
+}
+```

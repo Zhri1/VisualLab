@@ -1,0 +1,18 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "massKg": 0.001,
+  "initial": { "speedMps": 2 },
+  "stages": [
+    {
+      "kind": "magnetic_deflection",
+      "magneticTeslaB": 1,
+      "chargeC": 0.001,
+      "regionWidthM": 1,
+      "fieldDirection": "into_page",
+      "exitKind": "region_edge"
+    },
+    { "kind": "projectile", "landingPlaneYM": -0.2 }
+  ]
+}

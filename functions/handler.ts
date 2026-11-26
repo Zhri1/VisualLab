@@ -466,9 +466,13 @@ function buildTargetedRepairHints(errors: VisionRepairError[]): string[] {
   const hints: string[] = [];
   const joined = errors.map((e) => `${e.path} ${e.code} ${e.message}`).join("\n");
 
-  if (joined.includes("landingPlaneYM") || joined.includes("圆弧后抛体需固定")) {
+  if (joined.includes("圆弧后抛体需固定")) {
     hints.push(
       '- 圆弧后抛体修正指引：必须删除该 projectile 阶段的 dropHeightM 键，只保留世界坐标 landingPlaneYM。换算公式：① 若落地平面与圆弧最低点/水平地面同高，直接填 "landingPlaneYM": 0；② 若从半径 R 的半圆最高点（y = 2R）或端点（y = y_exit）向下落差 h，则填 "landingPlaneYM": y_exit - h（例如半圆最高点向下落差 h 时为 2R - h）；绝不可同时保留 dropHeightM 与 landingPlaneYM。',
+    );
+  } else if (joined.includes("landingPlaneYM") || joined.includes("相对落差与固定落地平面互斥")) {
+    hints.push(
+      '- 抛体高度修正指引：两种高度只保留一项。landingPlaneYM 是固定世界坐标；磁场首段贴地入射时该地面为 y = 0，低于入射地面 h 的接收平台应写 landingPlaneYM = -h。只有从实际出射点量起的落差才写 dropHeightM。',
     );
   }
 
@@ -868,7 +872,7 @@ function buildTutorSystemPrompt(
           "2. 模型白名单（每道题必须 100% 属于以下 VisualLab 支持的模型范围，禁止超纲如变力、空气阻力、非线性阻力、弹性绳、多体复杂复合场或三维运动等）：",
           "   - 单物体多过程（可按合理物理顺序串联）：斜面下滑或初速冲上斜面往返（incline_slide）、坡底光滑无损转向（lossless_turn）、水平面滑行（horizontal_slide）、水平或倾斜传送带（conveyor_belt）、平抛或斜抛（projectile）、固定竖直圆弧内轨或轻杆/双轨（vertical_arc）、光滑或粗糙弹簧接触与回弹（spring_contact）、预压弹簧静止释放（spring_release）、分段水平恒定合力（constant_force_1d）、匀强磁场偏转（magnetic_deflection）、可自由滑动的光滑圆弧槽（movable_arc）、不锚墙自由弹簧双球（spring_pair）。",
           "   - 多物体系统（独立出题）：水平两球一维碰撞（可接平抛或滑行）、轻绳单摆最低点正碰、光滑地面滑块-长木板（block_plank）、理想定滑轮连接体（pulley_system）。",
-          "3. 严禁非法混拼：单物体多过程模型与多物体系统模型（如 block_plank、pulley_system、pendulum_swing）不可混拼在同一道题中（例如禁止「滑块-长木板 + 竖直圆弧」或「定滑轮 + 斜面平抛」）；且转向（lossless_turn）后不可直接平抛，必须经过一段明确长度的水平面再从桌沿飞出；匀强磁场偏转（magnetic_deflection）只能单独成题、作为首段后接抛体（magnetic_deflection → projectile），或接在水平滑行之后（horizontal_slide → magnetic_deflection），严禁先平抛/斜抛再入磁场，也严禁斜向穿出磁场后直接接水平滑行（horizontal_slide 要求纯水平速度）。",
+          "3. 严禁非法混拼：单物体多过程模型与多物体系统模型（如 block_plank、pulley_system、pendulum_swing）不可混拼在同一道题中（例如禁止「滑块-长木板 + 竖直圆弧」或「定滑轮 + 斜面平抛」）；且转向（lossless_turn）后不可直接平抛，必须经过一段明确长度的水平面再从桌沿飞出；可出单粒子匀强磁场偏转题，写明磁感应强度及垂直纸面的方向、质量、带符号电荷量、入射速度、磁场宽度、区内忽略重力。可接在水平滑行之后，也可离场后只受重力（magnetic_deflection → projectile）。接抛体时写明 g 和平台相对哪个基准的高度，保留真实出射方向，不把斜向出射写成平抛。禁止先抛体再入磁场，或斜向离场直接接水平滑行。",
           "4. 严禁空间几何自相矛盾：同一个轨道端点绝不能「既平滑连接斜面/平面/圆弧，又直接悬空平抛落地」！若设计「传送带 + 斜面折返 + 平抛」，必须明确区分左右两端（例如「水平传送带左端高出地面 h 悬空、右端平滑连接足够长光滑斜面，物块向右冲上斜面折返后从传送带左端水平飞出」，或「斜面下滑 → 水平传送带 → 右端平抛落地」）；平抛切入圆弧必须明确给出圆弧入口角、半径、内侧/轻杆属性与圆心角或终点位置。",
           "5. 严禁遗漏必需数值与前提：题干必须明确给出所有计算必需的具体数字与单位（如 g = 10 m/s²、质量、倾角、长度或高度、半径、动摩擦因数、劲度系数、初速度、初始间距等），禁止出成纯字母符号推导题！严禁写「沿水平面滑行一段距离」或「沿光滑水平面滑行」而不给具体水平距离 d（每一段水平滑行必须给出具体长度，如 d = 1 m，否则不要加水平段）；若弹簧压缩段处于粗糙水平面（μ > 0），必须明确写出最大静摩擦因数（如「静摩擦因数 μₛ = μ = 0.2」）或写明「弹簧压缩区域光滑」。仅在明确考查临界反求（如「恰好通过圆弧最高点」「恰好不再滑上圆弧槽」）或「足够长光滑斜面」时，才允许对应物理量不给数值。",
           "6. 严禁分情形变参题与脆弱长链：严禁出「某参数可调 / 待定 / 变化，第(1)问求最值、第(2)问当 x = … 时」的分情形变参题！所有物理量（如磁场宽度 d、轨道半径 R、桌面长度、弹簧压缩量、外力 F 等）必须在题干开头直接给出唯一确定的具体数值；且单道变式题阶段数控制在 2~4 段经典稳健组合内（不拼凑 5~6 段脆弱长链，圆弧最高点飞出后直接落回与圆弧底端同高的水平地面，不要再硬接非切向斜面）。",
