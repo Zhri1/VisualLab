@@ -149,11 +149,13 @@ export function solveHorizontal(plan:HorizontalPlan) {
     if(!nearValue(start.xM,c.pivotXM))throw new BodyPlanError(path+'/inheritFromBodyId','碰后位置不在已有绳最低点。');
     const translate=(s:ReturnType<typeof p.at>):Scalar=>({xM:s.xM+c.pivotXM,yM:s.yM,vxMps:s.vxMps,vyMps:s.vyMps,springCompressionM:0,status:s.status});
     const key='string:'+origin.bodyId;
-    const stringAt=(t:number):StringState=>{const v=p.at(t);return{kind:'pendulum_string',constraintId:key,bodyIds:owners.slice(),pivot:{xM:c.pivotXM,yM:c.lengthM},lengthM:c.lengthM,state:v.stringState,tensionN:v.tensionN,...(v.stringState==='taut'?{angleDeg:v.angleRad!*180/Math.PI,angularVelocityRadps:v.angularVelocityRadps}:{})};};
+    // 首转折合并到共同终点时，位置、速度与张力都取精确的转折状态。
+    const samplePendulum=(age:number)=>p.at(age===globalAge()&&nearValue(p.firstTurn,age)?p.firstTurn:age);
+    const stringAt=(t:number):StringState=>{const v=samplePendulum(t);return{kind:'pendulum_string',constraintId:key,bodyIds:owners.slice(),pivot:{xM:c.pivotXM,yM:c.lengthM},lengthM:c.lengthM,state:v.stringState,tensionN:v.tensionN,...(v.stringState==='taut'?{angleDeg:v.angleRad!*180/Math.PI,angularVelocityRadps:v.angularVelocityRadps}:{})};};
     const duration=head.end.kind==='scene_end'&&!p.equilibrium?Infinity:p.endTime(head.end.kind);
     const geometryPendulum={constraintId:key,bodyIds:owners.slice(),definitionStageIndex:0,pivot:{xM:c.pivotXM,yM:c.lengthM},lowestPoint:{xM:c.pivotXM,yM:0},lengthM:c.lengthM,initialPosition:{xM:origin.xM,yM:0}};
     // 事件仅在共同范围确定后填充，避免为scene_end无界生成无限事件。
-    const result:Track={ids:owners,path,duration,reason:p.limitKind,limit:p.limit,pieces:p.equilibrium?[{start:0,end:Infinity,x:c.pivotXM,y:0,vx:0,vy:0,ax:0,ay:0}]:[],segments:[],events:[],geometry:[],at:t=>translate(p.at(t)),stringAt,pendulum:p,geometryPendulum};
+    const result:Track={ids:owners,path,duration,reason:p.limitKind,limit:p.limit,pieces:p.equilibrium?[{start:0,end:Infinity,x:c.pivotXM,y:0,vx:0,vy:0,ax:0,ay:0}]:[],segments:[],events:[],geometry:[],at:t=>translate(samplePendulum(t)),stringAt,pendulum:p,geometryPendulum};
     Object.defineProperty(result,'events',{get(){
       const age=Math.min(duration,globalAge()),eventAge=nearValue(p.firstTurn,age)?Math.max(age,p.firstTurn):age;
       return[{time:0,kind:'pendulum_enter',path},...p.eventsUntil(eventAge).map(e=>({time:e.time,kind:e.kind,path,before:translate(e.before),after:translate(e.after)}))];
