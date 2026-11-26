@@ -44,6 +44,9 @@ const FILES = [
   { from: 'src/api/stageTypes.ts', to: 'functions/stageTypes.ts' },
   { from: 'src/api/stageStatus.ts', to: 'functions/stageStatus.ts' },
   { from: 'src/api/legacyBridge.ts', to: 'functions/legacyBridge.ts' },
+  { from: 'src/rag/types.ts', to: 'functions/rag/types.ts' },
+  { from: 'src/rag/corpus.ts', to: 'functions/rag/corpus.ts' },
+  { from: 'src/rag/retriever.ts', to: 'functions/rag/retriever.ts' },
 ];
 
 /** 与 scripts/sync-functions.mjs 的 withDenoExtensions 一致 */

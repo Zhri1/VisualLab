@@ -5,6 +5,15 @@
  * 密钥只从服务端环境变量读，绝不下发到浏览器。
  */
 
+import {
+  buildChatRagQuery,
+  formatRagForSimilar,
+  formatRagForTutor,
+  searchPhysicsRag,
+  toRagReferences,
+} from '../rag/retriever';
+import type { RagReference } from '../rag/types';
+
 export type VisionFailure = 'timeout' | 'upstream' | 'parse';
 
 export class VisionError extends Error {
@@ -37,6 +46,8 @@ export interface VisionRequest {
   /** 文字模式下学生补充的题目描述，可为空 */
   text?: string;
   skillText: string;
+  /** 物理母题知识库召回的拆段骨架提示（无命中时缺省） */
+  ragHint?: string;
   /** 校验失败后发起定向自修正时的上下文 */
   repairContext?: VisionRepairContext;
 }
@@ -74,6 +85,7 @@ export interface TutorChatResponse {
   reply: string;
   model: string;
   similarProblems?: TutorSimilarProblem[];
+  ragReferences?: RagReference[];
 }
 
 const DEFAULT_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
@@ -153,6 +165,12 @@ async function callOnce(model: string, request: VisionRequest, apiKey: string): 
     userContent.push({
       type: 'text',
       text: `学生补充的文字描述（与图片冲突时以文字为准）：\n${request.text}`,
+    });
+  }
+  if (request.ragHint) {
+    userContent.push({
+      type: 'text',
+      text: request.ragHint,
     });
   }
   if (request.repairContext) {
@@ -374,7 +392,11 @@ export function parseSimilarResponse(text: string): { summary: string; similarPr
   return { summary: isUsableReply(text) ? text.trim() : '', similarProblems: [] };
 }
 
-function buildTutorSystemPrompt(context?: Record<string, unknown> | null, mode: TutorChatMode = 'tutor'): string {
+function buildTutorSystemPrompt(
+  context?: Record<string, unknown> | null,
+  mode: TutorChatMode = 'tutor',
+  ragContext?: string,
+): string {
   const base =
     mode === 'similar'
       ? [
@@ -400,14 +422,23 @@ function buildTutorSystemPrompt(context?: Record<string, unknown> | null, mode: 
           '5. 必要时可提醒学生在时间轴点击对应关键事件观察，或直接说「把某参数改成某值」做对比实验。',
         ].join('\n');
 
-  if (!context || Object.keys(context).length === 0) return base;
-  let serialized = '';
-  try {
-    serialized = JSON.stringify(context, null, 2).slice(0, 6000);
-  } catch {
-    serialized = '';
+  const sections: string[] = [base];
+  if (context && Object.keys(context).length > 0) {
+    let serialized = '';
+    try {
+      serialized = JSON.stringify(context, null, 2).slice(0, 6000);
+    } catch {
+      serialized = '';
+    }
+    if (serialized) {
+      sections.push(`【当前题目与物理引擎实算数据】\n${serialized}`);
+    }
   }
-  return serialized ? `${base}\n\n【当前题目与物理引擎实算数据】\n${serialized}` : base;
+  const trimmedRag = ragContext?.trim();
+  if (trimmedRag) {
+    sections.push(trimmedRag);
+  }
+  return sections.join('\n\n');
 }
 
 async function callTutorOnce(
@@ -420,8 +451,12 @@ async function callTutorOnce(
   const limit = timeoutMs();
   const mode: TutorChatMode = request.mode === 'similar' ? 'similar' : 'tutor';
 
+  const ragHits = searchPhysicsRag(buildChatRagQuery(request.message, request.context, mode));
+  const ragContext = mode === 'similar' ? formatRagForSimilar(ragHits) : formatRagForTutor(ragHits);
+  const ragReferences = toRagReferences(ragHits);
+
   const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-    { role: 'system', content: buildTutorSystemPrompt(request.context, mode) },
+    { role: 'system', content: buildTutorSystemPrompt(request.context, mode, ragContext) },
   ];
   if (mode === 'tutor') {
     for (const item of (request.history ?? []).slice(-8)) {
@@ -482,10 +517,11 @@ async function callTutorOnce(
       reply: parsed.summary || '已根据当前题目生成相似变式参考：',
       model,
       similarProblems: parsed.similarProblems,
+      ragReferences,
     };
   }
 
-  return { reply: rawReply, model };
+  return { reply: rawReply, model, ragReferences };
 }
 
 export async function callTutorChat(request: TutorChatRequest): Promise<TutorChatResponse> {
