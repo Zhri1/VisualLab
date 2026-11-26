@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { handlePlan } from '../plan';
-import { extractTutorReply } from '../dashscope';
+import { extractTutorReply, parseSimilarResponse } from '../dashscope';
 import { handler as qoderHandler } from '../../../functions/handler';
 
 function chatRequest(message: string, context?: unknown, extra?: Record<string, string | Blob>) {
@@ -217,6 +217,26 @@ describe('真实 AI 物理助教对话入口（Node 与 Qoder 双端一致）', 
     await handlePlan(chatRequest('这题怎么想？', { problemText: '斜面滑块' }, { chatMode: 'tutor' }));
     const sent = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as { enable_thinking?: boolean };
     expect(sent.enable_thinking).toBeUndefined();
+  });
+
+  it('中文里混入英文双引号破坏 JSON 时自动补转义，不丢题', () => {
+    const broken = `{"summary":"推荐两道","similarProblems":[
+      {"title":"斜面弹簧","tags":["动能定理"],"difficulty":"基础","stem":"斜面高 1m，g=10m/s²。","focus":"形成"下滑—反弹"完整链","hint":"用动能定理。"},
+      {"title":"水平弹簧","tags":["能量守恒"],"difficulty":"中档","stem":"水平面长 2m，μ=0.2。","focus":"考查"分段"核算","hint":"分段列式。"}
+    ]}`;
+    expect(() => JSON.parse(broken)).toThrow();
+
+    const parsed = parseSimilarResponse(broken);
+    expect(parsed.similarProblems).toHaveLength(2);
+    expect(parsed.similarProblems[0].focus).toBe('形成"下滑—反弹"完整链');
+    expect(parsed.similarProblems[1].stem).toContain('μ=0.2');
+  });
+
+  it('JSON 被截断时补齐括号，仍能取出已完成的题目', () => {
+    const truncated = `{"summary":"推荐","similarProblems":[{"title":"斜面弹簧","tags":["动能定理"],"difficulty":"基础","stem":"斜面高 1m，g=10m/s²。","focus":"改变倾角","hint":"用动能定理。"},{"title":"第二题","stem":"水平面长`;
+    const parsed = parseSimilarResponse(truncated);
+    expect(parsed.similarProblems).toHaveLength(1);
+    expect(parsed.similarProblems[0].title).toBe('斜面弹簧');
   });
 
   it('Node 与 Qoder 双端 similar 系统提示词一致，并包含模型白名单与空间几何防冲突硬约束', async () => {
