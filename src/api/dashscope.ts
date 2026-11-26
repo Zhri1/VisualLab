@@ -333,8 +333,15 @@ function isUsableReply(text: string): boolean {
   return Boolean(trimmed) && !NULLISH_REPLY_RE.test(trimmed);
 }
 
-/** 兼容多形态与推理模型回包，并过滤字面 NULL / undefined 等无效空回复。 */
-export function extractTutorReply(payload: unknown): string {
+/**
+ * 兼容多形态与推理模型回包，并过滤字面 NULL / undefined 等无效空回复。
+ * 相似题模式必须关闭 reasoning 回退：思考链（英文推导稿）不是答案，
+ * 一旦被当成正文返回，前端就会拿到 0 道题 + 几千字思考稿。
+ */
+export function extractTutorReply(
+  payload: unknown,
+  options?: { allowReasoningFallback?: boolean },
+): string {
   const choice = (
     payload as {
       choices?: Array<{
@@ -347,11 +354,13 @@ export function extractTutorReply(payload: unknown): string {
   const primary = extractTextFromField(choice?.message?.content);
   if (isUsableReply(primary)) return primary;
 
-  const reasoning = extractTextFromField(choice?.message?.reasoning_content);
-  if (isUsableReply(reasoning)) return reasoning;
-
   const legacyText = extractTextFromField(choice?.text);
   if (isUsableReply(legacyText)) return legacyText;
+
+  if (options?.allowReasoningFallback === false) return '';
+
+  const reasoning = extractTextFromField(choice?.message?.reasoning_content);
+  if (isUsableReply(reasoning)) return reasoning;
 
   return '';
 }
@@ -411,6 +420,67 @@ function normalizeSimilarProblemsWithStats(raw: unknown): {
   return { problems: result, rejectedCount };
 }
 
+/**
+ * 模型常在中文里用英文双引号做强调（如 形成"下滑—反弹"完整链），直接破坏 JSON。
+ * 这里逐字符扫描：字符串内的双引号只有后面紧跟 , } ] : 或结尾才算收尾，
+ * 否则补成 \" ；同时补齐被截断的字符串与未闭合的括号。
+ */
+function repairJsonText(text: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        out += ch;
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        out += ch;
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        let j = i + 1;
+        while (j < text.length && /\s/.test(text[j])) j++;
+        const next = text[j] ?? '';
+        if (next === '' || next === ',' || next === '}' || next === ']' || next === ':') {
+          out += ch;
+          inString = false;
+        } else {
+          out += '\\"';
+        }
+        continue;
+      }
+      out += ch;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    out += ch;
+  }
+  if (inString) out += '"';
+
+  const opens: string[] = [];
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < out.length; i++) {
+    const ch = out[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === '{' || ch === '[') opens.push(ch);
+    else if (ch === '}' || ch === ']') opens.pop();
+  }
+  while (opens.length) out += opens.pop() === '{' ? '}' : ']';
+  return out;
+}
+
 function parseSimilarResponseDetailed(text: string): {
   summary: string;
   similarProblems: TutorSimilarProblem[];
@@ -430,26 +500,38 @@ function parseSimilarResponseDetailed(text: string): {
 
   let totalRejected = 0;
   for (const candidate of candidates) {
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(candidate) as unknown;
-      const { problems, rejectedCount } = normalizeSimilarProblemsWithStats(parsed);
-      totalRejected = Math.max(totalRejected, rejectedCount);
-      if (problems.length > 0) {
-        const rawSummary =
-          parsed && typeof parsed === 'object' && !Array.isArray(parsed) && typeof (parsed as { summary?: unknown }).summary === 'string'
-            ? (parsed as { summary: string }).summary.trim()
-            : '';
-        const summary = isUsableReply(rawSummary)
-          ? rawSummary
-          : `结合当前题目的物理模型，为你精选了 ${problems.length} 道高中力学相似变式题，点击「生成动画试做」可直接加载运行：`;
-        return { summary, similarProblems: problems, rejectedCount };
-      }
+      parsed = JSON.parse(candidate) as unknown;
     } catch {
-      // 尝试下一个 JSON 片段
+      // 首次解析失败多半是中文里混进了英文双引号，修一次再试
+      try {
+        parsed = JSON.parse(repairJsonText(candidate)) as unknown;
+      } catch {
+        continue;
+      }
+    }
+    const { problems, rejectedCount } = normalizeSimilarProblemsWithStats(parsed);
+    totalRejected = Math.max(totalRejected, rejectedCount);
+    if (problems.length > 0) {
+      const rawSummary =
+        parsed && typeof parsed === 'object' && !Array.isArray(parsed) && typeof (parsed as { summary?: unknown }).summary === 'string'
+          ? (parsed as { summary: string }).summary.trim()
+          : '';
+      const summary = isUsableReply(rawSummary)
+        ? rawSummary
+        : `结合当前题目的物理模型，为你精选了 ${problems.length} 道高中力学相似变式题，点击「生成动画试做」可直接加载运行：`;
+      return { summary, similarProblems: problems, rejectedCount };
     }
   }
 
-  return { summary: isUsableReply(text) ? text.trim() : '', similarProblems: [], rejectedCount: totalRejected };
+  // 解析彻底失败时不要把原始 JSON 片段当正文回给用户
+  const looksLikeJson = /^[[{]/.test(body);
+  return {
+    summary: !looksLikeJson && isUsableReply(text) ? text.trim() : '',
+    similarProblems: [],
+    rejectedCount: totalRejected,
+  };
 }
 
 export function parseSimilarResponse(text: string): { summary: string; similarProblems: TutorSimilarProblem[] } {
@@ -520,6 +602,9 @@ function buildTutorSystemPrompt(
 const SIMILAR_REPAIR_HINT =
   '你上一次生成的相似变式题包含「可调 / 待定 / 未知」等未定变参，已被校验过滤。请重新输出 2~3 道完全合规的相似变式题：所有物理量必须在题干开头直接给出唯一确定的具体数值，严禁出现「可调」「待定」或「第(2)问当 x = … 时」的分情形设问，且每题阶段数控制在 2~4 段内。';
 
+const SIMILAR_JSON_REPAIR_HINT =
+  '你上一次输出的 JSON 不合法，无法解析。请重新只输出一个合法 JSON 对象：字符串内部严禁出现英文双引号（需要强调或引用时用「」），不要输出任何解释、注释或代码围栏。';
+
 async function callTutorOnce(
   model: string,
   request: TutorChatRequest,
@@ -569,6 +654,9 @@ async function callTutorOnce(
         temperature: mode === 'similar' ? 0.5 : 0.35,
         max_tokens: Math.min(maxTokens(), mode === 'similar' ? 2000 : 1400),
         messages,
+        // 相似题要求纯 JSON 输出：开着思考链会把 max_tokens 全耗在 reasoning_content 上，
+        // content 为空，前端只能拿到空题目列表。未知该参数的模型会忽略它（实测不报错）。
+        ...(mode === 'similar' ? { enable_thinking: false } : {}),
       }),
       signal: controller.signal,
     });
@@ -593,14 +681,21 @@ async function callTutorOnce(
   }
 
   const payload = await response.json().catch(() => null);
-  const rawReply = extractTutorReply(payload);
+  const rawReply = extractTutorReply(payload, { allowReasoningFallback: mode !== 'similar' });
 
   if (!rawReply) throw new VisionError('parse', 'AI 助教返回了无效空内容');
 
   if (mode === 'similar') {
     const parsed = parseSimilarResponseDetailed(rawReply);
-    if (parsed.similarProblems.length === 0 && parsed.rejectedCount > 0 && !similarRepairHint) {
-      throw new VisionError('parse', '相似变式题含未定变参，需重新生成');
+    if (parsed.similarProblems.length === 0 && !similarRepairHint) {
+      if (parsed.rejectedCount > 0) {
+        throw new VisionError('parse', '相似变式题含未定变参，需重新生成');
+      }
+      // 模型已经开始写 JSON 却解析不出来（多为中文里混了英文双引号），值得重试一次；
+      // 纯文字拒答则按原样返回，不要重试。
+      if (/^\s*[[{]/.test(rawReply)) {
+        throw new VisionError('parse', '相似变式题 JSON 解析失败，需重新生成');
+      }
     }
     return {
       reply: parsed.summary || '已根据当前题目生成相似变式参考：',
@@ -632,8 +727,12 @@ export async function callTutorChat(request: TutorChatRequest): Promise<TutorCha
     const retryModel = fallback && fallback !== primary ? fallback : error.kind === 'parse' ? primary : '';
     if (!retryModel) throw error;
     const repairHint =
-      request.mode === 'similar' && error.kind === 'parse' && error.message.includes('未定变参')
-        ? SIMILAR_REPAIR_HINT
+      request.mode === 'similar' && error.kind === 'parse'
+        ? error.message.includes('未定变参')
+          ? SIMILAR_REPAIR_HINT
+          : error.message.includes('JSON')
+            ? SIMILAR_JSON_REPAIR_HINT
+            : undefined
         : undefined;
     console.warn(`[chat] ${primary} 失败（${(error as Error).message}），改用 ${retryModel} 重试`);
     return callTutorOnce(retryModel, request, apiKey, repairHint);
