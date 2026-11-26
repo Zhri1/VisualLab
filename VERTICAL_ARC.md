@@ -24,7 +24,7 @@ type VerticalArcStage = {
 - 新增接续为：`horizontal_slide(distance) → vertical_arc → projectile`，或 `lossless_turn → vertical_arc`；圆弧可独立或作为前缀末段。进入圆弧必须是水平向右的切向状态。水平提前停或恰停时沿用旧停止分支，不执行圆弧，也不生成圆弧或抛体的实际运动几何。暂不接第二个圆弧或反向执行前序水平段。
 - 新阶段初始零速且位于最低点时保持静止，零时长结束，原因 `stopped`。不得产生回滑、脱轨或飞行事件。
 
-字段错误沿用共享校验唯一入口。已识别阶段缺值或 `null` 放入 `missingKeys`，例如 `/stages/0/radiusM`、`/stages/0/side`、`/massKg`。错误字段类型为 `TYPE / INVALID_READING`；非有限数为 `NOT_FINITE`，数值不在约定区间为 `RANGE`，均沿用已有可修正错误口径；已知字符串 `side` 不属于 `inside` 或 `rod`，或明确 `frictionless: false`，为 `UNSUPPORTED`。初态形状或接续速度不相容为 `PRECONDITION_CONFLICT`，定位 `/initial` 或相应阶段路径。缺项、错误值及其他已知阶段的数据按已有草稿规则保留。
+字段错误沿用共享校验唯一入口。已识别阶段缺值或 `null` 放入 `missingKeys`，例如 `/stages/0/radiusM`、`/stages/0/side`、`/massKg`。错误字段类型为 `TYPE / INVALID_READING`；非有限数为 `NOT_FINITE`，数值不在约定区间为 `RANGE`，均沿用已有可修正错误口径；已知字符串 `side` 不在 `inside`、`rod` 中或明确 `frictionless: false` 为 `UNSUPPORTED`。初态形状或接续速度不相容为 `PRECONDITION_CONFLICT`，定位 `/initial` 或相应阶段路径。缺项、错误值及其他已知阶段的数据按已有草稿规则保留。
 
 ## 2. 接抛体时固定地面
 
@@ -62,6 +62,14 @@ dq/dt = −g sinφ
 
 新终止原因增加 `arc_detached`（实际离弧但计划没有抛体后缀）和 `returned_to_entry`（回滑到入口，计算范围结束）。计划有抛体且实际离弧时，最终仍为 `landed`。`returned_to_entry` 的末速度水平向左，保持入口速率；末帧及越界样本钳制到此状态，不能清零成静止，也不声称已模拟返回粗糙水平面后的过程。`termination`、`endReason` 继续同源同值。
 
+### 轻杆与双轨的零速极限
+
+`side: "rod"` 表示双向径向约束，有符号法向力为正时指向圆心，为负时背离圆心。由最低点出发时，`u² = 4gR` 使最高点的速度极限为零、约束力极限为 `−mg`。设当前离前方最高点的角距为 δ，则该能量下 `|v| = 2√(gR) sin(δ/2)`，运动满足 `tan(δ(t)/4) = tan(δ(0)/4) exp(−t√(g/R))`。有限时间内 δ 始终为正，达到或穿过最高点需要无限时间。
+
+若计划到达或越过这个顶点，旧半圆和显式路径都播放入弧后 `6√(R/g)` 的真实运动前缀，以 `arc_range_end`、`actualExit.reason = "range_end"` 和 `endReason = "prefix_end"` 结束。观察末帧及越界取样保留实际角度、非零速度和约束力，计划端点仍按题设保留。该顶点及其后续离轨、飞出和落地事件均未发生。实际顶点以前的计划端点仍可照常正速到达。能量略低且先到转折时回滑，略高时才可在有限时间越过顶点；原单内轨 `u² = 5gR` 的顶点仍以非零速度到达。
+
+[轻杆临界共用样例](fixtures/vertical-arc-rod-critical.reading.json) 的 `R = 0.4 m`、`g = 10 m/s²`、`m = 0.1 kg`、`u = 4 m/s`。入弧 1.2 s 时，角度约 179.4319°、速率约 0.01983 m/s、有符号法向力约 −0.99985 N。
+
 ## 4. 绘图、取样和事件的增量
 
 带圆弧的场景使用 `geometry.positionReference: "particle"`，所有阶段位置都表示同一质点参考点。旧场景仍为 `front_bottom`。`blockSizeM` 继续只是绘图尺寸，不计入半径或离地高度；A 可画质点或小滑块，不能移动物理参考点来补偿图形尺寸。
@@ -79,7 +87,7 @@ verticalArc?: {
   actualExit: {
     position: Point;
     angleDeg: number;
-    reason: "endpoint" | "contact_lost" | "returned_to_entry" | "stationary";
+    reason: "endpoint" | "contact_lost" | "returned_to_entry" | "stationary" | "range_end";
   };
 };
 

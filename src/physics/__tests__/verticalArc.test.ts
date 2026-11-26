@@ -5,6 +5,7 @@ import type { StageMotion, StagePlanDraft } from "../index";
 import acceptance from "../../../fixtures/vertical-arc.acceptance.json";
 import endpoint from "../../../fixtures/vertical-arc-endpoint.reading.json";
 import composition from "../../../fixtures/vertical-arc-composition.reading.json";
+import rodCritical from "../../../fixtures/vertical-arc-rod-critical.reading.json";
 
 function build(input: unknown): StageMotion {
   const scene = assembleScene(input);
@@ -233,14 +234,85 @@ describe("轻杆 / 双轨竖直圆周运动（side: rod）", () => {
     stages: [{ kind: "vertical_arc", radiusM: 0.4, endAngleDeg: 180, side: "rod", frictionless: true, ...extraStage }],
   });
 
-  it("最高点临界速度 v_min = 0（v0 = 2√(gR) = 4 m/s）：不脱轨，最高点速度为 0、受向上支持力 mg = 1 N", () => {
-    const motion = build(rodPlan(4));
-    expect(motion.events.some(e => e.kind === "arc_contact_lost")).toBe(false);
-    const endEv = motion.events.find(e => e.kind === "arc_endpoint")!;
-    expect(endEv).toBeDefined();
-    expect(endEv.normalForceBeforeN).toBeCloseTo(-1, 6);
-    expect(motion.sampleAt(endEv.timeSeconds).vxMps).toBeCloseTo(0, 6);
-    expect(motion.geometry.verticalArc?.side).toBe("rod");
+  const { endAngleDeg: _, ...rodArc } = rodCritical.stages[0];
+  const arcForms = [
+    ["旧半圆", rodCritical.stages[0]],
+    ["显式圆轨", { ...rodArc, path: { startAngleDeg: 0, direction: "positive", end: { kind: "physical_endpoint", sweepAngleDeg: 180 } } }],
+  ] as const;
+
+  it.each(arcForms)("%s临界零速只渐近最高点，保持真实运动及约束", (_label, stage) => {
+    const motion = build({ ...rodCritical, stages: [stage, rodCritical.stages[1]] });
+    const last = motion.events[motion.events.length - 1];
+    expect(motion.events.map(e => e.kind)).toEqual(["release", "arc_enter", "arc_range_end"]);
+    expect(motion.segments.map(s => s.kind)).toEqual(["vertical_arc"]);
+    expect(motion.termination).toMatchObject({ reason: "prefix_end", eventId: last.id, stageIndex: 0 });
+    expect(motion.motionStatus).toMatchObject({ state: "range_end", message: expect.stringContaining("趋近最高点") });
+    expect(motion.geometry.projectile).toBeUndefined();
+    expect(motion.geometry.verticalArc).toMatchObject({ plannedEnd: { xM: 0, yM: .8 }, actualExit: { reason: "range_end" } });
+    expect(motion.durationSeconds).toBeCloseTo(1.2, 12);
+    for (const time of [.1, .6, motion.durationSeconds - 1e-7, motion.durationSeconds]) {
+      const gap = 4 * Math.atan(Math.exp(-5 * time));
+      const speed = 4 * Math.sin(gap / 2);
+      const sample = motion.sampleAt(time);
+      close(sample, { xM: .4 * Math.sin(gap), yM: .4 * (1 + Math.cos(gap)), vxMps: -speed * Math.cos(gap), vyMps: speed * Math.sin(gap) });
+      expect(sample.constraint?.angleDeg).toBeLessThan(180);
+      expect(sample.constraint?.normalForceN).toBeCloseTo(speed ** 2 / 4 - Math.cos(gap), 11);
+      expect(Math.hypot(sample.vxMps, sample.vyMps) ** 2 + 20 * sample.yM).toBeCloseTo(16, 11);
+    }
+    expect(last.normalForceBeforeN).toBe(last.normalForceAfterN);
+    expect(motion.sampleAt(Infinity)).toEqual(motion.sampleAt(last.timeSeconds));
+    expect(motion.sampleAt(Infinity).constraint?.forceRole).toBe("support");
+  });
+
+  it.each(arcForms)("%s临界两侧的轻杆保留真实回滑或到顶", (_label, stage) => {
+    // 完全椭圆积分 K 以算术-几何平均值独立复算近临界积分。
+    function ellipticK(complement: number) {
+      let a = 1, b = Math.sqrt(complement);
+      while (a - b > 1e-15) [a, b] = [(a + b) / 2, Math.sqrt(a * b)];
+      return Math.PI / (2 * a);
+    }
+    const belowSpeed = 4 * (1 - 1e-10), aboveSpeed = 4 * (1 + 1e-10);
+    const run = (speedMps: number) => build({ ...rodCritical, initial: { speedMps }, stages: [stage, rodCritical.stages[1]] });
+    const below = run(belowSpeed), above = run(aboveSpeed);
+    const turn = below.events.find(e => e.kind === "arc_turn")!;
+    expect(below.endReason).toBe("returned_to_entry");
+    expect(below.geometry.projectile).toBeUndefined();
+    expect(turn.timeSeconds).toBeCloseTo(.2 * ellipticK(1 - (belowSpeed / 4) ** 2), 6);
+    expect(below.sampleAt(turn.timeSeconds).constraint?.angleDeg).toBeLessThan(180);
+    expect(below.sampleAt(Infinity).vxMps).toBeCloseTo(-belowSpeed, 12);
+    const endpoint = above.events.find(e => e.kind === "arc_endpoint")!;
+    const launch = above.events.find(e => e.kind === "projectile_launch")!;
+    const k2 = (4 / aboveSpeed) ** 2;
+    expect(endpoint.timeSeconds).toBeCloseTo(.2 * Math.sqrt(k2) * ellipticK(1 - k2), 6);
+    expect(endpoint.timeSeconds).toBe(launch.timeSeconds);
+    expect(above.sampleAt(launch.timeSeconds).vxMps).toBeCloseTo(-Math.sqrt(aboveSpeed ** 2 - 16), 10);
+    expect(above.endReason).toBe("landed");
+  });
+
+  it("轻杆临界能量下，最高点以前的实物端点仍可正速飞出", () => {
+    const motion = build({ ...rodCritical, stages: [{ ...rodCritical.stages[0], endAngleDeg: 90 }, rodCritical.stages[1]] });
+    const launch = motion.events.find(e => e.kind === "projectile_launch")!;
+    expect(launch.timeSeconds).toBeCloseTo(.2 * Math.log(1 / Math.tan(Math.PI / 8)), 12);
+    expect(launch.velocityAfter.vxMps).toBe(0);
+    expect(launch.velocityAfter.vyMps).toBeCloseTo(Math.sqrt(8), 12);
+    expect(motion.endReason).toBe("landed");
+  });
+
+  it.each([1, -1])("显式临界轻杆从非最低点进弧，可真实通过最低点，方向 %s", direction => {
+    const motion = build({
+      ...rodCritical, initial: { speedMps: Math.sqrt(12) },
+      stages: [{ ...rodArc, path: {
+        startAngleDeg: -60 * direction, direction: direction > 0 ? "positive" : "negative",
+        end: { kind: "observation", sweepAngleDeg: 360 },
+      } }],
+    });
+    expect(motion.events.map(e => e.kind)).toEqual(["release", "arc_enter", "arc_lowest", "arc_range_end"]);
+    const bottom = motion.events[2], end = motion.sampleAt(Infinity);
+    expect(bottom.timeSeconds).toBeCloseTo(.2 * Math.log(Math.sqrt(3)), 12);
+    expect(bottom.velocityAfter.vxMps).toBeCloseTo(4 * direction, 12);
+    expect(end.constraint?.angularVelocityRadps).toBeDefined();
+    expect(end.constraint!.angularVelocityRadps * direction).toBeGreaterThan(0);
+    expect(Math.abs(end.constraint!.angleDeg)).toBeLessThan(180);
   });
 
   it("最高点 0 < v < √(gR)（v0² = 4.5gR）：杆提供向上支持力（N < 0，方向向上）", () => {
