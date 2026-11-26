@@ -76,7 +76,7 @@ check("默认1倍速、关键点暂停关闭", await evaluate('document.querySel
 check("释放静止速度为0", (await evaluate('document.querySelector("#player-speed").textContent')).includes("大小 0 米每秒"));
 check("图例来自已应用条件", (await evaluate('document.querySelector(".scene-legend").textContent')).includes("0.50"));
 check("生产接口设为409时内置示例仍打开，且未请求接口", blockedApiRequests === 0 && await evaluate('!!document.querySelector("canvas")'));
-check("旧播放行、滑轨、事件列表之后才出现辅助选项", await evaluate('document.querySelector(".timeline").nextElementSibling?.classList.contains("playback-auxiliary") && document.querySelector(".transport-row").nextElementSibling?.classList.contains("timeline")'));
+check("播放行内联辅助选项且紧接滑轨时间轴", await evaluate('!!document.querySelector(".transport-row .transport-options") && document.querySelector(".transport-row").nextElementSibling?.classList.contains("timeline")'));
 await eventClick(1);
 check("转向时读数4.02，速度取自物理样本", (await evaluate('document.querySelector("#player-speed").textContent')).includes("4.02"));
 await eventClick(3);

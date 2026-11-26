@@ -170,6 +170,7 @@ export function WorkspaceLayout({ ws }: Props) {
     spring_contact: "弹簧",
     projectile: "抛体",
     vertical_arc: "圆弧",
+    magnetic_deflection: "匀强磁场偏转",
   } as const;
   const title = stagePlan
     ? stagePlan.stages.map((stage) => stageLabels[stage.kind as keyof typeof stageLabels] ?? "未知阶段").join(" · ")
@@ -206,6 +207,15 @@ export function WorkspaceLayout({ ws }: Props) {
       root.style.removeProperty("--app-vh");
     };
   }, []);
+
+  useEffect(() => {
+    if (!metaOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMetaOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [metaOpen]);
 
   // 播放时钟：只在工作台内运行，读取同一份 currentTime
   useEffect(() => {
@@ -358,136 +368,141 @@ export function WorkspaceLayout({ ws }: Props) {
             </div>
           </div>
 
-          <button
-            type="button"
-            className="meta-toggle"
-            aria-expanded={metaOpen}
-            aria-controls="player-meta"
-            onClick={() => setMetaOpen((open) => !open)}
-          >
-            路段与计时
-            <ChevronDown size={15} strokeWidth={2} className="chev" />
-          </button>
-          <div id="player-meta" className={`player-meta${metaOpen ? "" : " is-collapsed"}`}>
-          {motion?.timing && <div className="notice info" role="status"><span>{motion.timing.mode === "full" ? "全程精确播放" : motion.timing.mode === "suffix" ? "前段示意 · 从B精确计时" : "仅展示已知状态 · 用时未知"}：{motion.timing.reason}
-            {motion.calculations?.map(c => <span key={c.quantity}>　{{ initial_elastic_energy: "初始弹性势能", release_speed: "脱离速度", arc_entry_speed: "入弧速度" }[c.quantity] ?? c.quantity} = {Number(c.value.toPrecision(6))} {c.unit}（{c.source === "derived" ? "物理推导" : "题设/用户给定"}）</span>)}</span></div>}
-          {motion?.motionStatus&&<div className="notice info" role="status"><span>{motion.motionStatus.state==='model_limit'?'有限求解范围':motion.motionStatus.state==='range_end'?'播放范围终点':'真实静止结局'}：{motion.motionStatus.message}</span></div>}
-          {motion?.primaryBodyId&&<label className="body-tracking">跟踪物体<select aria-label="跟踪物体" value={trackedBodyId??motion.primaryBodyId} onChange={e=>setTrackedBodyId(e.target.value)}>{motion.stageGeometry?.bodies?.map(b=><option value={b.bodyId} key={b.bodyId}>{b.bodyId}</option>)}</select><span>{(motion.stageGeometry?.bodies?.length??0)>1?'两物体共用同一物理时间':'物体与绳共用同一物理时间'}</span></label>}
-          {motion?.primaryBodyId && (
-            <MultiBodyReadouts motion={motion} time={currentTime} isPlaying={isPlaying} />
-          )}
-          </div>
-          {motion && (
-            <ul className={'scene-legend'+(motion.primaryBodyId?' body-scene-legend':'')} aria-label="路段与动摩擦因数">
-              {stagePlan ? motion.segments.map((segment) => {
-                const stage = stageForLegend(stagePlan,segment.stagePath,segment.stageIndex);
-                const friction = stage && "kineticFrictionCoefficient" in stage && typeof stage.kineticFrictionCoefficient === "number"
-                  ? stage.kineticFrictionCoefficient
-                  : null;
-                return (
-                  <li key={`${segment.stagePath??segment.stageIndex}-${segment.kind}-${segment.startSeconds}`} aria-current={activeSegment === segment ? "step" : undefined}>
-                    <b>{String((segment.stageIndex ?? 0) + 1).padStart(2, "0")}</b> {segment.bodyIds?.join(' + ')} {segment.name}
-                    {friction != null && <span>μ = {friction.toFixed(2)}</span>}
-                  </li>
-                );
-              }) : (
-                <>
-                  <li aria-current={activeSegment?.kind === "incline" ? "step" : undefined}>
-                    <b>AB</b> 斜面 <span>μ = {legacyReading?.conditions.kineticFrictionCoefficient?.toFixed(2)}</span>
-                  </li>
-                  <li aria-current={activeSegment?.kind !== "incline" ? "step" : undefined}>
-                    <b>BC</b> 水平面 <span>μ = 0</span>
-                  </li>
-                </>
-              )}
-            </ul>
-          )}
-          {motion && (
-            <div className="view-tools" role="toolbar" aria-label="画布辅助工具">
-              <button
-                type="button"
-                className="tool-toggle"
-                aria-pressed={forcesOn}
-                onClick={() => {
-                  setForcesOn((v) => {
-                    if (v) setDecomposeOn(false);
-                    return !v;
-                  });
-                }}
-                title="在画布上显示物体受力矢量"
-              >
-                <ArrowUpRight size={13} strokeWidth={2} />
-                <span>受力</span>
-              </button>
-              <button
-                type="button"
-                className="tool-toggle"
-                aria-pressed={decomposeOn}
-                disabled={!forcesOn}
-                onClick={() => setDecomposeOn((v) => !v)}
-                title={forcesOn ? "正交分解受力矢量" : "请先开启「受力」"}
-              >
-                <GitFork size={13} strokeWidth={2} />
-                <span>分解</span>
-              </button>
-              <button
-                type="button"
-                className="tool-toggle"
-                aria-pressed={annotationMode === "draw"}
-                onClick={() => setAnnotationMode((m) => (m === "draw" ? "off" : "draw"))}
-                title="在画布上自由标注"
-              >
-                <Pencil size={13} strokeWidth={2} />
-                <span>标注{strokes.length > 0 ? ` (${strokes.length})` : ""}</span>
-              </button>
-              {strokes.length > 0 && (
-                <button
-                  type="button"
-                  className="tool-toggle tool-clear"
-                  onClick={() => setStrokes([])}
-                  title="清空画布标注"
-                >
-                  <Trash2 size={12} strokeWidth={2} />
-                  <span>清空</span>
-                </button>
+          <div className={`stage-bar${metaOpen ? " is-meta-open" : ""}`}>
+            <div className="stage-bar-left">
+              {motion && (
+                <div className="view-tools" role="toolbar" aria-label="画布辅助工具">
+                  <button
+                    type="button"
+                    className="tool-toggle"
+                    aria-pressed={forcesOn}
+                    onClick={() => {
+                      setForcesOn((v) => {
+                        if (v) setDecomposeOn(false);
+                        return !v;
+                      });
+                    }}
+                    title="在画布上显示物体受力矢量"
+                  >
+                    <ArrowUpRight size={13} strokeWidth={2} />
+                    <span>受力</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="tool-toggle"
+                    aria-pressed={decomposeOn}
+                    disabled={!forcesOn}
+                    onClick={() => setDecomposeOn((v) => !v)}
+                    title={forcesOn ? "正交分解受力矢量" : "请先开启「受力」"}
+                  >
+                    <GitFork size={13} strokeWidth={2} />
+                    <span>分解</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="tool-toggle"
+                    aria-pressed={annotationMode === "draw"}
+                    onClick={() => setAnnotationMode((m) => (m === "draw" ? "off" : "draw"))}
+                    title="在画布上自由标注"
+                  >
+                    <Pencil size={13} strokeWidth={2} />
+                    <span>标注{strokes.length > 0 ? ` (${strokes.length})` : ""}</span>
+                  </button>
+                  {strokes.length > 0 && (
+                    <button
+                      type="button"
+                      className="tool-toggle tool-clear"
+                      onClick={() => setStrokes([])}
+                      title="清空画布标注"
+                    >
+                      <Trash2 size={12} strokeWidth={2} />
+                      <span>清空</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="tool-toggle"
+                    aria-pressed={annotationMode === "laser"}
+                    onClick={() => setAnnotationMode((m) => (m === "laser" ? "off" : "laser"))}
+                    title="临时标注（松手后自动渐隐）"
+                  >
+                    <Pointer size={13} strokeWidth={2} />
+                    <span>临时标注</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="tool-toggle"
+                    aria-pressed={speechOn}
+                    disabled={!speech.supported}
+                    onClick={() => setSpeechOn((v) => !v)}
+                    title={speech.supported ? "语音朗读关键事件讲解" : "当前浏览器不支持语音合成"}
+                  >
+                    <Volume2 size={13} strokeWidth={2} />
+                    <span>朗读</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="tool-toggle"
+                    aria-pressed={practiceOn}
+                    disabled={samplePractice.length === 0}
+                    onClick={() => {
+                      setPracticeOn((v) => !v);
+                      setRevealed(false);
+                    }}
+                    title={samplePractice.length > 0 ? "先预测再播放动画验证" : "当前题目暂无预测练习"}
+                  >
+                    <ClipboardCheck size={13} strokeWidth={2} />
+                    <span>练习</span>
+                  </button>
+                </div>
               )}
               <button
                 type="button"
-                className="tool-toggle"
-                aria-pressed={annotationMode === "laser"}
-                onClick={() => setAnnotationMode((m) => (m === "laser" ? "off" : "laser"))}
-                title="临时标注（松手后自动渐隐）"
+                className="meta-toggle tool-toggle"
+                aria-expanded={metaOpen}
+                aria-controls="player-meta"
+                onClick={() => setMetaOpen((open) => !open)}
+                title="展开或收起路段与计时详情"
               >
-                <Pointer size={13} strokeWidth={2} />
-                <span>临时标注</span>
-              </button>
-              <button
-                type="button"
-                className="tool-toggle"
-                aria-pressed={speechOn}
-                disabled={!speech.supported}
-                onClick={() => setSpeechOn((v) => !v)}
-                title={speech.supported ? "语音朗读关键事件讲解" : "当前浏览器不支持语音合成"}
-              >
-                <Volume2 size={13} strokeWidth={2} />
-                <span>朗读</span>
-              </button>
-              <button
-                type="button"
-                className="tool-toggle"
-                aria-pressed={practiceOn}
-                disabled={samplePractice.length === 0}
-                onClick={() => {
-                  setPracticeOn((v) => !v);
-                  setRevealed(false);
-                }}
-                title={samplePractice.length > 0 ? "先预测再播放动画验证" : "当前题目暂无预测练习"}
-              >
-                <ClipboardCheck size={13} strokeWidth={2} />
-                <span>练习</span>
+                <span>路段·计时</span>
+                <ChevronDown size={13} strokeWidth={2} className="chev" />
               </button>
             </div>
-          )}
+            {motion && (
+              <ul className={'scene-legend'+(motion.primaryBodyId?' body-scene-legend':'')} aria-label="路段与动摩擦因数">
+                {stagePlan ? motion.segments.map((segment) => {
+                  const stage = stageForLegend(stagePlan,segment.stagePath,segment.stageIndex);
+                  const friction = stage && "kineticFrictionCoefficient" in stage && typeof stage.kineticFrictionCoefficient === "number"
+                    ? stage.kineticFrictionCoefficient
+                    : null;
+                  return (
+                    <li key={`${segment.stagePath??segment.stageIndex}-${segment.kind}-${segment.startSeconds}`} aria-current={activeSegment === segment ? "step" : undefined}>
+                      <b>{String((segment.stageIndex ?? 0) + 1).padStart(2, "0")}</b> {segment.bodyIds?.join(' + ')} {segment.name}
+                      {friction != null && <span>μ = {friction.toFixed(2)}</span>}
+                    </li>
+                  );
+                }) : (
+                  <>
+                    <li aria-current={activeSegment?.kind === "incline" ? "step" : undefined}>
+                      <b>AB</b> 斜面 <span>μ = {legacyReading?.conditions.kineticFrictionCoefficient?.toFixed(2)}</span>
+                    </li>
+                    <li aria-current={activeSegment?.kind !== "incline" ? "step" : undefined}>
+                      <b>BC</b> 水平面 <span>μ = 0</span>
+                    </li>
+                  </>
+                )}
+              </ul>
+            )}
+            <div id="player-meta" className={`player-meta${metaOpen ? "" : " is-collapsed"}`}>
+              {motion?.timing && <div className="notice info" role="status"><span>{motion.timing.mode === "full" ? "全程精确播放" : motion.timing.mode === "suffix" ? "前段示意 · 从B精确计时" : "仅展示已知状态 · 用时未知"}：{motion.timing.reason}
+                {motion.calculations?.map(c => <span key={c.quantity}>　{{ initial_elastic_energy: "初始弹性势能", release_speed: "脱离速度", arc_entry_speed: "入弧速度" }[c.quantity] ?? c.quantity} = {Number(c.value.toPrecision(6))} {c.unit}（{c.source === "derived" ? "物理推导" : "题设/用户给定"}）</span>)}</span></div>}
+              {motion?.motionStatus&&<div className="notice info" role="status"><span>{motion.motionStatus.state==='model_limit'?'有限求解范围':motion.motionStatus.state==='range_end'?'播放范围终点':'真实静止结局'}：{motion.motionStatus.message}</span></div>}
+              {motion?.primaryBodyId&&<label className="body-tracking">跟踪物体<select aria-label="跟踪物体" value={trackedBodyId??motion.primaryBodyId} onChange={e=>setTrackedBodyId(e.target.value)}>{motion.stageGeometry?.bodies?.map(b=><option value={b.bodyId} key={b.bodyId}>{b.bodyId}</option>)}</select><span>{(motion.stageGeometry?.bodies?.length??0)>1?'两物体共用同一物理时间':'物体与绳共用同一物理时间'}</span></label>}
+              {motion?.primaryBodyId && (
+                <MultiBodyReadouts motion={motion} time={currentTime} isPlaying={isPlaying} />
+              )}
+            </div>
+          </div>
           <div className={'canvas-frame'+(motion?.primaryBodyId?' body-canvas-frame':'')} ref={frameBoxRef}>
             {motion ? (
               <div className={'canvas-stack'+(masked ? ' is-blinded' : '')}>
