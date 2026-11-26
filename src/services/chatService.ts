@@ -11,10 +11,12 @@ import type {
   ConditionChange,
   ConditionKey,
   Motion,
+  RagReference,
   SimilarProblem,
   WorkspaceReading,
 } from "../types";
 import type { StagePlanDraft } from "../physics/stagePlan";
+import { searchPhysicsRag, toRagReferences, type RagHit } from "../rag";
 
 export interface ChatContext {
   motion: Motion | null;
@@ -811,19 +813,78 @@ function normalizeClientSimilarProblems(raw: unknown): SimilarProblem[] {
   return out;
 }
 
-/** 离线或服务异常时，根据当前真实 motion 动态生成可读摘要，绝不返回 NULL。 */
-function buildDynamicFallback(ctx: ChatContext, reason?: string): string {
+function extractStageKinds(reading: WorkspaceReading | null | undefined): string[] {
+  if (!reading) return [];
+  if (isStageReading(reading)) {
+    return (reading.stages ?? [])
+      .map((s) => String(s.kind ?? "").trim())
+      .filter(Boolean);
+  }
+  return ["incline_slide", "lossless_turn", "horizontal_slide", "spring_contact"];
+}
+
+function normalizeClientRagReferences(raw: unknown): RagReference[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: RagReference[] = [];
+  for (const item of raw) {
+    if (!isRecord(item)) continue;
+    const id = typeof item.id === "string" ? item.id.trim() : "";
+    const title = typeof item.title === "string" ? item.title.trim() : "";
+    const source = typeof item.source === "string" ? item.source.trim() : "";
+    if (!id || !title) continue;
+    const rawDiff = typeof item.difficulty === "string" ? item.difficulty.trim() : "";
+    const difficulty: RagReference["difficulty"] =
+      rawDiff === "基础" || rawDiff === "中档" || rawDiff === "拔高" ? rawDiff : "中档";
+    const tags = Array.isArray(item.tags)
+      ? item.tags.filter((t): t is string => typeof t === "string" && t.trim().length > 0).map((t) => t.trim())
+      : [];
+    const score = typeof item.score === "number" && Number.isFinite(item.score) ? item.score : 0;
+    const matchedReasons = Array.isArray(item.matchedReasons)
+      ? item.matchedReasons
+          .filter((r): r is string => typeof r === "string" && r.trim().length > 0)
+          .map((r) => r.trim())
+      : [];
+    out.push({ id, title, source, difficulty, tags, score, matchedReasons });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+function ragHitsToSimilarProblems(hits: RagHit[]): SimilarProblem[] {
+  return hits.map(({ entry }) => ({
+    title: entry.title,
+    tags: [...entry.tags],
+    difficulty: entry.difficulty,
+    stem: entry.stem,
+    focus: entry.pitfalls[0] || entry.source,
+    hint: [entry.solutionOutline, ...entry.keyFormulas].filter(Boolean).join("\n"),
+  }));
+}
+
+/** 离线或服务异常时，根据当前真实 motion 与本地物理知识库动态生成可读摘要，绝不返回 NULL。 */
+function buildDynamicFallback(ctx: ChatContext, reason?: string, ragHits: RagHit[] = []): string {
   const m = ctx.motion;
+  const topHit = ragHits[0];
+  const ragTip = topHit
+    ? `\n\n【母题知识库提示 · ${topHit.entry.title}】\n` +
+      [
+        topHit.entry.keyFormulas.length ? `核心公式：${topHit.entry.keyFormulas.join("；")}` : "",
+        topHit.entry.pitfalls.length ? `易错临界：${topHit.entry.pitfalls.join("；")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : "";
+
   if (!m) {
-    return reason
+    const base = reason
       ? `${reason}。当前尚未加载有效动画，请先上传题目或选择内置示例。`
       : "请先上传物理题或选择内置示例，我再结合具体过程为你讲解。";
+    return `${base}${ragTip}`;
   }
   const lines = m.events
     .slice(0, 8)
     .map((ev) => `• ${ev.timeSeconds.toFixed(2)} s「${ev.label}」：${ev.caption}`);
   const prefix = reason ? `（实时 AI 助教暂不可用：${reason}；以下为当前物理引擎实算摘要）\n\n` : "";
-  return `${prefix}当前动画总时长 ${m.durationSeconds.toFixed(2)} s，关键过程如下：\n${lines.join("\n")}\n\n你可以点时间轴上的任意事件查看该时刻的速度与受力，或直接对我说「把质量改成 2 kg」做对比实验。`;
+  return `${prefix}当前动画总时长 ${m.durationSeconds.toFixed(2)} s，关键过程如下：\n${lines.join("\n")}${ragTip}\n\n你可以点时间轴上的任意事件查看该时刻的速度与受力，或直接对我说「把质量改成 2 kg」做对比实验。`;
 }
 
 export const chatService: ChatService = {
@@ -836,10 +897,11 @@ export const chatService: ChatService = {
         form.append("chatContext", JSON.stringify(buildTutorPayload(ctx)));
         const res = await fetch(ENDPOINT, { method: "POST", body: form });
         const data = (await res.json().catch(() => null)) as
-          | { status?: string; reply?: string; similarProblems?: unknown; message?: string }
+          | { status?: string; reply?: string; similarProblems?: unknown; ragReferences?: unknown; message?: string }
           | null;
         if (res.ok && data?.status === "ok") {
           const parsed = normalizeClientSimilarProblems(data.similarProblems);
+          const ragReferences = normalizeClientRagReferences(data.ragReferences);
           if (parsed.length > 0) {
             return {
               type: "answer",
@@ -847,21 +909,39 @@ export const chatService: ChatService = {
                 ? data.reply.trim()
                 : `为你精选了 ${parsed.length} 道相似变式题，点击「生成动画试做」可直接加载运行：`,
               similarProblems: parsed,
+              ragReferences,
             };
           }
         }
       } catch {
-        // 网络或服务不可用时无缝走本地精选相似题库兜底
+        // 网络或服务不可用时无缝走本地物理知识库与精选相似题库兜底
       }
     } else {
       await new Promise((r) => setTimeout(r, 220));
     }
 
-    const fallbackList = getLocalSimilarProblems(ctx.reading);
+    const ragHits = searchPhysicsRag({
+      text: [ctx.problemText?.trim(), prompt.trim()].filter(Boolean).join("\n"),
+      stageKinds: extractStageKinds(ctx.reading),
+      mode: "similar",
+      topK: 3,
+    });
+    const ragProblems = ragHitsToSimilarProblems(ragHits);
+    const localBank = getLocalSimilarProblems(ctx.reading);
+    const merged: SimilarProblem[] = [];
+    const seenTitles = new Set<string>();
+    for (const item of [...ragProblems, ...localBank]) {
+      if (seenTitles.has(item.title)) continue;
+      seenTitles.add(item.title);
+      merged.push(item);
+      if (merged.length >= 3) break;
+    }
+    const ragReferences = ragHits.length > 0 ? toRagReferences(ragHits) : undefined;
     return {
       type: "answer",
-      text: `结合当前题目的物理模型，为你精选了 ${fallbackList.length} 道相似变式题，点击「生成动画试做」可直接加载运行：`,
-      similarProblems: fallbackList,
+      text: `结合当前题目的物理模型，为你精选了 ${merged.length} 道相似变式题，点击「生成动画试做」可直接加载运行：`,
+      similarProblems: merged,
+      ragReferences,
     };
   },
 
@@ -909,6 +989,14 @@ export const chatService: ChatService = {
       }
     }
 
+    const runLocalTutorRag = () =>
+      searchPhysicsRag({
+        text: [ctx.problemText?.trim(), t].filter(Boolean).join("\n"),
+        stageKinds: extractStageKinds(ctx.reading),
+        mode: "tutor",
+        topK: 3,
+      });
+
     // 5. 真实 AI 物理助教对话（非 Mock 模式，复用同域 ENDPOINT）
     if (!USE_MOCK_API) {
       try {
@@ -917,26 +1005,43 @@ export const chatService: ChatService = {
         form.append("chatContext", JSON.stringify(buildTutorPayload(ctx)));
         const res = await fetch(ENDPOINT, { method: "POST", body: form });
         const data = (await res.json().catch(() => null)) as
-          | { status?: string; reply?: string; message?: string }
+          | { status?: string; reply?: string; ragReferences?: unknown; message?: string }
           | null;
         if (res.ok && data?.status === "ok" && isUsableReply(data.reply)) {
-          return { type: "answer", text: data.reply.trim() };
+          return {
+            type: "answer",
+            text: data.reply.trim(),
+            ragReferences: normalizeClientRagReferences(data.ragReferences),
+          };
         }
+        const localHits = runLocalTutorRag();
         return {
           type: "answer",
-          text: buildDynamicFallback(ctx, data?.message || (res.ok ? "助教返回了空内容" : `服务返回 ${res.status}`)),
+          text: buildDynamicFallback(
+            ctx,
+            data?.message || (res.ok ? "助教返回了空内容" : `服务返回 ${res.status}`),
+            localHits,
+          ),
+          ragReferences: localHits.length > 0 ? toRagReferences(localHits) : undefined,
         };
       } catch {
+        const localHits = runLocalTutorRag();
         return {
           type: "answer",
-          text: buildDynamicFallback(ctx, "网络请求失败"),
+          text: buildDynamicFallback(ctx, "网络请求失败", localHits),
+          ragReferences: localHits.length > 0 ? toRagReferences(localHits) : undefined,
         };
       }
     }
 
-    // 6. 离线 Mock 模式：动态基于当前 motion 摘要回答，不再复读固定斜面弹簧话术
+    // 6. 离线 Mock 模式：动态基于当前 motion 摘要与本地物理 RAG 知识库回答
     await new Promise((r) => setTimeout(r, 260));
-    return { type: "answer", text: buildDynamicFallback(ctx) };
+    const localHits = runLocalTutorRag();
+    return {
+      type: "answer",
+      text: buildDynamicFallback(ctx, undefined, localHits),
+      ragReferences: localHits.length > 0 ? toRagReferences(localHits) : undefined,
+    };
   },
 };
 

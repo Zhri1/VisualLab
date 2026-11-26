@@ -4,7 +4,7 @@
  */
 import { useState, type ReactNode } from "react";
 import { ArrowRight, ChevronDown, ChevronRight, CornerDownRight, Lightbulb, Play, Sparkles } from "lucide-react";
-import type { ChatMessage as ChatMessageType, SimilarProblem } from "../../../types";
+import type { ChatMessage as ChatMessageType, RagReference, SimilarProblem } from "../../../types";
 import { ParameterChangeCard } from "./ParameterChangeCard";
 import { CONDITION_META } from "../../../types";
 
@@ -124,6 +124,27 @@ function AssumptionChip({ items }: { items: string[] }) {
       <ul className="assumption-list">
         {items.map((t, i) => (
           <li key={i}>{t}</li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+/** 物理母题知识库引用胶囊：复用 .assumption 极简折叠样式 */
+function RagReferencesChip({ items }: { items: RagReference[] }) {
+  return (
+    <details className="assumption">
+      <summary>
+        <span>📚 参考母题知识库 {items.length} 条</span>
+        <ChevronRight className="chev" size={12} strokeWidth={2} />
+      </summary>
+      <ul className="assumption-list">
+        {items.map((ref) => (
+          <li key={ref.id}>
+            <strong>{ref.title}</strong>
+            {ref.source ? `（${ref.source} · ${ref.difficulty}）` : ""}
+            {ref.matchedReasons.length > 0 ? ` — ${ref.matchedReasons.join("；")}` : ""}
+          </li>
         ))}
       </ul>
     </details>
@@ -252,6 +273,7 @@ export function ChatMessageRow({ message, onUndo, onSeekEvent, onTrySimilar }: P
                 ))}
               </div>
             ) : null}
+            {message.ragReferences?.length ? <RagReferencesChip items={message.ragReferences} /> : null}
             {message.action?.type === "seek" && (
               <div className="msg-action">
                 <button onClick={() => onSeekEvent(message.action!.eventId)}>

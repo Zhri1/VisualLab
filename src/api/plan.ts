@@ -20,6 +20,7 @@ import type { StagePlanResult } from './stageTypes';
 import { buildPlanResponse, type PlanResponse } from './validate';
 import { UNSUPPORTED_PREFIX } from './contract';
 import { validateReading } from '../physics/reading';
+import { formatRagForVision, searchPhysicsRag } from '../rag/retriever';
 
 function repairRetryEnabled(): boolean {
   return (process.env.VISION_REPAIR_RETRY ?? '').trim() !== '0';
@@ -217,10 +218,11 @@ export async function handlePlan(request: Request): Promise<Response> {
       const chat = await callTutorChat({ message: chatMessage, context, history, mode: chatMode });
       const elapsed = Date.now() - startedAt;
       console.log(`[chat] ${requestId} ok ${elapsed}ms model=${chat.model} mode=${chatMode} len=${chatMessage.length}`);
+      const ragReferences = chat.ragReferences ?? [];
       return json(
         chatMode === 'similar'
-          ? { status: 'ok', reply: chat.reply, similarProblems: chat.similarProblems ?? [] }
-          : { status: 'ok', reply: chat.reply },
+          ? { status: 'ok', reply: chat.reply, similarProblems: chat.similarProblems ?? [], ragReferences }
+          : { status: 'ok', reply: chat.reply, ragReferences },
         200,
         { ...base, 'x-request-id': requestId, 'x-elapsed-ms': String(elapsed), 'x-vision-model': chat.model },
       );
@@ -264,6 +266,9 @@ export async function handlePlan(request: Request): Promise<Response> {
     return json({ message: '请上传题图，或输入题目文字' }, 400, base);
   }
 
+  const visionRagHits = text ? searchPhysicsRag({ text, mode: 'vision', topK: 2 }) : [];
+  const ragHint = formatRagForVision(visionRagHits) || undefined;
+
   let vision;
   try {
     vision = await callVisionModel({
@@ -271,6 +276,7 @@ export async function handlePlan(request: Request): Promise<Response> {
       mime,
       text,
       skillText: loadSkillText(),
+      ragHint,
     });
   } catch (error) {
     const elapsed = Date.now() - startedAt;
@@ -298,6 +304,7 @@ export async function handlePlan(request: Request): Promise<Response> {
         mime,
         text,
         skillText: loadSkillText(),
+        ragHint,
         repairContext,
       });
       const repairedInternal = buildPlanResponse(repairedVision.raw);

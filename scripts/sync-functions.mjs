@@ -10,7 +10,7 @@
  *
  * 用法：node scripts/sync-functions.mjs
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -50,6 +50,9 @@ const FILES = [
   { from: "src/api/stageTypes.ts", to: "functions/stageTypes.ts" },
   { from: "src/api/stageStatus.ts", to: "functions/stageStatus.ts" },
   { from: "src/api/legacyBridge.ts", to: "functions/legacyBridge.ts" },
+  { from: "src/rag/types.ts", to: "functions/rag/types.ts" },
+  { from: "src/rag/corpus.ts", to: "functions/rag/corpus.ts" },
+  { from: "src/rag/retriever.ts", to: "functions/rag/retriever.ts" },
 ];
 
 /** Deno 要求相对导入带显式扩展名；src 里走 TS 解析，可以省略。 */
@@ -70,7 +73,9 @@ for (const { from, to } of FILES) {
     "",
   ].join("\n");
   const output = header + withDenoExtensions(source);
-  writeFileSync(join(root, to), output, "utf8");
+  const targetPath = join(root, to);
+  mkdirSync(dirname(targetPath), { recursive: true });
+  writeFileSync(targetPath, output, "utf8");
   total += 1;
   console.log(`${to} ← ${from}`);
 }

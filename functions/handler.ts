@@ -20,6 +20,15 @@ import { validateStagePlan } from "./stagePlan.ts";
 import { buildStagePlanResult } from "./stageStatus.ts";
 import { STAGE_HTTP_STATUS, isStagePlan } from "./stageTypes.ts";
 import type { StagePlanResult } from "./stageTypes.ts";
+import {
+  buildChatRagQuery,
+  formatRagForSimilar,
+  formatRagForTutor,
+  formatRagForVision,
+  searchPhysicsRag,
+  toRagReferences,
+} from "./rag/retriever.ts";
+import type { RagReference } from "./rag/types.ts";
 
 declare const Deno: {
   env: { get(key: string): string | undefined };
@@ -449,6 +458,7 @@ interface VisionRequest {
   imageBase64?: string;
   mime?: string;
   text?: string;
+  ragHint?: string;
   repairContext?: VisionRepairContext;
 }
 
@@ -531,6 +541,12 @@ async function callOnce(model: string, request: VisionRequest, apiKey: string): 
     userContent.push({
       type: "text",
       text: `学生补充的文字描述（与图片冲突时以文字为准）：\n${request.text}`,
+    });
+  }
+  if (request.ragHint) {
+    userContent.push({
+      type: "text",
+      text: request.ragHint,
     });
   }
   if (request.repairContext) {
@@ -781,7 +797,11 @@ function parseSimilarResponse(text: string): { summary: string; similarProblems:
   return { summary: isUsableReply(text) ? text.trim() : "", similarProblems: [] };
 }
 
-function buildTutorSystemPrompt(context?: Record<string, unknown> | null, mode: TutorChatMode = "tutor"): string {
+function buildTutorSystemPrompt(
+  context?: Record<string, unknown> | null,
+  mode: TutorChatMode = "tutor",
+  ragContext?: string,
+): string {
   const base =
     mode === "similar"
       ? [
@@ -806,14 +826,23 @@ function buildTutorSystemPrompt(context?: Record<string, unknown> | null, mode: 
           "4. 先给清晰结论，再分步讲清受力分析、运动过程拆分、守恒定律与临界条件。表达简洁易读，直接用中文自然段或「1. / 2.」分点；不要输出 # 标题、--- 分割线、Markdown 表格或 LaTeX 反斜杠命令（如 \\frac、\\sqrt、\\[...\\]），公式一律用直观符号写成纯文本（如 N + mg = mv²/R、v = √(gR)、ΔEk = W合）。",
           "5. 必要时可提醒学生在时间轴点击对应关键事件观察，或直接说「把某参数改成某值」做对比实验。",
         ].join("\n");
-  if (!context || Object.keys(context).length === 0) return base;
-  let serialized = "";
-  try {
-    serialized = JSON.stringify(context, null, 2).slice(0, 6000);
-  } catch {
-    serialized = "";
+  const sections: string[] = [base];
+  if (context && Object.keys(context).length > 0) {
+    let serialized = "";
+    try {
+      serialized = JSON.stringify(context, null, 2).slice(0, 6000);
+    } catch {
+      serialized = "";
+    }
+    if (serialized) {
+      sections.push(`【当前题目与物理引擎实算数据】\n${serialized}`);
+    }
   }
-  return serialized ? `${base}\n\n【当前题目与物理引擎实算数据】\n${serialized}` : base;
+  const trimmedRag = ragContext?.trim();
+  if (trimmedRag) {
+    sections.push(trimmedRag);
+  }
+  return sections.join("\n\n");
 }
 
 async function callTutorChat(request: {
@@ -821,19 +850,24 @@ async function callTutorChat(request: {
   context?: Record<string, unknown> | null;
   history?: Array<{ role: "user" | "assistant"; text: string }>;
   mode?: TutorChatMode;
-}): Promise<{ reply: string; model: string; similarProblems?: TutorSimilarProblem[] }> {
+}): Promise<{ reply: string; model: string; similarProblems?: TutorSimilarProblem[]; ragReferences?: RagReference[] }> {
   const apiKey = env("DASHSCOPE_API_KEY");
   if (!apiKey) throw new VisionError("upstream", "服务端未配置 DASHSCOPE_API_KEY");
   const primary = env("DASHSCOPE_CHAT_MODEL") || env("DASHSCOPE_VISION_MODEL") || DEFAULT_MODEL;
   const fallback = env("DASHSCOPE_FALLBACK_MODEL");
   const mode: TutorChatMode = request.mode === "similar" ? "similar" : "tutor";
+  const ragHits = searchPhysicsRag(buildChatRagQuery(request.message, request.context, mode));
+  const ragContext = mode === "similar" ? formatRagForSimilar(ragHits) : formatRagForTutor(ragHits);
+  const ragReferences = toRagReferences(ragHits);
 
-  const runOnce = async (model: string): Promise<{ reply: string; model: string; similarProblems?: TutorSimilarProblem[] }> => {
+  const runOnce = async (
+    model: string,
+  ): Promise<{ reply: string; model: string; similarProblems?: TutorSimilarProblem[]; ragReferences?: RagReference[] }> => {
     const baseUrl = env("DASHSCOPE_BASE_URL") || DEFAULT_BASE_URL;
     const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
     const limit = timeoutMs();
     const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
-      { role: "system", content: buildTutorSystemPrompt(request.context, mode) },
+      { role: "system", content: buildTutorSystemPrompt(request.context, mode, ragContext) },
     ];
     if (mode === "tutor") {
       for (const item of (request.history ?? []).slice(-8)) {
@@ -880,9 +914,10 @@ async function callTutorChat(request: {
         reply: parsed.summary || "已根据当前题目生成相似变式参考：",
         model,
         similarProblems: parsed.similarProblems,
+        ragReferences,
       };
     }
-    return { reply: rawReply, model };
+    return { reply: rawReply, model, ragReferences };
   };
 
   try {
@@ -951,10 +986,11 @@ export async function handler(request: Request): Promise<Response> {
     try {
       const chat = await callTutorChat({ message: chatMessage, context, history, mode: chatMode });
       const elapsed = Date.now() - startedAt;
+      const ragReferences = chat.ragReferences ?? [];
       return json(
         chatMode === "similar"
-          ? { status: "ok", reply: chat.reply, similarProblems: chat.similarProblems ?? [] }
-          : { status: "ok", reply: chat.reply },
+          ? { status: "ok", reply: chat.reply, similarProblems: chat.similarProblems ?? [], ragReferences }
+          : { status: "ok", reply: chat.reply, ragReferences },
         200,
         { "x-request-id": requestId, "x-elapsed-ms": String(elapsed), "x-vision-model": chat.model },
       );
@@ -989,9 +1025,12 @@ export async function handler(request: Request): Promise<Response> {
     return json({ message: "请上传题图，或输入题目文字" }, 400);
   }
 
+  const visionRagHits = text ? searchPhysicsRag({ text, mode: "vision", topK: 2 }) : [];
+  const ragHint = formatRagForVision(visionRagHits) || undefined;
+
   let vision: { raw: unknown; model: string };
   try {
-    vision = await callVisionModel({ imageBase64, mime, text });
+    vision = await callVisionModel({ imageBase64, mime, text, ragHint });
   } catch (error) {
     const elapsed = Date.now() - startedAt;
     const failure = error instanceof VisionError ? error.kind : "upstream";
@@ -1015,6 +1054,7 @@ export async function handler(request: Request): Promise<Response> {
         imageBase64,
         mime,
         text,
+        ragHint,
         repairContext,
       });
       const repairedInternal = buildPlanResponse(repairedVision.raw);

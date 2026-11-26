@@ -513,6 +513,7 @@ export function useWorkspace() {
           text: intent.text,
           action: intent.action,
           similarProblems: intent.similarProblems,
+          ragReferences: intent.ragReferences,
         });
         return;
       }
