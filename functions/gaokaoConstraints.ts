@@ -942,6 +942,10 @@ export function resolveGaokaoImplicitParams(
     }
 
     if (kind === "incline_slide") {
+      if (stage.direction === "up") {
+        state = null;
+        continue;
+      }
       if (
         state != null &&
         g != null &&
@@ -963,7 +967,8 @@ export function resolveGaokaoImplicitParams(
           state = { vx: 0, vy: 0, speed: 0 };
         } else {
           const v = Math.sqrt(vSq);
-          state = { vx: v * Math.cos(rad), vy: -v * Math.sin(rad), speed: v };
+          const horizDir = i > 0 && state.vx < -ZERO_TOL ? -1 : 1;
+          state = { vx: horizDir * v * Math.cos(rad), vy: -v * Math.sin(rad), speed: v };
         }
       } else {
         state = null;
