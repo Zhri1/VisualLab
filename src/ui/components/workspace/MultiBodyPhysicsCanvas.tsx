@@ -56,31 +56,120 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
   }
   if(motion.stageGeometry?.pulley){
     const pl=motion.stageGeometry.pulley,px=X(pl.pulley.xM),py=Y(pl.pulley.yM);
-    const pr=Math.max(8,Math.min(18,Math.abs(X(pl.body2Start.xM)-px)));
-    ctx.save();ctx.strokeStyle=INK;ctx.lineWidth=1.6;
-    if(pl.surfaceKind==='horizontal'||pl.surfaceKind==='incline'){
-      ctx.beginPath();ctx.moveTo(X(pl.body1Start.xM),Y(pl.body1Start.yM));ctx.lineTo(px,py);ctx.stroke();
+    const pr=Math.max(10,Math.min(16,Math.abs(X(pl.body2Start.xM)-px)));
+    const b2Now=snapshot.bodies?.[pl.body2Id];
+    const ropeShiftPx=(b2Now?(pl.body2Start.yM-b2Now.position.y):0)*S;
+    const wheelAngle=ropeShiftPx/Math.max(8,pr);
+    ctx.save();
+    // 1. 支承面实体（斜面楔体 / 水平桌面 / 悬挂天花板）与地面线
+    if(pl.surfaceKind==='incline'){
+      const x0=X(pl.body1Start.xM),y0=Y(pl.body1Start.yM);
+      const baseY=pl.groundYM!=null?Y(pl.groundYM):y0;
+      ctx.fillStyle='#f1f1ed';
+      ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(px,py);ctx.lineTo(px,baseY);ctx.lineTo(x0,baseY);ctx.closePath();ctx.fill();
+      ctx.strokeStyle=HAIR;ctx.lineWidth=1.2;
+      ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(px,baseY);ctx.stroke();
+      ctx.strokeStyle=INK;ctx.lineWidth=1.8;
+      ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(px,py);ctx.stroke();
+      // 定滑轮支架：固定在斜面顶端
+      ctx.strokeStyle='#5f5f5b';ctx.lineWidth=2;
+      ctx.beginPath();ctx.moveTo(px-8,py+10);ctx.lineTo(px,py);ctx.moveTo(px+2,py+12);ctx.lineTo(px,py);ctx.stroke();
+    }else if(pl.surfaceKind==='horizontal'){
+      const x0=X(pl.body1Start.xM),y0=Y(pl.body1Start.yM);
+      const baseY=pl.groundYM!=null?Y(pl.groundYM):y0+60;
+      ctx.fillStyle='#f1f1ed';
+      ctx.fillRect(x0,y0,Math.max(0,px-x0),Math.max(10,baseY-y0));
+      ctx.strokeStyle=HAIR;ctx.lineWidth=1.2;
+      ctx.beginPath();ctx.moveTo(px,y0);ctx.lineTo(px,baseY);ctx.stroke();
+      ctx.strokeStyle=INK;ctx.lineWidth=1.8;
+      ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(px,y0);ctx.stroke();
+      ctx.strokeStyle='#5f5f5b';ctx.lineWidth=2;
+      ctx.beginPath();ctx.moveTo(px-8,y0+6);ctx.lineTo(px,py);ctx.stroke();
+    }else{
+      // 阿特伍德机顶部天花板与吊架
+      const ceilY=py-pr-14;
+      ctx.strokeStyle=INK;ctx.lineWidth=1.6;
+      ctx.beginPath();ctx.moveTo(px-26,ceilY);ctx.lineTo(px+26,ceilY);ctx.stroke();
+      ctx.strokeStyle=HAIR;ctx.lineWidth=1;
+      for(let hx=px-22;hx<=px+22;hx+=7){ctx.beginPath();ctx.moveTo(hx,ceilY);ctx.lineTo(hx-4,ceilY-5);ctx.stroke();}
+      ctx.strokeStyle='#5f5f5b';ctx.lineWidth=2;
+      ctx.beginPath();ctx.moveTo(px,ceilY);ctx.lineTo(px,py);ctx.stroke();
     }
     if(pl.groundYM!=null){
-      const gy=Y(pl.groundYM);ctx.beginPath();ctx.moveTo(gx1,gy);ctx.lineTo(gx2,gy);ctx.stroke();
+      const gy=Y(pl.groundYM);
+      ctx.strokeStyle=INK;ctx.lineWidth=1.6;
+      ctx.beginPath();ctx.moveTo(gx1,gy);ctx.lineTo(gx2,gy);ctx.stroke();
+      ctx.strokeStyle=HAIR;ctx.lineWidth=1;
+      for(let hx=gx1+6;hx<gx2;hx+=14){ctx.beginPath();ctx.moveTo(hx,gy);ctx.lineTo(hx-5,gy+5);ctx.stroke();}
       reqs.push({text:'地面支撑',color:SOFT,cx:X(pl.body2Start.xM)+36,by:gy+16,dir:1});
     }
-    ctx.fillStyle=PAPER;ctx.beginPath();ctx.arc(px,py,pr,0,2*Math.PI);ctx.fill();ctx.stroke();
-    ctx.beginPath();ctx.arc(px,py,2.2,0,2*Math.PI);ctx.fillStyle=INK;ctx.fill();ctx.restore();
+    // 2. 真实定滑轮（外轮槽 + 内槽线 + 随绳转动的辐条 + 轮轴）
+    ctx.fillStyle=PAPER;ctx.strokeStyle=INK;ctx.lineWidth=1.8;
+    ctx.beginPath();ctx.arc(px,py,pr,0,2*Math.PI);ctx.fill();ctx.stroke();
+    ctx.strokeStyle=HAIR;ctx.lineWidth=1;
+    ctx.beginPath();ctx.arc(px,py,Math.max(4,pr-3),0,2*Math.PI);ctx.stroke();
+    ctx.strokeStyle='#8e8e88';ctx.lineWidth=1.2;
+    for(let k=0;k<4;k++){
+      const a=wheelAngle+k*(Math.PI/2);
+      ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(px+Math.cos(a)*(pr-3),py+Math.sin(a)*(pr-3));ctx.stroke();
+    }
+    ctx.beginPath();ctx.arc(px,py,2.6,0,2*Math.PI);ctx.fillStyle=INK;ctx.fill();
+    ctx.restore();
     occupied.push({x:px-pr-2,y:py-pr-2,w:(pr+2)*2,h:(pr+2)*2});
   }
   for(const c of Object.values(snapshot.constraints??{})){
     if(c.kind==='pulley_string'){
       const b1=snapshot.bodies?.[c.bodyIds[0]],b2=snapshot.bodies?.[c.bodyIds[1]];if(!b1||!b2)continue;
       const pl=motion.stageGeometry?.pulley,px=X(c.pivot.xM),py=Y(c.pivot.yM);
-      const b1TopX=pl?.surfaceKind==='hanging'?X(b1.position.x):px;
-      const b2TopX=X(b2.position.x);
-      ctx.save();ctx.strokeStyle=c.state==='taut'?INK:SOFT;ctx.lineWidth=c.state==='taut'?1.8:1.2;if(c.state==='slack')ctx.setLineDash([4,5]);
+      const pr=pl?Math.max(10,Math.min(16,Math.abs(X(pl.body2Start.xM)-px))):10;
+      const ropeShiftPx=pl?(pl.body2Start.yM-b2.position.y)*S:0;
+      const b1x=X(b1.position.x),b1y=Y(b1.position.y),b2x=X(b2.position.x),b2y=Y(b2.position.y);
+      // 计算绳在滑轮左/上侧的精确切点，避免绳与斜面重合看不清
+      let t1x=px-pr,t1y=py,r1x=b1x,r1y=b1y;
+      if(pl?.surfaceKind==='incline'){
+        const dx=px-X(pl.body1Start.xM),dy=py-Y(pl.body1Start.yM),len=Math.hypot(dx,dy)||1;
+        const nx=dy/len,ny=-dx/len;
+        t1x=px+nx*pr;t1y=py+ny*pr;
+        r1x=b1x+nx*5;r1y=b1y+ny*5;
+      }else if(pl?.surfaceKind==='horizontal'){
+        t1x=px;t1y=py-pr;
+        r1x=b1x;r1y=b1y-5;
+      }
+      const t2x=px+pr,t2y=py;
+      const drawRopeTicks=(ax:number,ay:number,bx:number,by:number,phasePx:number)=>{
+        const segLen=Math.hypot(bx-ax,by-ay);
+        if(segLen<12)return;
+        const step=18,ux=(bx-ax)/segLen,uy=(by-ay)/segLen;
+        let d=((phasePx%step)+step)%step;
+        if(d<4)d+=step;
+        ctx.fillStyle='#5f5f5b';
+        for(;d<segLen-4;d+=step){
+          ctx.beginPath();ctx.arc(ax+ux*d,ay+uy*d,1.8,0,2*Math.PI);ctx.fill();
+        }
+      };
+      ctx.save();
+      ctx.strokeStyle=c.state==='taut'?INK:SOFT;
+      ctx.lineWidth=c.state==='taut'?1.8:1.3;
+      if(c.state==='slack')ctx.setLineDash([4,4]);
       ctx.beginPath();
-      ctx.moveTo(X(b1.position.x),Y(b1.position.y));ctx.lineTo(b1TopX,py);
-      ctx.moveTo(b2TopX,py);ctx.lineTo(X(b2.position.x),Y(b2.position.y));
-      ctx.stroke();ctx.restore();
-      reqs.push({text:c.state==='taut'?`T = ${c.tensionN.toFixed(2)} N`:'松绳 · T = 0 N',color:SOFT,cx:Math.max(70,Math.min(W-70,px+58)),by:Math.max(18,py-14),dir:-1});
+      if(c.state==='taut'){
+        ctx.moveTo(r1x,r1y);ctx.lineTo(t1x,t1y);
+        // 绕过滑轮上半圆槽的弧线
+        ctx.arc(px,py,pr,Math.atan2(t1y-py,t1x-px),0,false);
+        ctx.lineTo(b2x,b2y);
+      }else{
+        // 松绳时呈轻微下垂松弛曲线
+        ctx.moveTo(r1x,r1y);ctx.quadraticCurveTo((r1x+t1x)/2,(r1y+t1y)/2+10,t1x,t1y);
+        ctx.moveTo(t2x,t2y);ctx.quadraticCurveTo((t2x+b2x)/2+8,(t2y+b2y)/2,b2x,b2y);
+      }
+      ctx.stroke();
+      // 张紧时在两段绳上绘制随绳位移平滑移动的刻度珠，直观展示绳子运动
+      if(c.state==='taut'){
+        drawRopeTicks(r1x,r1y,t1x,t1y,ropeShiftPx);
+        drawRopeTicks(t2x,t2y,b2x,b2y,ropeShiftPx);
+      }
+      ctx.restore();
+      reqs.push({text:c.state==='taut'?`T = ${c.tensionN.toFixed(2)} N`:'松绳 · T = 0 N',color:SOFT,cx:Math.max(70,Math.min(W-70,px+64)),by:Math.max(18,py-16),dir:-1});
       continue;
     }
     const body=snapshot.bodies?.[c.bodyIds[0]];if(!body)continue;
