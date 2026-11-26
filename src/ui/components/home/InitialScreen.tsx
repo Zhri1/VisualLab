@@ -7,25 +7,21 @@ import { PromptComposer } from "./PromptComposer";
 import { SamplePicker } from "./SamplePicker";
 import { loadDraftText, saveDraftText } from "./homeDraft";
 import { checkImageFile, prepareImageFile } from "./imageTools";
-import { FavoritesDrawer } from "../../../features/share/FavoritesDrawer";
-import type { FavoriteEntry } from "../../../features/share/favorites";
 
 interface Props {
   busy: boolean;
   notice: Notice | null;
   onSubmit: (input: { file: File | null; text: string }) => void;
   onSample: (id?: string) => void;
-  onLoadFavorite: (entry: FavoriteEntry) => void;
 }
 
-export function InitialScreen({ busy, notice, onSubmit, onSample, onLoadFavorite }: Props) {
+export function InitialScreen({ busy, notice, onSubmit, onSample }: Props) {
   const [text, setText] = useState(() => loadDraftText());
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [sampleOpen, setSampleOpen] = useState(false);
-  const [favoritesOpen, setFavoritesOpen] = useState(false);
   const previewRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -120,15 +116,10 @@ export function InitialScreen({ busy, notice, onSubmit, onSample, onLoadFavorite
             )}
           </div>
         ) : (
-          <div className="home-entry-row">
-            <button className="sample-button" onClick={() => setSampleOpen(true)} disabled={busy}>
-              内置示例
-              <ArrowRight size={15} strokeWidth={2} />
-            </button>
-            <button className="sample-button favorites-button" onClick={() => setFavoritesOpen(true)} disabled={busy}>
-              错题本
-            </button>
-          </div>
+          <button className="sample-button" onClick={() => setSampleOpen(true)} disabled={busy}>
+            内置示例
+            <ArrowRight size={15} strokeWidth={2} />
+          </button>
         )}
 
         <p className="home-note">支持 JPG / PNG 单题图片</p>
@@ -143,14 +134,6 @@ export function InitialScreen({ busy, notice, onSubmit, onSample, onLoadFavorite
           }}
         />
       )}
-      <FavoritesDrawer
-        open={favoritesOpen}
-        onClose={() => setFavoritesOpen(false)}
-        onLoad={(entry) => {
-          setFavoritesOpen(false);
-          onLoadFavorite(entry);
-        }}
-      />
     </main>
   );
 }
