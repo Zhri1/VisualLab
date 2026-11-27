@@ -41,17 +41,56 @@ export function validateHorizontalFields(draft:Obj,c:HorizontalValidationContext
  const byId=(id:unknown)=>initials.find(b=>b.bodyId===id);
  for(const [i,s]of stages.entries()){
   const p=`/stages/${i}`;if(!obj(s)){issue(p,'TYPE','阶段须为对象。');continue;}
-  choice(s,'kind',p+'/kind',i===0?['horizontal_approach']:i===1?['collision_1d']:['parallel_motion']);
+  choice(s,'kind',p+'/kind',i===0?['horizontal_approach','conveyor_belt']:i===1?['collision_1d']:['parallel_motion']);
   if(i>2)issue(p,'UNSUPPORTED','仅安排一次正碰及受控碰后轨道。');
   if(i===0){
-   if(!Array.isArray(s.tracks)){if(s.tracks==null){s.tracks=null;missing.push(p+'/tracks');}else issue(p+'/tracks','TYPE','接近轨道须为数组。');}
-   else{const owners:unknown[]=[];s.tracks.forEach((tr,j)=>{const tp=p+`/tracks/${j}`;if(!obj(tr)){issue(tp,'TYPE','轨道须为对象。');return;}ref(tr.bodyId,tp+'/bodyId');owners.push(tr.bodyId);num(tr,'kineticFrictionCoefficient',tp+'/kineticFrictionCoefficient',v=>v>=0);});if(owners.length!==2||new Set(owners).size!==2||ids.some(id=>!owners.includes(id)))issue(p+'/tracks','PRECONDITION_CONFLICT','接近轨道须精确覆盖两物体。');}
-   const end=block(s,'end',p+'/end');if(end){choice(end,'kind',p+'/end/kind',['contact_or_rest','time_limit']);if(end.kind==='time_limit')num(end,'durationSeconds',p+'/end/durationSeconds',v=>v>0);}
+   if(s.kind==='conveyor_belt'){
+    if('bodyId'in s&&s.bodyId!=null)ref(s.bodyId,p+'/bodyId');
+    num(s,'initialBeltSpeedMps',p+'/initialBeltSpeedMps');
+    num(s,'kineticFrictionCoefficient',p+'/kineticFrictionCoefficient',v=>v>=0);
+    num(s,'beltLengthM',p+'/beltLengthM',v=>v>0);
+    if(s.segments==null){s.segments=[{accelerationMps2:0,durationSeconds:null}];}
+    else if(!Array.isArray(s.segments)||!s.segments.length){issue(p+'/segments','TYPE','传送带段序列须为非空数组。');}
+    else{
+     s.segments.forEach((seg,j)=>{
+      const sp=p+`/segments/${j}`;if(!obj(seg)){issue(sp,'TYPE','传送带段须为对象。');return;}
+      num(seg,'accelerationMps2',sp+'/accelerationMps2');
+      num(seg,'durationSeconds',sp+'/durationSeconds',v=>v>0,false);
+      if(typeof seg.accelerationMps2==='number'&&seg.accelerationMps2!==0)num(s,'staticFrictionCoefficient',p+'/staticFrictionCoefficient',v=>v>=0);
+     });
+    }
+    if(typeof s.staticFrictionCoefficient==='number'&&typeof s.kineticFrictionCoefficient==='number'&&s.staticFrictionCoefficient<s.kineticFrictionCoefficient)issue(p+'/staticFrictionCoefficient','RANGE','静摩擦因数不能小于动摩擦因数。');
+    if(typeof s.beltLengthM==='number'&&initials.length===2){
+     const constrained=initials.find(b=>obj(b.constraint));
+     const freeBody=s.bodyId!=null?byId(s.bodyId):initials.find(b=>!obj(b.constraint));
+     if(freeBody&&typeof freeBody.xM==='number'&&(freeBody.xM<-1e-9||freeBody.xM>s.beltLengthM+1e-9))issue('/initial/bodies','PRECONDITION_CONFLICT','带上滑块初始位置须在传送带长度范围内。');
+     if(constrained&&typeof constrained.xM==='number'&&Math.abs(constrained.xM)>1e-9&&Math.abs(constrained.xM-s.beltLengthM)>1e-9)issue('/initial/bodies','PRECONDITION_CONFLICT','悬球须位于传送带端点（0 或 beltLengthM）。');
+    }
+   }else{
+    if(!Array.isArray(s.tracks)){if(s.tracks==null){s.tracks=null;missing.push(p+'/tracks');}else issue(p+'/tracks','TYPE','接近轨道须为数组。');}
+    else{const owners:unknown[]=[];s.tracks.forEach((tr,j)=>{const tp=p+`/tracks/${j}`;if(!obj(tr)){issue(tp,'TYPE','轨道须为对象。');return;}ref(tr.bodyId,tp+'/bodyId');owners.push(tr.bodyId);num(tr,'kineticFrictionCoefficient',tp+'/kineticFrictionCoefficient',v=>v>=0);});if(owners.length!==2||new Set(owners).size!==2||ids.some(id=>!owners.includes(id)))issue(p+'/tracks','PRECONDITION_CONFLICT','接近轨道须精确覆盖两物体。');}
+    const end=block(s,'end',p+'/end');if(end){choice(end,'kind',p+'/end/kind',['contact_or_rest','time_limit']);if(end.kind==='time_limit')num(end,'durationSeconds',p+'/end/durationSeconds',v=>v>0);}
+   }
   }
   if(i===1){
    const pair=bodyList(s,'bodyIds',p+'/bodyIds');if(pair.length!==2)issue(p+'/bodyIds','PRECONDITION_CONFLICT','碰撞须绑定两物体。');
-   choice(s,'mode',p+'/mode',['elastic','perfectly_inelastic']);fact(s,'externalImpulseNegligible',p+'/externalImpulseNegligible');
-   const contact=block(s,'contact',p+'/contact');if(contact){choice(contact,'kind',p+'/contact/kind',['horizontal_meeting']);num(contact,'approachStageIndex',p+'/contact/approachStageIndex',v=>v===0);if('pendulumStageIndex'in contact)issue(p+'/contact','PRECONDITION_CONFLICT','水平接触不能混用摆阶段引用。');}
+   choice(s,'mode',p+'/mode',['elastic','perfectly_inelastic','specified_post_velocity']);fact(s,'externalImpulseNegligible',p+'/externalImpulseNegligible');
+   if(s.mode==='specified_post_velocity'){
+    const kv=block(s,'knownPostVelocity',p+'/knownPostVelocity');
+    if(kv){
+     ref(kv.bodyId,p+'/knownPostVelocity/bodyId');
+     if(typeof kv.bodyId==='string'&&pair.length===2&&!pair.includes(kv.bodyId))issue(p+'/knownPostVelocity/bodyId','PRECONDITION_CONFLICT','已知碰后速度须归属碰撞双方之一。');
+     num(kv,'vxMps',p+'/knownPostVelocity/vxMps');
+    }
+   }
+   const isConveyorFirst=obj(stages[0])&&stages[0].kind==='conveyor_belt';
+   const contact=block(s,'contact',p+'/contact');
+   if(contact){
+    choice(contact,'kind',p+'/contact/kind',isConveyorFirst?['conveyor_end','horizontal_meeting']:['horizontal_meeting']);
+    if(contact.kind==='conveyor_end')num(contact,'conveyorStageIndex',p+'/contact/conveyorStageIndex',v=>v===0);
+    else if(contact.kind==='horizontal_meeting')num(contact,'approachStageIndex',p+'/contact/approachStageIndex',v=>v===0);
+    if('pendulumStageIndex'in contact)issue(p+'/contact','PRECONDITION_CONFLICT','水平接触不能混用摆阶段引用。');
+   }
    if('targetApproach'in s)issue(p+'/targetApproach','PRECONDITION_CONFLICT','两物体初态不使用摆的targetApproach。');
    const a=byId(pair[0]),b=byId(pair[1]);
    num(s,'normalXM',p+'/normalXM',v=>v===1||v===-1,!!a&&!!b&&typeof a.xM==='number'&&a.xM===b.xM);
@@ -59,13 +98,14 @@ export function validateHorizontalFields(draft:Obj,c:HorizontalValidationContext
   }
   if(i===2){
    const collision=obj(stages[1])?stages[1]:null,sticky=collision?.mode==='perfectly_inelastic';
+   const isConveyorFirst=obj(stages[0])&&stages[0].kind==='conveyor_belt';
    if(!Array.isArray(s.tracks)){if(s.tracks==null){s.tracks=null;missing.push(p+'/tracks');}else issue(p+'/tracks','TYPE','碰后轨道须为数组。');}
    else{
     const occupied:string[]=[];
     s.tracks.forEach((tr,j)=>{
      const tp=p+`/tracks/${j}`;if(!obj(tr)){issue(tp,'TYPE','轨道须为对象。');return;}
      const owners=bodyList(tr,'bodyIds',tp+'/bodyIds');occupied.push(...owners);
-     if(sticky?owners.length!==2:owners.length!==1)issue(tp+'/bodyIds','PRECONDITION_CONFLICT',sticky?'粘连两ID须在同一轨道。':'弹性分离每条轨道一个ID。');
+     if(sticky?owners.length!==2:owners.length!==1)issue(tp+'/bodyIds','PRECONDITION_CONFLICT',sticky?'粘连两ID须在同一轨道。':'分离后每条轨道一个ID。');
      if(!Array.isArray(tr.stages)){if(tr.stages==null){tr.stages=null;missing.push(tp+'/stages');}else issue(tp+'/stages','TYPE','轨道阶段须为数组。');return;}
      if(!tr.stages.length){missing.push(tp+'/stages');return;}
      const head=tr.stages[0];
@@ -73,10 +113,28 @@ export function validateHorizontalFields(draft:Obj,c:HorizontalValidationContext
      if(obj(head)&&head.kind==='pendulum_swing'){
       const hp=tp+'/stages/0';if(tr.stages.length!==1)issue(tp+'/stages','UNSUPPORTED','摆后自由段用slackContinuation表示。');
       ref(head.inheritFromBodyId,hp+'/inheritFromBodyId');
-      if(typeof head.inheritFromBodyId==='string'){const source=byId(head.inheritFromBodyId);if(source&&!obj(source.constraint))issue(hp+'/inheritFromBodyId','PRECONDITION_CONFLICT','引用物体没有题给初态绳约束。');if(!owners.includes(head.inheritFromBodyId))issue(hp+'/inheritFromBodyId','PRECONDITION_CONFLICT','引用绳须属于该轨道物体。');}
+      let inheritedLength:number|undefined;
+      if(typeof head.inheritFromBodyId==='string'){const source=byId(head.inheritFromBodyId);if(source&&!obj(source.constraint))issue(hp+'/inheritFromBodyId','PRECONDITION_CONFLICT','引用物体没有题给初态绳约束。');if(!owners.includes(head.inheritFromBodyId))issue(hp+'/inheritFromBodyId','PRECONDITION_CONFLICT','引用绳须属于该轨道物体。');if(source&&obj(source.constraint)&&typeof source.constraint.lengthM==='number')inheritedLength=source.constraint.lengthM;}
       if(['inheritFromStageIndex','lengthM','initialAngleDeg','initialStringState'].some(k=>k in head))issue(hp,'PRECONDITION_CONFLICT','继承初态已有绳不能重复定义摆几何。');
+      if('peg'in head&&head.peg!=null){
+       const peg=block(head,'peg',hp+'/peg');
+       if(peg){
+        choice(peg,'side',hp+'/peg/side',['right','left']);
+        if('criticalTopNonSlack'in peg&&peg.criticalTopNonSlack!=null){
+         if(typeof peg.criticalTopNonSlack!=='boolean')issue(hp+'/peg/criticalTopNonSlack','TYPE','临界条件须为布尔值。');
+         else if(!peg.criticalTopNonSlack)issue(hp+'/peg/criticalTopNonSlack','UNSUPPORTED','非临界情况请直接给出钉距 offsetXM。');
+        }
+        const isCritical=peg.criticalTopNonSlack===true;
+        num(peg,'offsetXM',hp+'/peg/offsetXM',v=>v>0&&(inheritedLength==null||v<inheritedLength),!isCritical);
+       }
+      }
       const end=block(head,'end',hp+'/end');if(end)choice(end,'kind',hp+'/end/kind',['scene_end','first_turn','first_return_lowest']);
       if('slackContinuation'in head){const sc=block(head,'slackContinuation',hp+'/slackContinuation');if(sc)choice(sc,'kind',hp+'/slackContinuation/kind',['free_flight_until_retaut']);}
+     }else if(obj(head)&&head.kind==='conveyor_belt'){
+      const hp=tp+'/stages/0';
+      if(!isConveyorFirst)issue(hp+'/kind','PRECONDITION_CONFLICT','继承传送带轨道要求首段为传送带。');
+      if(tr.stages.length!==1)issue(tp+'/stages','UNSUPPORTED','碰后传送带轨道不自动续接未给地面的后续段。');
+      num(head,'inheritFromStageIndex',hp+'/inheritFromStageIndex',v=>v===0);
      }else{
       const checked=legacy({kind:'stage_plan',schemaVersion:1,gravityMps2:draft.gravityMps2,initial:obj(head)&&head.kind==='projectile'?{vxMps:1,vyMps:0}:{speedMps:1},stages:tr.stages});
       if(!checked.ok){for(const m of checked.missingKeys)missing.push(m.replace(/^\/stages\//,tp+'/stages/'));for(const e of checked.fieldErrors){if(e.path==='/stages/0/end'&&obj(head)&&head.kineticFrictionCoefficient===0)continue;errors.push({...e,path:e.path.replace(/^\/stages\//,tp+'/stages/')});}}
@@ -95,7 +153,16 @@ export function validateHorizontalFields(draft:Obj,c:HorizontalValidationContext
     });
     if(occupied.length!==2||new Set(occupied).size!==2||ids.some(id=>!occupied.includes(id)))issue(p+'/tracks','PRECONDITION_CONFLICT','碰后轨道须覆盖两物体且不重复。');
    }
-   const end=block(s,'end',p+'/end');if(end){choice(end,'kind',p+'/end/kind',['all_finite_tracks','pendulum_turn']);if(end.kind==='pendulum_turn'){ref(end.bodyId,p+'/end/bodyId');if(Array.isArray(s.tracks)&&!s.tracks.some(tr=>obj(tr)&&Array.isArray(tr.bodyIds)&&tr.bodyIds.includes(end.bodyId)&&Array.isArray(tr.stages)&&obj(tr.stages[0])&&tr.stages[0].kind==='pendulum_swing'))issue(p+'/end/bodyId','PRECONDITION_CONFLICT','首转折须引用实际摆轨道。');}}
+   const end=block(s,'end',p+'/end');
+   if(end){
+    choice(end,'kind',p+'/end/kind',['all_finite_tracks','pendulum_turn','pendulum_peg_top']);
+    if(end.kind==='pendulum_turn'||end.kind==='pendulum_peg_top'){
+     ref(end.bodyId,p+'/end/bodyId');
+     const targetTrack=Array.isArray(s.tracks)?s.tracks.find(tr=>obj(tr)&&Array.isArray(tr.bodyIds)&&tr.bodyIds.includes(end.bodyId)&&Array.isArray(tr.stages)&&obj(tr.stages[0])&&tr.stages[0].kind==='pendulum_swing'):undefined;
+     if(!targetTrack)issue(p+'/end/bodyId','PRECONDITION_CONFLICT','摆终点须引用实际摆轨道。');
+     else if(end.kind==='pendulum_peg_top'&&!obj((targetTrack as Obj & {stages:Obj[]}).stages[0].peg))issue(p+'/end/bodyId','PRECONDITION_CONFLICT','钉子正上方最高点终点须引用配置了钉子的摆轨道。');
+    }
+   }
   }
  }
  if(!missing.length&&!errors.length)try{

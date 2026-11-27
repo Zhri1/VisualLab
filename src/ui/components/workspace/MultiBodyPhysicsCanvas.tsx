@@ -15,7 +15,8 @@ function drawingData(motion:Motion){
   const curves:Record<string,Vec2[]>=Object.create(null),points:Vec2[]=[];
   for(const t of times)for(const[id,b]of Object.entries(motion.sampleAt(t).bodies??{})){(curves[id]??=[]).push(b.position);points.push(b.position);
     if(motion.stageGeometry?.plank?.plankBodyId===id)points.push({x:b.position.x+motion.stageGeometry.plank.plankLengthM,y:b.position.y});}
-  for(const p of motion.stageGeometry?.pendulums??[])points.push({x:p.pivot.xM,y:p.pivot.yM},{x:p.lowestPoint.xM,y:p.lowestPoint.yM});
+  for(const p of motion.stageGeometry?.pendulums??[]){points.push({x:p.pivot.xM,y:p.pivot.yM},{x:p.lowestPoint.xM,y:p.lowestPoint.yM});if(p.peg)points.push({x:p.peg.xM,y:p.peg.yM},{x:p.peg.xM,y:p.peg.yM+p.peg.effectiveLengthM});}
+  if(motion.stageGeometry?.conveyor){const cv=motion.stageGeometry.conveyor;points.push({x:cv.minXM,y:0},{x:cv.maxXM,y:0});}
   if(motion.stageGeometry?.pulley){const pl=motion.stageGeometry.pulley;points.push({x:pl.pulley.xM,y:pl.pulley.yM},{x:pl.body1Start.xM,y:pl.body1Start.yM},{x:pl.body2Start.xM,y:pl.body2Start.yM});if(pl.groundYM!=null)points.push({x:pl.body2Start.xM,y:pl.groundYM});}
   if(motion.stageGeometry?.switchableEM){const em=motion.stageGeometry.switchableEM;for(const c of em.circles){points.push({x:c.center.xM-c.radiusM,y:c.center.yM-c.radiusM},{x:c.center.xM+c.radiusM,y:c.center.yM+c.radiusM});}points.push({x:em.tangency.xM,y:em.tangency.yM},{x:em.switchOffX,y:0});for(const lm of motion.stageGeometry.landmarks??[])points.push({x:lm.position.xM,y:lm.position.yM});}
   for(const tr of motion.stageGeometry?.bodyTracks??[]){if(tr.horizontal){points.push({x:tr.horizontal.start.xM,y:tr.horizontal.start.yM});if(tr.horizontal.plannedEnd)points.push({x:tr.horizontal.plannedEnd.xM,y:tr.horizontal.plannedEnd.yM});}if(tr.projectile?.landingPlane)points.push({x:tr.projectile.launch.xM,y:tr.projectile.landingPlane.yM});}
@@ -125,7 +126,45 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
     if(tr.horizontal){const p=tr.horizontal,end=p.plannedEnd??{xM:motion.sampleAt(motion.durationSeconds).bodies?.[tr.bodyIds[0]]?.position.x??p.start.xM,yM:p.start.yM};ctx.strokeStyle=INK;ctx.beginPath();ctx.moveTo(X(p.start.xM),Y(p.start.yM));ctx.lineTo(X(end.xM),Y(end.yM));ctx.stroke();if(p.plannedEnd){const label=horizontal&&tr.stagePath.startsWith('/stages/0/')?'实际接触点':'桌沿 / 目标',key=`${label}:${end.xM}:${end.yM}`;if(!marked.has(key)){reqs.push({text:label,color:SOFT,cx:X(end.xM),by:Y(end.yM)+27,dir:1});marked.add(key);}}}
     if(tr.projectile?.landingPlane){const y=tr.projectile.landingPlane.yM;ctx.strokeStyle=INK;ctx.beginPath();ctx.moveTo(gx1,Y(y));ctx.lineTo(gx2,Y(y));ctx.stroke();const text=`地面 y = ${y} m`;reqs.push({text,color:SOFT,cx:gx1+ctx.measureText(text).width/2,by:Y(y)+17,dir:1});}
   }
-  for(const p of motion.stageGeometry?.pendulums??[]){const px=X(p.pivot.xM),py=Y(p.pivot.yM);ctx.strokeStyle=INK;ctx.lineWidth=1.6;ctx.beginPath();ctx.moveTo(px-19,py-6);ctx.lineTo(px+19,py-6);ctx.moveTo(px,py-6);ctx.lineTo(px,py+3);ctx.stroke();occupied.push({x:px-19,y:py-8,w:38,h:12});reqs.push({text:'P',color:INK,cx:px+26,by:py-2,dir:-1});reqs.push({text:'O',color:SOFT,cx:X(p.lowestPoint.xM)+13,by:Y(p.lowestPoint.yM)+18,dir:1});}
+  if(motion.stageGeometry?.conveyor){
+    const cv=motion.stageGeometry.conveyor,xL=X(cv.minXM),xR=X(cv.maxXM),yTop=Y(0)+4,beltH=14,rRoll=7;
+    ctx.save();
+    ctx.fillStyle='#efefeb';ctx.strokeStyle=INK;ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.roundRect(xL-rRoll,yTop,Math.max(16,xR-xL)+2*rRoll,beltH,rRoll);ctx.fill();ctx.stroke();
+    // 左右滚轮
+    for(const rx of [xL,xR]){
+      ctx.fillStyle=PAPER;ctx.beginPath();ctx.arc(rx,yTop+rRoll,rRoll-1.5,0,2*Math.PI);ctx.fill();ctx.stroke();
+      ctx.fillStyle=INK;ctx.beginPath();ctx.arc(rx,yTop+rRoll,2,0,2*Math.PI);ctx.fill();
+    }
+    // 随时间移动的带面方向刻线
+    const dir=Math.sign(cv.initialBeltSpeedMps)||1;
+    const phase=((time*cv.initialBeltSpeedMps*S)%24+24)%24;
+    ctx.strokeStyle='#8e8e88';ctx.lineWidth=1.1;
+    for(let px=xL+phase;px<xR-6;px+=24){
+      ctx.beginPath();ctx.moveTo(px-3*dir,yTop+3);ctx.lineTo(px+2*dir,yTop+3);
+      ctx.moveTo(px+2*dir,yTop+3);ctx.lineTo(px-1*dir,yTop+1);ctx.stroke();
+    }
+    ctx.restore();
+    occupied.push({x:xL-rRoll,y:yTop,w:Math.max(16,xR-xL)+2*rRoll,h:beltH});
+    const beltLabel=`传送带 L=${cv.beltLengthM??(cv.maxXM-cv.minXM)} m · v带=${cv.initialBeltSpeedMps} m/s`;
+    reqs.push({text:beltLabel,color:SOFT,cx:(xL+xR)/2,by:yTop+beltH+16,dir:1});
+  }
+  for(const p of motion.stageGeometry?.pendulums??[]){
+    const px=X(p.pivot.xM),py=Y(p.pivot.yM);
+    ctx.strokeStyle=INK;ctx.lineWidth=1.6;ctx.beginPath();ctx.moveTo(px-19,py-6);ctx.lineTo(px+19,py-6);ctx.moveTo(px,py-6);ctx.lineTo(px,py+3);ctx.stroke();
+    occupied.push({x:px-19,y:py-8,w:38,h:12});
+    if(p.peg){
+      reqs.push({text:'O',color:INK,cx:px-14,by:py-10,dir:-1});
+      const gx=X(p.peg.xM),gy=Y(p.peg.yM);
+      ctx.save();ctx.fillStyle='#b42318';ctx.strokeStyle=PAPER;ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.arc(gx,gy,4.2,0,2*Math.PI);ctx.fill();ctx.stroke();ctx.restore();
+      block(gx,gy,6);
+      reqs.push({text:`钉子 P (OP=${p.peg.offsetXM.toFixed(2)} m)`,color:'#b42318',cx:gx,by:gy-14,dir:-1});
+    }else{
+      reqs.push({text:'P',color:INK,cx:px+26,by:py-2,dir:-1});
+      reqs.push({text:'O',color:SOFT,cx:X(p.lowestPoint.xM)+13,by:Y(p.lowestPoint.yM)+18,dir:1});
+    }
+  }
   if(motion.stageGeometry?.plank){
     const pg=motion.stageGeometry.plank,pb=snapshot.bodies?.[pg.plankBodyId];
     if(pb){
@@ -255,7 +294,14 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
       continue;
     }
     const body=snapshot.bodies?.[c.bodyIds[0]];if(!body)continue;
-    ctx.save();ctx.strokeStyle=c.state==='taut'?INK:SOFT;ctx.lineWidth=c.state==='taut'?1.8:1.2;if(c.state==='slack')ctx.setLineDash([4,5]);ctx.beginPath();ctx.moveTo(X(c.pivot.xM),Y(c.pivot.yM));ctx.lineTo(X(body.position.x),Y(body.position.y));ctx.stroke();ctx.restore();
+    const pendGeo=motion.stageGeometry?.pendulums?.find(p=>p.constraintId===c.constraintId);
+    ctx.save();ctx.strokeStyle=c.state==='taut'?INK:SOFT;ctx.lineWidth=c.state==='taut'?1.8:1.2;
+    // 若已碰钉（当前支点与原悬点 O 不同），先画 O→P 水平段，再画 P→摆球段
+    if(pendGeo&&Math.abs(c.pivot.xM-pendGeo.pivot.xM)>1e-6){
+      ctx.beginPath();ctx.moveTo(X(pendGeo.pivot.xM),Y(pendGeo.pivot.yM));ctx.lineTo(X(c.pivot.xM),Y(c.pivot.yM));ctx.stroke();
+    }
+    if(c.state==='slack')ctx.setLineDash([4,5]);
+    ctx.beginPath();ctx.moveTo(X(c.pivot.xM),Y(c.pivot.yM));ctx.lineTo(X(body.position.x),Y(body.position.y));ctx.stroke();ctx.restore();
     reqs.push({text:c.state==='taut'?`T = ${c.tensionN.toFixed(2)} N`:'松绳 · T = 0 N',color:SOFT,cx:Math.max(70,Math.min(W-70,X(c.pivot.xM)+79)),by:Math.max(18,Y(c.pivot.yM)+21),dir:1});
   }
   for(const[id,body]of Object.entries(snapshot.bodies??{})){
@@ -287,13 +333,17 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
 /** 逐物体读数。默认渲染在画布内；工作台把它移进「路段与计时」折叠区，
  *  让画布卡片与单物体版保持同一布局（画布独占整块 frame）。 */
 export function MultiBodyReadouts({motion,time,isPlaying=false}:{motion:Motion;time:number;isPlaying?:boolean}){
-  const sample=motion.sampleAt(time),ids=Object.keys(sample.bodies??{}).sort(),firstKind=motion.stagePlan?.stages[0]?.kind,horizontal=firstKind==='horizontal_approach'||firstKind==='block_plank';
+  const sample=motion.sampleAt(time),ids=Object.keys(sample.bodies??{}).sort(),firstKind=motion.stagePlan?.stages[0]?.kind,horizontal=firstKind==='horizontal_approach'||firstKind==='block_plank'||firstKind==='conveyor_belt';
   const em=motion.stageGeometry?.switchableEM;
   const emStatus=em?(time<em.offSeconds-1e-9?'电场开 · 磁场开':time<em.restoreSeconds-1e-9?'电场开 · 磁场撤去（匀速直线漂移）':'电场开 · 磁场已恢复（两轨迹外切，非碰撞）'):null;
   return <figcaption id="multi-body-readouts" className={'multi-body-readouts'+(ids.some(id=>id.length>16)?' has-long-ids':'')+(horizontal?' has-horizontal-states':'')} aria-live={isPlaying?'off':'polite'}>
     {ids.map((id,i)=>{const b=sample.bodies![id];return <span className="body-body-value" key={id} data-body-id={id}><i className="body-swatch" style={{background:i===0?INK:TARGET}}/>{id}：v = {formatSpeed(Math.hypot(b.velocity.x,b.velocity.y))} m/s；{bodyStatusText[b.status]}{b.groupId?' · 粘连':''}{(horizontal||!!em)&&<><br/>x = {signed(b.position.x)}，y = {signed(b.position.y)} m<br/>vₓ = {signed(b.velocity.x)}，vᵧ = {signed(b.velocity.y)} m/s</>}</span>;})}
     {emStatus&&<span className="body-constraint">场区状态：{emStatus}{em?.scaleMode==='normalized'?' · 归一化标度（m=q=L=v₀=1）':''}</span>}
-    {Object.values(sample.constraints??{}).map(c=><span className="body-constraint" key={c.constraintId}>{c.bodyIds.join(' + ')}：{c.state==='taut'?'绳张紧':'绳松弛'}，总张力 T = {c.tensionN.toFixed(2)} N</span>)}
+    {Object.values(sample.constraints??{}).map(c=>{
+      const pendGeo=motion.stageGeometry?.pendulums?.find(p=>p.constraintId===c.constraintId);
+      const pegActive=pendGeo?.peg&&Math.abs(c.pivot.xM-pendGeo.pivot.xM)>1e-6;
+      return <span className="body-constraint" key={c.constraintId}>{c.bodyIds.join(' + ')}：{c.state==='taut'?'绳张紧':'绳松弛'}，总张力 T = {c.tensionN.toFixed(2)} N{pendGeo?.peg?` · ${pegActive?`绕钉 P（r = ${c.lengthM.toFixed(2)} m）`:`绕悬点 O（L = ${c.lengthM.toFixed(2)} m）`}`:''}</span>;
+    })}
   </figcaption>;
 }
 export function MultiBodyPhysicsCanvas({motion,time,isPlaying=false,trackedBodyId,readouts=true,forces=false,decompose=false}:{motion:Motion;time:number;isPlaying?:boolean;trackedBodyId?:string;readouts?:boolean;forces?:boolean;decompose?:boolean}){

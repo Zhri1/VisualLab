@@ -805,3 +805,72 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
   "assumptions": ["题设使用符号基准 m、q、L、v₀，按归一化标度 1 演示"]
 }
 ```
+
+## 22. 水平传送带末端与悬球正碰 + 同高侧向钉子变支点
+
+共享契约 `PENDULUM_COLLISION.md` §9。题面特征：水平定长传送带将滑块送至末端，与悬挂于该端正上方的静止轻绳摆球发生水平正碰；碰后滑块在带面继续受摩擦运动，摆球绕原悬点 `O` 上摆至绳水平时碰到与 `O` 等高的侧向固定钉子 `P`，绕 `P` 以缩短后的半径继续向上运动。
+
+- 使用双物体 `stage_plan`：`bodies` 列滑块与悬球（各自 `bodyId` 与质量，不写顶层 `massKg`），`initial.bodies` 给出滑块初位（如 `xM: 0`）与悬球初位（如 `xM: beltLengthM, vxMps: 0`）及悬球的 `constraint: { kind: "pendulum_string", pivotXM: beltLengthM, lengthM, initialStringState: "taut", pivotFixed: true, lightInextensibleString: true, airResistanceNegligible: true }`。
+- **阶段 0**：`{ "kind": "conveyor_belt", "bodyId": "<滑块ID>", "initialBeltSpeedMps": ..., "beltLengthM": ..., "kineticFrictionCoefficient": ..., "segments": [{ "accelerationMps2": 0, "durationSeconds": null }] }`。
+- **阶段 1**：`collision_1d`，`contact: { "kind": "conveyor_end", "conveyorStageIndex": 0 }`，`externalImpulseNegligible: true`。
+  - 若题面给出碰后某一物体的速度（例如“碰后瞬间小物块速度大小 1 m/s、方向水平向左”），**严禁擅设为 `"elastic"`**，必须写 `"mode": "specified_post_velocity"` 与 `"knownPostVelocity": { "bodyId": "<滑块ID>", "vxMps": -1 }`（保留方向正负号），由物理库按动量守恒反求另一物体速度并核对能量损失。
+- **阶段 2**：`parallel_motion`：
+  - 滑块轨道：`stages: [{ "kind": "conveyor_belt", "inheritFromStageIndex": 0 }]`（继承首段传送带参数继续受摩擦运动；未给地面时不加 `projectile`）。
+  - 摆球轨道：`stages: [{ "kind": "pendulum_swing", "inheritFromBodyId": "<悬球ID>", "peg": { "side": "right" | "left", "offsetXM": 数值或null, "criticalTopNonSlack": true }, "end": { "kind": "scene_end" } }]`。
+  - **关键禁令**：当题面要求“求钉子距 O 的最小距离 OP 使小球能通过钉子正上方最高点（绳不松弛）”而未直接给出 `OP` 数值时，**严禁 AI 代算并预填 `offsetXM`**，必须写 `"offsetXM": null, "criticalTopNonSlack": true`，由物理库反求最小 `OP`。若题面直接给出了具体钉距，则填 `"offsetXM": 具体数值` 且省略 `criticalTopNonSlack`。
+  - `end`：关注摆球过钉子正上方最高点时写 `{ "kind": "pendulum_peg_top", "bodyId": "<悬球ID>" }`；若钉距小于临界值，物理库会在实际松绳处提前结束。
+
+示例（水平传送带长 3.6 m、右速 5 m/s、μ=0.5、g=10，0.1 kg 物块左端静止释放，右端与长 0.3 m 轻绳悬挂的 0.2 kg 静止小球正碰，碰后物块向左 1 m/s，O 右侧等高钉子 P 求恰好过 P 正上方最高点的最小 OP）：
+
+```json
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "bodies": [{ "bodyId": "block", "massKg": 0.1 }, { "bodyId": "bob", "massKg": 0.2 }],
+  "primaryBodyId": "bob",
+  "initial": {
+    "bodies": [
+      { "bodyId": "block", "xM": 0, "vxMps": 0 },
+      {
+        "bodyId": "bob", "xM": 3.6, "vxMps": 0,
+        "constraint": {
+          "kind": "pendulum_string", "pivotXM": 3.6, "lengthM": 0.3,
+          "initialStringState": "taut", "pivotFixed": true,
+          "lightInextensibleString": true, "airResistanceNegligible": true
+        }
+      }
+    ]
+  },
+  "stages": [
+    {
+      "kind": "conveyor_belt", "bodyId": "block",
+      "initialBeltSpeedMps": 5, "beltLengthM": 3.6, "kineticFrictionCoefficient": 0.5,
+      "segments": [{ "accelerationMps2": 0, "durationSeconds": null }]
+    },
+    {
+      "kind": "collision_1d", "bodyIds": ["block", "bob"],
+      "mode": "specified_post_velocity",
+      "knownPostVelocity": { "bodyId": "block", "vxMps": -1 },
+      "contact": { "kind": "conveyor_end", "conveyorStageIndex": 0 },
+      "externalImpulseNegligible": true
+    },
+    {
+      "kind": "parallel_motion",
+      "tracks": [
+        { "bodyIds": ["block"], "stages": [{ "kind": "conveyor_belt", "inheritFromStageIndex": 0 }] },
+        {
+          "bodyIds": ["bob"],
+          "stages": [{
+            "kind": "pendulum_swing", "inheritFromBodyId": "bob",
+            "peg": { "side": "right", "offsetXM": null, "criticalTopNonSlack": true },
+            "end": { "kind": "scene_end" }
+          }]
+        }
+      ],
+      "end": { "kind": "pendulum_peg_top", "bodyId": "bob" }
+    }
+  ],
+  "assumptions": []
+}
+```

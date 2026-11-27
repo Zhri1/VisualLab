@@ -1,0 +1,73 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "bodies": [
+    { "bodyId": "block", "massKg": 0.1 },
+    { "bodyId": "bob", "massKg": 0.2 }
+  ],
+  "primaryBodyId": "bob",
+  "initial": {
+    "bodies": [
+      { "bodyId": "block", "xM": 0, "vxMps": 0 },
+      {
+        "bodyId": "bob",
+        "xM": 3.6,
+        "vxMps": 0,
+        "constraint": {
+          "kind": "pendulum_string",
+          "pivotXM": 3.6,
+          "lengthM": 0.3,
+          "initialStringState": "taut",
+          "pivotFixed": true,
+          "lightInextensibleString": true,
+          "airResistanceNegligible": true
+        }
+      }
+    ]
+  },
+  "stages": [
+    {
+      "kind": "conveyor_belt",
+      "bodyId": "block",
+      "initialBeltSpeedMps": 5,
+      "beltLengthM": 3.6,
+      "kineticFrictionCoefficient": 0.5,
+      "segments": [{ "accelerationMps2": 0, "durationSeconds": null }]
+    },
+    {
+      "kind": "collision_1d",
+      "bodyIds": ["block", "bob"],
+      "mode": "specified_post_velocity",
+      "knownPostVelocity": { "bodyId": "block", "vxMps": -1 },
+      "contact": { "kind": "conveyor_end", "conveyorStageIndex": 0 },
+      "externalImpulseNegligible": true
+    },
+    {
+      "kind": "parallel_motion",
+      "tracks": [
+        {
+          "bodyIds": ["block"],
+          "stages": [{ "kind": "conveyor_belt", "inheritFromStageIndex": 0 }]
+        },
+        {
+          "bodyIds": ["bob"],
+          "stages": [
+            {
+              "kind": "pendulum_swing",
+              "inheritFromBodyId": "bob",
+              "peg": {
+                "side": "right",
+                "offsetXM": null,
+                "criticalTopNonSlack": true
+              },
+              "end": { "kind": "scene_end" }
+            }
+          ]
+        }
+      ],
+      "end": { "kind": "pendulum_peg_top", "bodyId": "bob" }
+    }
+  ],
+  "assumptions": []
+}

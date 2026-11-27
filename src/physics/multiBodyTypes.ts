@@ -13,11 +13,17 @@ export type StringState = {
 export type BodySnapshot = { bodies: Record<string, BodyState>; constraints: Record<string, StringState> };
 export type MotionStatus = { state: 'complete' | 'range_end' | 'model_limit'; reason: string; message: string; bodyIds: string[] };
 export type PendulumEnd = 'lowest_point' | 'first_turn' | 'first_return_lowest' | 'scene_end';
+export type PegConfig = {
+  side: 'right' | 'left';
+  offsetXM: number | null;
+  criticalTopNonSlack?: true;
+};
 export type PendulumStage = {
   kind: 'pendulum_swing'; bodyIds?: string[]; lengthM?: number; initialAngleDeg?: number;
   initialStringState?: 'taut' | 'released_at_length'; pivotFixed?: true; lightInextensibleString?: true;
   airResistanceNegligible?: true; inheritFromStageIndex?: number;
   inheritFromBodyId?: string;
+  peg?: PegConfig;
   end: { kind: PendulumEnd }; slackContinuation?: { kind: 'free_flight_until_retaut' };
 };
 export type CollisionStage = {
@@ -28,15 +34,21 @@ export type CollisionStage = {
 };
 export type BodyTrackStage = PendulumStage
   | { kind: 'horizontal_slide'; kineticFrictionCoefficient: number; end: { kind: 'distance'; distanceM: number } | { kind: 'stop' } | { kind: 'scene_end' } }
+  | { kind: 'conveyor_belt'; inheritFromStageIndex: number }
   | { kind: 'projectile'; landingPlaneYM: number; supportAbsentAtStart?: true; supportBoundary?: {edgeXM:number;supportedSide:'left'|'right'} };
 export type ParallelStage = {
   kind: 'parallel_motion'; tracks: { bodyIds: string[]; stages: BodyTrackStage[] }[];
-  end: { kind: 'all_finite_tracks' } | { kind: 'pendulum_turn'; bodyId: string };
+  end: { kind: 'all_finite_tracks' } | { kind: 'pendulum_turn'; bodyId: string } | { kind: 'pendulum_peg_top'; bodyId: string };
 };
 export type BodyStage = PendulumStage | CollisionStage | ParallelStage | import('./horizontalTypes.ts').HorizontalApproach | import('./horizontalTypes.ts').HorizontalCollision | import('./blockPlankTypes.ts').BlockPlankStage | import('./pulleyTypes.ts').PulleyStage;
 export type BodyGeometry = {
   bodies?: BodyDefinition[];
-  pendulums?: { constraintId: string; bodyIds: string[]; definitionStageIndex: number; pivot: Point; lowestPoint: Point; lengthM: number; initialPosition: Point }[];
+  pendulums?: {
+    constraintId: string; bodyIds: string[]; definitionStageIndex: number;
+    pivot: Point; lowestPoint: Point; lengthM: number; initialPosition: Point;
+    peg?: { xM: number; yM: number; offsetXM: number; effectiveLengthM: number };
+  }[];
+  conveyor?: import('./conveyorBelt.ts').ConveyorGeometry;
   bodyTracks?: { bodyIds: string[]; stagePath: string; horizontal?: { start: Point; plannedEnd: Point | null }; projectile?: { launch: Point; landingPlane?: { yM: number } } }[];
   plank?: import('./blockPlankTypes.ts').PlankGeometry;
   pulley?: import('./pulleyTypes.ts').PulleyGeometry;

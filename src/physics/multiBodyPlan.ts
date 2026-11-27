@@ -32,7 +32,7 @@ export function validateMultiBodyPlan(input: Obj, legacy: (v: unknown) => StageP
   const blockPlank = Array.isArray(draft.stages) && draft.stages.some(s => obj(s) && s.kind === 'block_plank');
   const pulley = !blockPlank && Array.isArray(draft.stages) && draft.stages.some(s => obj(s) && s.kind === 'pulley_system');
   const horizontal = !blockPlank && !pulley && (Array.isArray(draft.stages) && draft.stages.some(s => obj(s) && s.kind === 'horizontal_approach') || obj(draft.initial) && 'bodies' in draft.initial);
-  const usesGravity=(v:unknown):boolean=>Array.isArray(v)?v.some(usesGravity):obj(v)?v.kind==='projectile'||v.kind==='pendulum_swing'||v.kind==='pendulum_string'||typeof v.kineticFrictionCoefficient==='number'&&v.kineticFrictionCoefficient>0||Object.values(v).some(usesGravity):false;
+  const usesGravity=(v:unknown):boolean=>Array.isArray(v)?v.some(usesGravity):obj(v)?v.kind==='projectile'||v.kind==='pendulum_swing'||v.kind==='pendulum_string'||v.kind==='conveyor_belt'||typeof v.kineticFrictionCoefficient==='number'&&v.kineticFrictionCoefficient>0||Object.values(v).some(usesGravity):false;
   num(draft,'gravityMps2','/gravityMps2',v=>v>0,!horizontal||usesGravity(draft));
   if('massKg'in draft)issue('/massKg','PRECONDITION_CONFLICT','新摆计划的质量只取body表，请移除旧顶层质量。');
   if(!Array.isArray(draft.stages)){if(draft.stages==null)missing.push('/stages');else issue('/stages','TYPE','阶段列表须为数组。');structural=true;return result();}
