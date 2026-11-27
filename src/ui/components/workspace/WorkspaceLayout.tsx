@@ -177,6 +177,7 @@ export function WorkspaceLayout({ ws }: Props) {
     vertical_arc: "圆弧",
     magnetic_deflection: "匀强磁场偏转",
     switchable_em_collision: "分区电磁场与正碰",
+    magnetic_reencounter: "磁场双粒子正碰与再相遇",
   } as const;
   const title = stagePlan
     ? stagePlan.stages.map((stage) => stageLabels[stage.kind as keyof typeof stageLabels] ?? "未知阶段").join(" · ")

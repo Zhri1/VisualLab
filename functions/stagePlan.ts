@@ -7,11 +7,12 @@ import { solveRoughSpring } from "./roughSpring.ts";
 import { circularEntry, circularGeometry, type ExplicitArcPath } from './circularArc.ts';
 import { validateMultiBodyPlan } from './multiBodyPlan.ts';
 import { validateSwitchableEMPlan, type SwitchableEMStage } from './switchableEMCollision.ts';
+import { validateMagneticReencounterPlan, type MagneticReencounterStage } from './magneticReencounter.ts';
 import type { BodyDefinition, BodyStage } from './multiBodyTypes.ts';
 export type Energy = { stageIndex: number; elasticEnergyJ: number; origin: "given" | "user" | "spring_parameters" | "critical_arc_top"; basis?: Record<string, number> };
 export type PlaybackScope = { mode: "full" | "suffix" | "state_only"; startStageIndex: number; unresolvedKeys: string[]; reason: string; xM?: number; vxMps?: number; stopReason?: "stop_at_target" | "stop_before_target" | "prefix_end" };
 export type SingleStageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release" | "constant_force_1d" | "conveyor_belt" | "magnetic_deflection" | "movable_arc" | "movable_semicircle" | "spring_pair";
-export type StageKind = SingleStageKind | BodyStage['kind'] | SwitchableEMStage['kind'];
+export type StageKind = SingleStageKind | BodyStage['kind'] | SwitchableEMStage['kind'] | MagneticReencounterStage['kind'];
 export type ProjectileBounce = {
   normalRestitution: number;
   stopAt: "first_apex";
@@ -32,7 +33,7 @@ export type SingleStage =
   | { kind: "spring_contact"; springConstantNpm: number; kineticFrictionCoefficient: number; staticFrictionCoefficient?: number | null; reboundAtMaxCompression?: boolean | null; unattached: true; frictionless?: never }
   | { kind: "vertical_arc"; radiusM: number; verticalDropM?: number; endAngleDeg?: number; path?: ExplicitArcPath; side: "inside" | "rod"; frictionless: true; startLabel?: string; endLabel?: string }
   | ({ kind: "projectile"; startLabel?: string; endLabel?: string; bounce?: ProjectileBounce } & ({ dropHeightM: number; landingPlaneYM?: never; end?: never } | { landingPlaneYM: number; dropHeightM?: never; end?: never } | { end: { kind: "tangent_to_next_arc" }; dropHeightM?: number; landingPlaneYM?: never }));
-export type Stage = SingleStage | BodyStage | SwitchableEMStage;
+export type Stage = SingleStage | BodyStage | SwitchableEMStage | MagneticReencounterStage;
 
 export type ResolvedStagePlan = {
   kind: "stage_plan";
@@ -77,7 +78,7 @@ const positive = (value: number) => value > 0;
 const nonnegative = (value: number) => value >= 0;
 const finite = (_value: number) => true;
 const numericRules: Record<StageKind, Record<string, (value: number) => boolean>> = {
-  switchable_em_collision: {}, horizontal_approach: {}, pendulum_swing: {}, collision_1d: {}, parallel_motion: {}, block_plank: {}, pulley_system: {},
+  switchable_em_collision: {}, magnetic_reencounter: {}, horizontal_approach: {}, pendulum_swing: {}, collision_1d: {}, parallel_motion: {}, block_plank: {}, pulley_system: {},
   incline_slide: { lengthM: positive, angleDeg: (value) => value > 0 && value < 90, kineticFrictionCoefficient: nonnegative },
   lossless_turn: {},
   horizontal_slide: { kineticFrictionCoefficient: nonnegative },
@@ -100,6 +101,9 @@ function record(value: unknown): value is Record<string, unknown> {
 export function validateStagePlan(input: unknown): StagePlanValidation {
   if (record(input) && Array.isArray(input.stages) && input.stages.some(stage => record(stage) && stage.kind === 'switchable_em_collision')) {
     return validateSwitchableEMPlan(input);
+  }
+  if (record(input) && Array.isArray(input.stages) && input.stages.some(stage => record(stage) && stage.kind === 'magnetic_reencounter')) {
+    return validateMagneticReencounterPlan(input);
   }
   if (record(input) && ('bodies' in input || (Array.isArray(input.stages) && input.stages.some(s => record(s) && ['pendulum_swing','collision_1d','parallel_motion','horizontal_approach','block_plank','pulley_system'].includes(String(s.kind)))))) return validateMultiBodyPlan(input, (track) => validateSingleBodyPlan(track, true));
   return validateSingleBodyPlan(input);

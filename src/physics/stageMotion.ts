@@ -6,6 +6,7 @@ import type { Point } from "./scene.ts";
 import type { ResolvedStagePlan, Stage, SingleStage, StageKind, StagePlanDraft, StagePlanFailure, PlaybackScope } from "./stagePlan.ts";
 import type { BodyGeometry, BodySnapshot, MotionStatus } from './multiBodyTypes.ts';
 import { computeSwitchableEMMotion, type SwitchableEMGeometry } from './switchableEMMotion.ts';
+import { computeMagneticReencounterMotion, type MagneticReencounterGeometry } from './magneticReencounterMotion.ts';
 import { computeMultiBodyMotion } from './multiBodyMotion.ts';
 import { validateStagePlan } from "./stagePlan.ts";
 import { landingTime, linearState, springMetrics, springState } from "./kinematics.ts";
@@ -26,6 +27,7 @@ export type StageGeometry = BodyGeometry & {
   conveyor?: ConveyorGeometry;
   magnetic?: MagneticGeometry;
   switchableEM?: SwitchableEMGeometry;
+  magneticReencounter?: MagneticReencounterGeometry;
   magnetics?: MagneticGeometry[];
   movableArc?: { stageIndex: number; radiusM: number; grooveMassKg: number; exitDirection: -1 | 1; entryXM: number; entryYM: number; exitTimeSeconds: number; exitGrooveXM: number; exitGrooveVX: number };
   movableSemicircle?: {
@@ -534,6 +536,7 @@ function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: Motion
 function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | StagePlanFailure {
   const first = plan.stages[0];
   if (first?.kind === 'switchable_em_collision') return computeSwitchableEMMotion(first);
+  if (first?.kind === 'magnetic_reencounter') return computeMagneticReencounterMotion(first);
   if (plan.bodies) return computeMultiBodyMotion(plan);
   const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage, i) => stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "magnetic_deflection" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair"
     || stage.kind === "incline_slide" && plan.stages[i + 1]?.kind === "projectile") ? "particle" : "front_bottom", ...(plan.scaleMode ? { scaleMode: plan.scaleMode } : {}) };

@@ -15,6 +15,7 @@ const STAGE_LABELS: Record<StageKind, string> = {
   projectile: "抛体运动",
   magnetic_deflection: "匀强磁场偏转",
   switchable_em_collision: "分区电磁场与正碰",
+  magnetic_reencounter: "磁场双粒子正碰与再相遇",
   movable_arc: "可移动圆弧槽",
   movable_semicircle: "可平动半圆轨道",
   spring_pair: "自由弹簧双球",
@@ -71,6 +72,15 @@ const NUMBER_FIELDS: Partial<Record<StageKind, NumberMeta[]>> = {
     { key: "chargeScaleC", label: "基准电荷 q", unit: "C", step: 0.1, hint: "归一化模式下默认 1" },
     { key: "lengthScaleM", label: "基准长度 L", unit: "m", step: 0.1, hint: "归一化模式下默认 1" },
     { key: "speedScaleMps", label: "基准初速 v₀", unit: "m/s", step: 0.1, hint: "归一化模式下默认 1" },
+  ],
+  magnetic_reencounter: [
+    { key: "massScaleKg", label: "基准质量 m", unit: "kg", step: 0.1, hint: "归一化模式下默认 1" },
+    { key: "chargeScaleC", label: "基准电荷 q", unit: "C", step: 0.1, hint: "归一化模式下默认 1" },
+    { key: "magneticTeslaB", label: "磁感应强度 B", unit: "T", step: 0.1, hint: "归一化模式下默认 1" },
+    { key: "lengthScaleM", label: "基准长度 a", unit: "m", step: 0.1, hint: "归一化模式下默认 1" },
+    { key: "postFirstCollisionSpeedRatioA", label: "首碰后甲速率倍率", unit: "倍", step: 0.5, hint: "相对碰前带符号，反向 3 倍填 -3" },
+    { key: "periodRatioAOverB", label: "周期比 T甲/T乙", unit: "", step: 0.5, hint: "如甲转 1 圈乙转 2 圈填 2" },
+    { key: "observationTimeOverPiTau", label: "观察时刻系数 k（kπτ）", unit: "πτ", step: 1, hint: "t = kπm/(qB)" },
   ],
   spring_pair: [
     { key: "springConstantNpm", label: "弹簧劲度系数 k（可选）", unit: "N/m", step: 10, hint: "题未给默认 100，仅影响过程时长" },
@@ -132,6 +142,7 @@ function blankStage(kind: StageKind): Record<string, unknown> {
   if (kind === "movable_arc") return { kind, radiusM: null, grooveMassKg: null, exitDirection: -1 };
   if (kind === "movable_semicircle") return { kind, radiusM: null, grooveMassKg: null, direction: "right", frictionless: true, groundFrictionless: true };
   if (kind === "switchable_em_collision") return { kind, scaleMode: "normalized", targetMassRatio: null, targetChargeRatio: null, entryXOverLength: null, collisionXOverLength: null, collisionYOverLength: null, switchOffXOverLength: null, fieldDirection: "out_of_page", gravityAndMutualForcesNegligible: true };
+  if (kind === "magnetic_reencounter") return { kind, scaleMode: "normalized", massScaleKg: 1, chargeScaleC: 1, magneticTeslaB: 1, lengthScaleM: 1, fieldDirection: "into_page", entryOverLength: { x: 2, y: 0 }, entryDirection: { x: 0, y: 1 }, contactOverLength: { x: 0, y: 0 }, postFirstCollisionSpeedRatioA: -3, periodRatioAOverB: 2, observationTimeOverPiTau: 18, gravityAndMutualForcesNegligible: true };
   if (kind === "spring_pair") return { kind, springConstantNpm: 100, targetMassKg: null, separationSpeedMps: null, gapM: 0.5 };
   if (kind === "spring_contact") return { kind, springConstantNpm: null, frictionless: null, unattached: null };
   if (kind === "vertical_arc") return { kind, radiusM: null, endAngleDeg: null, side: null, frictionless: null };
@@ -301,7 +312,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
 
   const initial = draft.initial ?? { speedMps: null };
   const firstKind = draft.stages[0]?.kind;
-  const isSwitchableEM = firstKind === "switchable_em_collision";
+  const isSwitchableEM = firstKind === "switchable_em_collision" || firstKind === "magnetic_reencounter";
   const components = firstKind === "projectile" || "vxMps" in initial || "vyMps" in initial;
   const conveyorInit = firstKind === "conveyor_belt";
   const showMass = !isSwitchableEM && ("massKg" in draft || flagged("/massKg") || draft.stages.some((stage) => stage.kind === "spring_release" || stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "constant_force_1d" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair"));

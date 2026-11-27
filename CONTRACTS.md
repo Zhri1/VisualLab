@@ -2,6 +2,8 @@
 
 分区电磁场、弹性正碰及条件触发的撤场恢复见 [分区电磁场契约](SWITCHABLE_EM_COLLISION.md)。
 
+纯匀强磁场中双动粒子弹性正碰与周期再相遇见 [双粒子磁场再相遇契约](MAGNETIC_REENCOUNTER.md)。
+
 动态组合的接口见 [运动阶段组合契约](STAGE_COMPOSITION.md)。
 
 独立水平两物体的初态、摩擦接近、实际碰撞及碰后接续见 [水平正碰扩展契约](HORIZONTAL_COLLISION.md)，先联审再实现，保留既有最低点摆碰撞。

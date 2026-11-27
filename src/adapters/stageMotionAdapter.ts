@@ -14,6 +14,7 @@ import type {
 
 const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "formula">> = {
   switchable_em_collision: { name:'分区电磁场与正碰', summary:'上半区匀强电场加速、下半区匀强磁场偏转，定点弹性正碰后撤场匀速漂移，至两回旋圆首次有效外切时恢复磁场。', formula:'y = ½(qE/m)t²；R = mv/(qB)；O₁O₂ = R₁ + R₂' },
+  magnetic_reencounter: { name:'磁场双粒子正碰与再相遇', summary:'同一垂直匀强磁场中两带电粒子沿切线发生弹性正碰，碰后两回旋圆在接触点外切并按周期同刻再相遇。', formula:'R = mv/(|q|B)；T = 2πm/(|q|B)；Δt = lcm(T甲, T乙)' },
   movable_semicircle: { name:'可平动半圆轨道', summary:'光滑竖直半圆内轨置光滑水平面可自由平动：滑块与轨道水平动量守恒、机械能守恒，实时输出相对速率与支持力。', formula:'m·v块 + M·V轨 = m·v₀；N = m(u²/R + gcosφ)/(1 + (m/M)sin²φ)' },
   movable_arc: { name:'可移动圆弧槽', summary:'槽置于光滑地面可自由滑动：球槽系统水平动量守恒、机械能守恒，球离槽时两者反向分离。', formula:'m·v球 + M·V槽 = 0；mgR = ½mv球² + ½MV槽²' },
   spring_pair: { name:'自由弹簧双球', summary:'弹簧不锚墙：入射球经弹簧与静止球弹性作用，共速时压缩最大，恢复原长后分离。', formula:'v共 = m₁u/(m₁+m₂)；Ep_max = ½m₁u² − ½(m₁+m₂)v共²' },
@@ -76,7 +77,7 @@ function segmentKind(kind: StageKind): SegmentKind {
   if (kind === "vertical_arc") return "vertical_arc";
   if (kind === "movable_arc") return "movable_arc";
   if (kind === "movable_semicircle") return "movable_semicircle";
-  if (kind === "switchable_em_collision") return "switchable_em";
+  if (kind === "switchable_em_collision" || kind === "magnetic_reencounter") return "switchable_em";
   if (kind === "spring_pair") return "spring_pair";
   return "horizontal";
 }

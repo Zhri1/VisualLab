@@ -874,3 +874,47 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
   "assumptions": []
 }
 ```
+
+## 23. 纯匀强磁场中双动粒子弹性正碰与周期再相遇（`magnetic_reencounter`）
+
+共享契约 `MAGNETIC_REENCOUNTER.md`。题面特征：整个平面存在单一垂直于 $xOy$ 平面的匀强磁场 $B$，不计重力、库仑力及电荷转移；$t = 0$ 时刻带电粒子甲从指定点沿指定方向射入磁场，到达接触点 $O$ 时与同时运动到该点的另一带电粒子乙发生弹性正碰；题面给出碰后甲相对碰前的带符号速率倍率（如“方向反向、大小变为碰前的 3 倍”）、两粒子周期比（如“甲运动 1 个圆周时，乙刚好运动 2 个圆周”）以及观察时刻（如 $t = 18\pi m/(qB)$）。
+
+- 使用唯一复合阶段 `magnetic_reencounter`，**不与其他阶段混用**，顶层 `initial` 固定写 `{ "speedMps": null }`。
+- `scaleMode`：题面仅给符号 $m、q、B、a$ 时填 `"normalized"`（四个标度 `massScaleKg`、`chargeScaleC`、`magneticTeslaB`、`lengthScaleM` 省略或填 1，在 `assumptions` 说明归一化）；给具体 SI 数值时填 `"si"` 并填齐四个标度。
+- `fieldDirection`：垂直纸面向里填 `"into_page"`，向外填 `"out_of_page"`。
+- `chargeSignA`：甲带正电填 `1`（默认），带负电填 `-1`；`targetChargeRatio`：乙与甲的电荷量比 $q_{\text{乙}}/q_{\text{甲}}$（等量同种电荷填 `1`）。
+- `entryOverLength`：甲 $t=0$ 位置（以 $a$ 为单位），例如 $P(2a, 0)$ 填 `{ "x": 2, "y": 0 }`。
+- `entryDirection`：甲 $t=0$ 速度方向向量，例如沿 $y$ 轴正方向填 `{ "x": 0, "y": 1 }`。
+- `contactOverLength`：首次正碰接触点（以 $a$ 为单位），例如原点 $O(0, 0)$ 填 `{ "x": 0, "y": 0 }`。
+- `postFirstCollisionSpeedRatioA`：首次碰后甲相对碰前的带符号速率倍率（反向且大小变 3 倍填 `-3`）。
+- `periodRatioAOverB`：周期比 $T_{\text{甲}}/T_{\text{乙}}$（甲 1 周乙 2 周填 `2`）。
+- `observationTimeOverPiTau`：观察时刻系数 $k$（对应 $t = k\pi m/(qB)$，例如 $18\pi m/(qB)$ 填 `18`）。
+- `gravityAndMutualForcesNegligible`：题面明确忽略重力与库仑力时填 `true`，否则 `null`。
+- **严禁代算**：甲碰前速度、乙质量、乙初态、碰撞次数、末态坐标和乙累计路程全部由物理库计算。
+
+示例（2023 湖北物理第 15 题：向里匀强磁场 $B$，甲从 $P(2a, 0)$ 沿 $+y$ 射入，在 $O(0, 0)$ 与同电荷 $q$ 的乙弹性正碰，碰后甲反向且速率变 3 倍，甲 1 周乙 2 周，观察至 $t = 18\pi m/(qB)$）：
+
+```json
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "initial": { "speedMps": null },
+  "stages": [
+    {
+      "kind": "magnetic_reencounter",
+      "scaleMode": "normalized",
+      "fieldDirection": "into_page",
+      "chargeSignA": 1,
+      "targetChargeRatio": 1,
+      "entryOverLength": { "x": 2, "y": 0 },
+      "entryDirection": { "x": 0, "y": 1 },
+      "contactOverLength": { "x": 0, "y": 0 },
+      "postFirstCollisionSpeedRatioA": -3,
+      "periodRatioAOverB": 2,
+      "observationTimeOverPiTau": 18,
+      "gravityAndMutualForcesNegligible": true
+    }
+  ],
+  "assumptions": ["题设使用符号基准 m、q、B、a，按归一化标度 1 演示"]
+}
+```
