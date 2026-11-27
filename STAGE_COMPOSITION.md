@@ -29,9 +29,9 @@
 
 | 计划字段 | 约定 |
 |---|---|
-| `massKg` | 位于计划顶层。含 `spring_contact`、`vertical_arc` 或扩展 `spring_release` 的计划需给出有限正质量；圆弧用其输出法向力，预压释放及能量推导见 [预压弹簧契约](PRECOMPRESSED_SPRING.md)。其他阶段可省略。 |
-| `gravityMps2` | 位于计划顶层。斜面、含动摩擦的水平滑动或预压释放、抛体及竖直圆弧需要有限正值，未给出时以 `/gravityMps2` 提示补齐。仅有光滑水平运动或弹簧接触时可省略。圆弧约定见 [扩展契约](VERTICAL_ARC.md#1-输入单位与范围)。 |
-| `initial` | 初段为斜面、水平、弹簧或竖直圆弧时用 `{ speedMps }`，方向由阶段确定；预压释放本批为静止，圆弧从最低点水平向右入射。初段为抛体时用 `{ vxMps, vyMps }`。两种形状互斥，后续段从前一段继承速度。 |
+| `massKg` | 位于计划顶层。含 `spring_contact`、`vertical_arc`、`magnetic_deflection` 或扩展 `spring_release` 的计划需给出有限正质量；圆弧用其输出法向力，预压释放及能量推导见 [预压弹簧契约](PRECOMPRESSED_SPRING.md)。其他阶段可省略。 |
+| `gravityMps2` | 位于计划顶层。斜面、含动摩擦的水平滑动或预压释放、抛体及竖直圆弧需要有限正值，未给出时以 `/gravityMps2` 提示补齐。仅有光滑水平运动、光滑弹簧接触或匀强磁场偏转时可省略。圆弧约定见 [扩展契约](VERTICAL_ARC.md#1-输入单位与范围)。 |
+| `initial` | 初段为斜面、水平、弹簧或竖直圆弧时用 `{ speedMps }`，方向由阶段确定；预压释放本批为静止，圆弧从最低点水平向右入射。初段为抛体时用 `{ vxMps, vyMps }`。初段为磁场偏转时，水平向右入射可用 `{ speedMps }`，也可用带符号的 `{ vxMps, vyMps }`。两种形状互斥，后续段从前一段继承速度。 |
 | `constraints`、`energy`（扩展） | 预压释放的活动题面条件及规范化后保留的能量来源记录，见 [预压弹簧契约第4节](PRECOMPRESSED_SPRING.md#4-题面约束固定能量与缺参处理)。由B推导，AB编辑保留已固定能量，不重施原临界条件。 |
 | `stages` | 非空的有序阶段列表。阶段特有的事实放在相应阶段内，组合计划无需全局 `facts`。 |
 | `bodies`、`primaryBodyId`（待实现扩展） | [摆与碰撞契约第1节](PENDULUM_COLLISION.md#1-范围坐标和物体标识)定义稳定ID和各自质量；旧无body表的单物体计划保持原值。新摆初态、碰后并行规则不能按旧单物体的顺序速度继承猜测。 |
@@ -87,15 +87,17 @@ Node 服务与 Qoder 云函数识别新题时使用同一张映射表。
 
 | 阶段 `kind` | 题设字段 | 求解结果 |
 |---|---|---|
-| `incline_slide` | `lengthM`、`angleDeg`、`kineticFrictionCoefficient`。静止释放需要 `slidesAfterRelease: true`。 | 沿斜面向下，计算到坡底或先停止的状态；扩展的正速末端直接接抛体见 [斜面斜抛约定](INCLINE_PROJECTILE.md#1-范围与输入)。 |
+| `incline_slide` | `lengthM`、`angleDeg`、`kineticFrictionCoefficient`。静止释放需要 `slidesAfterRelease: true`。冲上斜面用 `direction: "up"`，已知足够长时 `lengthM: null`。 | 计算到端点或先停止。沿同一斜面上滑再返回时，一段内计算静止点、折返与返回坡底；扩展的正速末端直接接抛体见 [斜面斜抛约定](INCLINE_PROJECTILE.md#1-范围与输入)。 |
 | `lossless_turn` | `lossless: true` 为常量，表示题设支持光滑且近似无高度差的转向。未知填 `null` 并提示核对，明确为 `false` 时返回超范围。 | 坡底位置和速率连续，速度转为水平。输出瞬时事件；还可按 [圆弧接续约定](VERTICAL_ARC.md#1-输入单位与范围) 接 `vertical_arc`。 |
 | `horizontal_slide` | `kineticFrictionCoefficient`，以及旧 `end: { kind: "distance", distanceM }` / `{ kind: "stop" }`；[预压扩展](PRECOMPRESSED_SPRING.md#2-距离和合法接续)另有 `distance_from_stage_start`。 | 旧 `distance` 只从本水平段起点量起，新引用距离可从A量总AB；摩擦停止可能先于目标。正速到达后还可按 [圆弧接续约定](VERTICAL_ARC.md#1-输入单位与范围) 接 `vertical_arc`。 |
 | `spring_contact` | `springConstantNpm`、`frictionless: true`、`unattached: true`，质量读计划顶层。 | 水平正速入射，计算接触、最大压缩和恢复原长后脱离。 |
 | `spring_release`（扩展） | `springConstantNpm`、`initialCompressionM`、`kineticFrictionCoefficient`、`unattached`、`slidesAfterRelease`；缺参后缀另需可确认的 `releaseCompleteByM`，见 [预压弹簧契约](PRECOMPRESSED_SPRING.md)。 | 预压后释放，仍压缩时也受摩擦；比较恢复原长与先停止。与旧 `spring_contact` 独立。 |
-| `vertical_arc` | `radiusM`、`endAngleDeg`、`side: "inside"`、`frictionless: true`，质量与重力读计划顶层；完整范围见 [圆弧扩展契约](VERTICAL_ARC.md#1-输入单位与范围)。 | 计算到端点飞出、提前失去接触或停下回滑，输出圆弧几何、约束状态和关键事件。 |
-| `projectile` | 旧 `dropHeightM` 继续表示发射点到落地平面的非负落差，平面为 `launch.yM - dropHeightM`。扩展允许互斥的固定世界坐标 `landingPlaneYM`；圆弧后抛体必须选固定平面，详见 [固定地面约定](VERTICAL_ARC.md#2-接抛体时固定地面)。斜面末端直接抛出可选上述一种输入，详见 [檐口与地面坐标](INCLINE_PROJECTILE.md#2-坐标地面及绘图参考点)。 | 自实际发射状态起算，记录实际发生的最高点与落地；斜面接续保留向下竖直分量，不产生内部最高点。 |
+| `vertical_arc` | `radiusM`、`endAngleDeg` 或显式 `path`、`side` 为 `"inside"` 或 `"rod"`、`frictionless: true`，质量与重力读计划顶层；完整范围见 [圆弧扩展契约](VERTICAL_ARC.md#1-输入单位与范围)。 | 计算到端点飞出、提前失去接触或停下回滑，输出圆弧几何、约束状态和关键事件。 |
+| `projectile` | 旧 `dropHeightM` 继续表示发射点到落地平面的非负落差，平面为 `launch.yM - dropHeightM`。扩展允许互斥的固定世界坐标 `landingPlaneYM`；圆弧后抛体必须选固定平面，详见 [固定地面约定](VERTICAL_ARC.md#2-接抛体时固定地面)。斜面末端直接抛出可选上述一种输入，详见 [檐口与地面坐标](INCLINE_PROJECTILE.md#2-坐标地面及绘图参考点)。可选 `bounce: { normalRestitution, stopAt: "first_apex", apexHeightM? }` 支持首次水平面反弹至最高点及由 `h` 反求 `H = h / e²`，详见 [预压弹簧契约第 8 节](PRECOMPRESSED_SPRING.md#8-增量扩展光滑桌面能量发射直连平抛与首次落地反弹)。 | 自实际发射状态起算，记录实际发生的最高点与落地；含 `bounce` 且 `e > 0` 时记录 `ground_bounce`（位置连续、`vx+ = vx−`、`vy+ = −e·vy−`）并追踪至 `bounce_apex`。斜面接续保留向下竖直分量，不产生内部最高点。 |
 | `pendulum_swing` / `collision_1d` / `parallel_motion`（待实现扩展） | 具体字段、张力/松绳、两质量、带符号速度和碰后约束见 [摆与碰撞契约第2至4节](PENDULUM_COLLISION.md#2-有序阶段与受控并行)。 | 一根轻绳的非线性摆动、最低点瞬时正碰及碰后同钟轨道；不新增整题模板或任意规则求解器。 |
+| `magnetic_deflection` | `magneticTeslaB`（T，正值）、`chargeC`（C，非零带符号）、`regionWidthM`（m，正值）、`fieldDirection`（`into_page` / `out_of_page`，默认向里）、`exitKind`（`region_edge` / `half_circle`，默认按竖直边界出射）。 | 单粒子在垂直纸面的匀强磁场中忽略重力，按洛伦兹力求半径、实际出射位置和切向速度，记录 `magnetic_enter` 与 `magnetic_exit`。 |
 | `movable_arc` | `radiusM`、`grooveMassKg`、可选 `exitDirection`（-1/1）；球质量读顶层 `massKg`，`initial.speedMps: 0`。 | 四分之一光滑槽静置光滑地面可自由滑动：水平动量守恒 + 机械能守恒，RK4 积分槽内过程；离槽球速 `√(2gRM/(M+m))`、槽速反向 `m·v/M`，离槽后槽匀速外推。 |
+| `movable_semicircle` | `radiusM`、`grooveMassKg`、`direction`、`frictionless`、`groundFrictionless`，详情见 [可平动半圆轨道契约](MOVABLE_SEMICIRCLE.md)。 | 正速从底部切向进入初静止的可平动半圆内轨，取样同时包含滑块与轨道运动，记录实际到顶、提前失去接触或首个转折点。 |
 | `spring_pair` | `springConstantNpm`、`targetMassKg`（可 null）、`separationSpeedMps`（可 null）、可选 `gapM`；入射球质量读顶层 `massKg`。 | 弹簧不锚墙的弹性双球作用：匀速走完 gap → 压缩 → 共速（Ep 最大）→ 恢复原长分离。`targetMassKg` 缺而给 `separationSpeedMps` 时反求 m₂ = m₁(u+s)/(u−s)。末段。 |
 
 `horizontal_slide.end` 原有 `distance/stop` 两种互斥分支保持兼容。指定距离时，库比较到达目标与因摩擦停止两个事件。停止更早时返回 `stop_before_target`，恰好同时发生时停止优先，返回 `stop_at_target`。只指定 `stop` 时，以停止为目标。光滑面上有正初速且要求因摩擦停止，返回可定位的前提冲突。
@@ -105,6 +107,12 @@ Node 服务与 Qoder 云函数识别新题时使用同一张映射表。
 V1 支持斜面到坡底接无损转向，转向接水平滑动或弹簧，水平正速到达指定距离后接弹簧或抛体。按 [圆弧扩展契约](VERTICAL_ARC.md#1-输入单位与范围)，无损转向和水平定距段还都可以接竖直圆弧，圆弧实际离弧后可以接固定 `landingPlaneYM` 的抛体。单段可以独立运行。水平段直接接抛体时，距离目标就是题设桌沿，只有正速到达才产生离桌事件；接圆弧时目标是圆弧入口，水平提前停或恰停均不执行圆弧及其抛体后缀。弹簧脱离及落地为原有终止事件，圆弧的脱离和返回入口等终止口径见 [扩展分支约定](VERTICAL_ARC.md#3-物理状态分支与时间)。
 
 [斜面斜抛扩展](INCLINE_PROJECTILE.md)另允许 `incline_slide → projectile`，不要求转向或水平过渡。斜面正速到末端才离檐；提前停和恰停均不执行抛体。已有 `reach_bottom` 后同刻依序输出 `projectile_launch`，保留两个带符号速度分量，不输出 `leave_table`；完整范围见扩展第3、4节。
+
+[分区电磁场复合阶段](SWITCHABLE_EM_COLLISION.md) 统一处理先电后磁、定点正碰、乙穿越竖线撤场与按回旋圆外切恢复磁场。
+
+`magnetic_deflection` 可独立成题、接在水平定距段之后，也可接 `projectile`。抛体从 `magnetic_exit` 的同一时间、位置和两个速度分量起算，此后仅受重力。接收平台若相对入射地面给出高度，识别填世界坐标 `landingPlaneYM`。首段水平贴地入射时入口为 (0,0)，地面下 h 米的平台填 `-h`。若题面明确给的是从实际出射点向下的落差，可用互斥的 `dropHeightM`。只登记当前单粒子磁场模型，交叠的电场、不可忽略的区内重力和会改变出射的未登记边界不在此模型范围。
+
+传送带后缀只在实际离开固定带端时开始。题面给定接续端时使用 `continuationExitEdge`，实际从另一端离开则止于离带事件。定长匀速且题未给时长时由物理库求实际边界，不设固定观察时长。入带端、离带事件与两种位移参考系见 [传送带契约](CONVEYOR_BELT.md)。
 
 动量守恒扩展另允许 `movable_arc → spring_pair` 与 `movable_arc → horizontal_slide`（μ=0）；`spring_pair` 为末段。识别文案见 [vision-reading.v2 第17、18节](skills/vision-reading.v2.md)。「恰好不能再次滑上槽」一类临界条件写成 `separationSpeedMps`（= 槽速），由库反求靶球质量，识别端不代算答案。多体阶段的系统能量把槽与靶球计入，耗散按守恒校验而非单体质点初末差。
 

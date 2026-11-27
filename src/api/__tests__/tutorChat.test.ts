@@ -560,6 +560,63 @@ describe('真实 AI 物理助教对话入口（Node 与 Qoder 双端一致）', 
     vi.unstubAllEnvs();
   });
 
+  it.each([
+    ['Node handlePlan', handlePlan],
+    ['Qoder handler', qoderHandler],
+  ])('%s 斜面直入圆轨误填 startAngleDeg=0 触发定向纠错时，附带圆轨入口切线修正指引并一次修正成功', async (_name, fn) => {
+    vi.stubEnv('API_CONTRACT_MODE', 'stage_plan');
+    const badReading = {
+      kind: 'stage_plan',
+      schemaVersion: 1,
+      gravityMps2: 10,
+      massKg: 1,
+      initial: { speedMps: 0 },
+      stages: [
+        { kind: 'incline_slide', lengthM: 2, angleDeg: 37, kineticFrictionCoefficient: 0, slidesAfterRelease: true },
+        { kind: 'vertical_arc', radiusM: 0.4, side: 'inside', frictionless: true, path: { startAngleDeg: 0, direction: 'positive', end: { kind: 'observation', sweepAngleDeg: 360 } } },
+      ],
+      assumptions: [],
+    };
+    const fixedReading = {
+      ...badReading,
+      stages: [
+        badReading.stages[0],
+        { kind: 'vertical_arc', radiusM: 0.4, side: 'inside', frictionless: true, path: { startAngleDeg: -37, direction: 'positive', end: { kind: 'observation', sweepAngleDeg: 360 } } },
+      ],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(badReading) } }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(fixedReading) } }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+
+    const form = new FormData();
+    form.set('text', '质量 1 kg 滑块从 37° 光滑斜面长 2 m 处静止下滑，相切进入半径 0.4 m 的光滑螺旋圆形轨道，g = 10 m/s²。');
+    const res = await fn(new Request('http://127.0.0.1:8787/api/animation/plan', { method: 'POST', body: form }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string; reading?: { stages?: Array<{ path?: { startAngleDeg?: number } }> } };
+    expect(body.status).toBe('ok');
+    expect(body.reading?.stages?.[1]?.path?.startAngleDeg).toBe(-37);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const retryPayload = JSON.parse(String(fetchMock.mock.calls[1][1]?.body)) as {
+      messages: Array<{ role: string; content: Array<{ type: string; text?: string }> }>;
+    };
+    const retryText = retryPayload.messages[1].content.map((c) => c.text ?? '').join('\n');
+    expect(retryText).toContain('圆轨入口切线修正指引');
+    expect(retryText).toContain('-θ');
+    vi.unstubAllEnvs();
+  });
+
   it('空提问或混用图片字段时返回 400', async () => {
     const emptyRes = await handlePlan(chatRequest('   '));
     expect(emptyRes.status).toBe(400);

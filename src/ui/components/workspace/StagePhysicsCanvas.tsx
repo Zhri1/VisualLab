@@ -36,6 +36,8 @@ const SOFT = "#8e8e88";
 const HAIR = "#d6d6d1";
 const PAPER = "#fbfbf9";
 const FILL = "#eaeae6";
+/** 速度强调色（墨绿）：默认保持黑色，仅在开启受力矢量或处于磁场区内时灵活切换，避免与受力/磁场混色。 */
+const VELOCITY_ACCENT = "#2e6b5e";
 const MATH = '"Cambria", "Cambria Math", Georgia, serif';
 const SANS = '-apple-system, "Segoe UI", "PingFang SC", sans-serif';
 
@@ -235,6 +237,18 @@ export function collectHudObstacles(
     }
     addSegment(X(vp.bounds.minX), Y(0), X(vp.bounds.maxX), Y(0), 10, 10, 8);
   }
+  if (g.movableSemicircle) {
+    const ms = g.movableSemicircle;
+    const dir = ms.direction === "right" ? 1 : -1;
+    const endGroove = motion.movableSemicircleAt?.(dur);
+    const centers = endGroove ? [ms.entry.xM, endGroove.grooveXM] : [ms.entry.xM];
+    for (const cx of centers) {
+      for (let i = 0; i <= 8; i += 1) {
+        const phi = Math.PI * (i / 8);
+        addPoint(X(cx + dir * ms.radiusM * Math.sin(phi)), Y(ms.entry.yM + ms.radiusM * (1 - Math.cos(phi))), 12, 12);
+      }
+    }
+  }
 
   if (g.springPair) {
     const pair = g.springPair;
@@ -379,6 +393,17 @@ export function stageWorldBounds(motion: Motion): WorldBounds {
       { x: ma.exitGrooveXM + ma.radiusM + Math.max(0, drift), y: 0 },
     );
   }
+  if (g.movableSemicircle) {
+    const ms = g.movableSemicircle;
+    const dir = ms.direction === "right" ? 1 : -1;
+    const endGroove = motion.movableSemicircleAt?.(motion.durationSeconds);
+    const maxCx = Math.max(ms.entry.xM, endGroove?.grooveXM ?? ms.entry.xM);
+    const minCx = Math.min(ms.entry.xM, endGroove?.grooveXM ?? ms.entry.xM);
+    points.push(
+      { x: minCx - (dir < 0 ? ms.radiusM * 1.25 : ms.radiusM * 0.25), y: ms.entry.yM },
+      { x: maxCx + (dir > 0 ? ms.radiusM * 1.25 : ms.radiusM * 0.25), y: ms.entry.yM + ms.radiusM * 2.15 },
+    );
+  }
   if (g.springPair) {
     const pair = g.springPair;
     const d = pair.incomingDir ?? -1;
@@ -454,7 +479,7 @@ export function drawStageScene(
   const last = motion.sampleAt(motion.durationSeconds);
   const worldBounds = precomputedBounds ?? stageWorldBounds(motion);
   const narrow = W < 420;
-  const hasTopHud = inclineLaunch || explicitArc || !!g.conveyor || !!g.linearTrack || !!g.movableArc || !!g.springPair;
+  const hasTopHud = inclineLaunch || explicitArc || !!g.conveyor || !!g.linearTrack || !!g.movableArc || !!g.movableSemicircle || !!g.springPair || g.scaleMode === "normalized" || motion.timing?.mode === "suffix";
   const vp = fitViewport(W, H, worldBounds, {
     top: hasTopHud ? 48 : 34,
     right: narrow ? 30 : 48,
@@ -648,6 +673,69 @@ export function drawStageScene(
     ctx.fillStyle = SOFT; ctx.font = `500 12px ${SANS}`; ctx.textAlign = "center"; ctx.textBaseline = "top";
     ctx.fillText(`m₂ = ${pair.mass2Kg} kg`, X(ps.x2M), Y(pair.yM) + 10);
   }
+  if (g.movableSemicircle) {
+    const ms = g.movableSemicircle;
+    const dir = ms.direction === "right" ? 1 : -1;
+    const gs = motion.movableSemicircleAt?.(time) ?? { grooveXM: ms.entry.xM, grooveVX: 0, relativeSpeedMps: 0, angleDeg: 0 };
+    const cx = gs.grooveXM;
+    const y0 = ms.entry.yM;
+    const R = ms.radiusM;
+    // 光滑水平地面（支持可动轨道平动）
+    ctx.save();
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(X(Math.min(ms.entry.xM - 0.15, cx - R * 0.2)), Y(y0));
+    ctx.lineTo(X(worldBounds.maxX), Y(y0));
+    ctx.stroke();
+    ctx.strokeStyle = HAIR;
+    ctx.lineWidth = 1;
+    for (let x = Math.min(ms.entry.xM, cx) + 0.12; x < worldBounds.maxX; x += 0.25) {
+      ctx.beginPath();
+      ctx.moveTo(X(x), Y(y0));
+      ctx.lineTo(X(x - 0.1), Y(y0) + 6);
+      ctx.stroke();
+    }
+    // 可平动半圆轨道实体块（含半圆内腔与外廓背板，随 cx 整体平动）
+    const backX = cx + dir * R * 1.2;
+    ctx.beginPath();
+    ctx.moveTo(X(cx), Y(y0));
+    for (let i = 0; i <= 36; i += 1) {
+      const phi = (Math.PI * i) / 36;
+      ctx.lineTo(X(cx + dir * R * Math.sin(phi)), Y(y0 + R * (1 - Math.cos(phi))));
+    }
+    ctx.lineTo(X(backX), Y(y0 + 2 * R));
+    ctx.lineTo(X(backX), Y(y0));
+    ctx.closePath();
+    ctx.fillStyle = FILL;
+    ctx.fill();
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = active?.stageKind === "movable_semicircle" ? 2.2 : 1.6;
+    ctx.stroke();
+    // 随轨道移动的圆心标记与质量标注
+    ctx.setLineDash([3, 4]);
+    ctx.strokeStyle = HAIR;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(X(cx), Y(y0 + R));
+    ctx.lineTo(X(cx + dir * R), Y(y0 + R));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = SOFT;
+    ctx.font = `500 12px ${SANS}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillText(`M = ${ms.grooveMassKg} kg`, X((cx + backX) / 2), Y(y0 + 2 * R) - 5);
+    if (ms.startLabel) {
+      ctx.textBaseline = "top";
+      ctx.fillText(ms.startLabel, X(cx), Y(y0) + 8);
+    }
+    if (ms.endLabel) {
+      ctx.textBaseline = "bottom";
+      ctx.fillText(ms.endLabel, X(cx), Y(y0 + 2 * R) - 5);
+    }
+    ctx.restore();
+  }
   if (g.conveyor) {
     const angleDeg = g.conveyor.angleDeg ?? 0;
     const rad = (angleDeg * Math.PI) / 180;
@@ -674,10 +762,21 @@ export function drawStageScene(
     ctx.roundRect(0, 0, beltLenPx, beltH, r);
     ctx.fill();
     ctx.stroke();
-    // 两端滚轮
+    // 两端滚轮（带长未定/省略共速段时，右端不画固定滚轮，改画波浪省略断口）
     ctx.fillStyle = PAPER;
-    for (const cx of [r, beltLenPx - r]) {
+    const rollers = g.conveyor.endOmitted ? [r] : [r, beltLenPx - r];
+    for (const cx of rollers) {
       ctx.beginPath(); ctx.arc(cx, r, Math.max(3, r - 2), 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+    }
+    if (g.conveyor.endOmitted) {
+      ctx.strokeStyle = "#8a5a18";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(beltLenPx - 4, -3);
+      ctx.lineTo(beltLenPx + 2, beltH * 0.33);
+      ctx.lineTo(beltLenPx - 2, beltH * 0.66);
+      ctx.lineTo(beltLenPx + 4, beltH + 3);
+      ctx.stroke();
     }
     // 随带面位移移动的刻度线，直观体现带面参考系
     const cState = motion.conveyorAt?.(time);
@@ -688,6 +787,15 @@ export function drawStageScene(
       ctx.beginPath(); ctx.moveTo(px, 2); ctx.lineTo(px, beltH - 2); ctx.stroke();
     }
     ctx.restore();
+    if (g.conveyor.endOmitted) {
+      ctx.save();
+      ctx.fillStyle = "#8a5a18";
+      ctx.font = `11px ${SANS}`;
+      ctx.textAlign = "right";
+      ctx.textBaseline = "top";
+      ctx.fillText("略去未知共速段", p2x - 2, p2y + beltH + 4);
+      ctx.restore();
+    }
     // 倾斜传送带绘制水平参考线与倾角标注
     if (angleDeg > 0) {
       const lowX = p1y >= p2y ? p1x : p2x;
@@ -845,6 +953,24 @@ export function drawStageScene(
     }
     ctx.stroke();
     ctx.restore();
+    const bounceEv = motion.events.find((e) => e.eventKind === "ground_bounce" && (proj.stageIndex < 0 || e.stageIndex === proj.stageIndex));
+    const bounceApexEv = motion.events.find((e) => e.eventKind === "bounce_apex" && (proj.stageIndex < 0 || e.stageIndex === proj.stageIndex));
+    if (bounceEv?.position) {
+      ctx.save();
+      ctx.fillStyle = "#b42318";
+      ctx.beginPath(); ctx.arc(X(bounceEv.position.x), Y(bounceEv.position.y), 3.5, 0, 2 * Math.PI); ctx.fill();
+      ctx.font = `11px ${SANS}`; ctx.textAlign = "center"; ctx.textBaseline = "top";
+      ctx.fillText(`首次落点 x=${(bounceEv.position.x - proj.launch.xM).toFixed(2)}`, X(bounceEv.position.x), Y(bounceEv.position.y) + 6);
+      ctx.restore();
+    }
+    if (bounceApexEv?.position) {
+      ctx.save();
+      ctx.fillStyle = "#386e8a";
+      ctx.beginPath(); ctx.arc(X(bounceApexEv.position.x), Y(bounceApexEv.position.y), 3.5, 0, 2 * Math.PI); ctx.fill();
+      ctx.font = `11px ${SANS}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+      ctx.fillText(`反弹最高点 h=${(bounceApexEv.position.y - floorY).toFixed(2)}`, X(bounceApexEv.position.x), Y(bounceApexEv.position.y) - 6);
+      ctx.restore();
+    }
   }
 
   // 弹簧与原长接触端，支持多段弹簧。
@@ -981,9 +1107,9 @@ export function drawStageScene(
   block(first.position, true);
   const center = block(sample.position, false);
 
-  if (currentArc && sample.constraint?.normalDirection && Math.abs(sample.constraint.normalForceN) > 1e-9) {
+  if ((currentArc || g.movableSemicircle) && sample.constraint?.normalDirection && Math.abs(sample.constraint.normalForceN) > 1e-9) {
     const n = sample.constraint.normalDirection, len = 30, sx = X(center.x) + n.x * 10, sy = Y(center.y) - n.y * 10, ex = sx + n.x * len, ey = sy - n.y * len, a = Math.atan2(ey - sy, ex - sx);
-    const isRodCurrent = "side" in currentArc && currentArc.side === "rod";
+    const isRodCurrent = currentArc && "side" in currentArc && currentArc.side === "rod";
     const arrowLabel = isRodCurrent ? (sample.constraint.normalForceN < 0 ? "支持力" : "拉力") : "N";
     ctx.save(); ctx.strokeStyle = "#386e8a"; ctx.fillStyle = "#386e8a"; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.moveTo(ex - 6 * Math.cos(a - 0.45), ey - 6 * Math.sin(a - 0.45)); ctx.lineTo(ex, ey); ctx.lineTo(ex - 6 * Math.cos(a + 0.45), ey - 6 * Math.sin(a + 0.45)); ctx.stroke(); ctx.font = `12px ${SANS}`; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillText(arrowLabel, ex + 7, ey); ctx.restore();
   }
@@ -996,6 +1122,15 @@ export function drawStageScene(
     ctx.textBaseline = "top";
     ctx.fillText("停止点", X(last.position.x), Math.min(H - 16, Y(last.position.y) + halfPx + 8));
   }
+
+  const activeMagnetics = g.magnetics ?? (g.magnetic ? [g.magnetic] : []);
+  const activeStageKind = active?.stageIndex !== undefined ? motion.stagePlan?.stages[active.stageIndex]?.kind : undefined;
+  const inMagneticZone = activeStageKind === "magnetic_deflection"
+    || activeMagnetics.some((mg) => center.x >= mg.entry.xM - 0.15 && center.x <= mg.entry.xM + mg.regionWidthM + 0.15);
+  // 默认保持经典黑色；开启受力矢量或位于磁场区内时灵活切换为墨绿色，避免与受力箭头/磁场符号混淆。
+  const useAccentVelocity = Boolean(forceArrows?.length) || inMagneticZone;
+  const velArrowColor = useAccentVelocity ? VELOCITY_ACCENT : "#3a3a36";
+  const velTextColor = useAccentVelocity ? VELOCITY_ACCENT : INK;
 
   const speed = Math.hypot(sample.velocity.x, sample.velocity.y);
   if (speed > 0.08) {
@@ -1018,14 +1153,14 @@ export function drawStageScene(
       startX = endX - ux * length;
       startY = endY - uy * length;
     }
-    ctx.strokeStyle = "#3a3a36";
+    ctx.strokeStyle = velArrowColor;
     ctx.lineWidth = 1.6;
     ctx.beginPath();
     ctx.moveTo(X(startX), Y(startY));
     ctx.lineTo(X(endX), Y(endY));
     ctx.stroke();
     const angle = Math.atan2(Y(endY) - Y(startY), X(endX) - X(startX));
-    ctx.fillStyle = "#3a3a36";
+    ctx.fillStyle = velArrowColor;
     ctx.beginPath();
     ctx.moveTo(X(endX), Y(endY));
     ctx.lineTo(X(endX) - 8 * Math.cos(angle) + 3 * Math.sin(angle), Y(endY) - 8 * Math.sin(angle) - 3 * Math.cos(angle));
@@ -1084,8 +1219,18 @@ export function drawStageScene(
   const preferredX = g.positionReference === "particle" ? X(center.x) + labelWidth / 2 + 16 : X(center.x);
   const labelX = explicitArc?W-labelWidth/2-12:Math.min(W - labelWidth / 2 - 8, Math.max(labelWidth / 2 + 8, preferredX));
   const labelY = explicitArc?20:Math.min(H - 28, Math.max(20, Y(center.y) - (g.positionReference === "particle" ? 18 : halfPx + 9)));
-  if(!explicitArc){ctx.fillStyle = PAPER; ctx.fillRect(labelX - labelWidth / 2 - 3, labelY - 15, labelWidth + 6, sample.constraint ? 35 : 18);}
-  ctx.fillStyle = INK; ctx.fillText(label, labelX, labelY);
+  // 去掉实色底块，改为纸色细描边光晕，既不遮挡下方轨道/磁场又保持清晰可读。
+  const haloText = (text: string, x: number, y: number, color: string) => {
+    ctx.save();
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(251,251,249,0.9)";
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+    ctx.restore();
+  };
+  haloText(label, labelX, labelY, velTextColor);
   let velBoxW = labelWidth;
   if (sample.constraint) {
     const isRodCurrent = currentArc && "side" in currentArc && currentArc.side === "rod";
@@ -1094,7 +1239,7 @@ export function drawStageScene(
       ? (nVal < -1e-9 ? `支持力 ${normalText(Math.abs(nVal), explicitArc)} N` : nVal > 1e-9 ? `拉力 ${normalText(nVal, explicitArc)} N` : "杆力 0.00 N")
       : `N = ${normalText(nVal, explicitArc)} N`;
     velBoxW = Math.max(velBoxW, ctx.measureText(forceLabel).width || forceLabel.length * 7);
-    ctx.fillStyle = SOFT; ctx.fillText(forceLabel, labelX, labelY + 18);
+    haloText(forceLabel, labelX, labelY + 18, SOFT);
   }
   const velLabelRect = {
     x: labelX - velBoxW / 2 - 4,
@@ -1109,6 +1254,14 @@ export function drawStageScene(
   if (inclineLaunch || explicitArc) {
     hudLines.push(`vₓ = ${componentText(sample.velocity.x)}，vᵧ = ${componentText(sample.velocity.y)} m/s`);
     hudTemplate = "vₓ = -00.00，vᵧ = -00.00 m/s";
+  } else if (g.movableSemicircle && active?.stageKind === "movable_semicircle") {
+    const gs = motion.movableSemicircleAt?.(time);
+    hudLines.push(
+      `v块 = ${componentText(sample.velocity.x)} m/s，V轨 = ${componentText(gs?.grooveVX ?? 0)} m/s`,
+      `u相对 = ${componentText(gs?.relativeSpeedMps ?? 0)} m/s，N = ${componentText(sample.constraint?.normalForceN ?? 0)} N`,
+    );
+    if (motion.playbackGaps?.length) hudLines.push("注：已省略带长未定的共速匀速段");
+    hudTemplate = "u相对 = 00.00 m/s，N = 00.00 N";
   } else if (g.conveyor) {
     const cState = motion.conveyorAt?.(time);
     const rad = ((g.conveyor.angleDeg ?? 0) * Math.PI) / 180;
@@ -1119,7 +1272,15 @@ export function drawStageScene(
       `对地 x = ${componentText(sample.position.x)} m，相对带面 Δs = ${componentText(cState?.relativeDisplacementM ?? 0)} m${thetaSuffix}`,
       `v块 = ${componentText(vBlockAlong)} m/s，v带 = ${componentText(cState?.beltSpeedMps ?? 0)} m/s`,
     );
+    if (motion.playbackGaps?.length) hudLines.push("带长未定 · 仅计至共速，略去未知匀速段");
     hudTemplate = `对地 x = -00.00 m，相对带面 Δs = -00.00 m${thetaSuffix}`;
+  } else if (g.movableSemicircle) {
+    const gs = motion.movableSemicircleAt?.(time);
+    hudLines.push(
+      `v块 = ${componentText(sample.velocity.x)} m/s，V轨 = ${componentText(gs?.grooveVX ?? 0)} m/s`,
+      `u相对 = ${componentText(gs?.relativeSpeedMps ?? 0)} m/s，N = ${componentText(sample.constraint?.normalForceN ?? 0)} N`,
+    );
+    hudTemplate = "u相对 = 00.00 m/s，N = 00.00 N";
   } else if (g.linearTrack) {
     hudLines.push(`x = ${componentText(sample.position.x)} m，vₓ = ${componentText(sample.velocity.x)} m/s`);
     hudTemplate = "x = -00.00 m，vₓ = -00.00 m/s";
@@ -1129,6 +1290,12 @@ export function drawStageScene(
     hudLines.push(`v₁ = ${componentText(sample.velocity.x)} m/s${gs ? `，V槽 = ${componentText(gs.grooveVX)} m/s` : ""}`);
     if (ps) hudLines.push(`v₂ = ${componentText(ps.vx2Mps)} m/s，弹簧压缩 = ${componentText(ps.compressionM)} m`);
     hudTemplate = ps ? "v₂ = -00.00 m/s，弹簧压缩 = 00.00 m" : "v₁ = -00.00 m/s，V槽 = -00.00 m/s";
+  }
+  if (g.scaleMode === "normalized") {
+    hudLines.push("归一化标度（未给数值的符号基准取 1）");
+  }
+  if (motion.timing?.mode === "suffix" && !g.schematic?.horizontal) {
+    hudLines.push(`仅从${motion.timing.anchor.label}起算 · 前段未计时`);
   }
   let placedHudRect: HudRect | null = null;
   if (hudLines.length > 0) {

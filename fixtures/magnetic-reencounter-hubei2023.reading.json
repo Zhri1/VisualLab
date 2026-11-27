@@ -1,0 +1,22 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "initial": { "speedMps": null },
+  "stages": [
+    {
+      "kind": "magnetic_reencounter",
+      "scaleMode": "normalized",
+      "fieldDirection": "into_page",
+      "chargeSignA": 1,
+      "targetChargeRatio": 1,
+      "entryOverLength": { "x": 2, "y": 0 },
+      "entryDirection": { "x": 0, "y": 1 },
+      "contactOverLength": { "x": 0, "y": 0 },
+      "postFirstCollisionSpeedRatioA": -3,
+      "periodRatioAOverB": 2,
+      "observationTimeOverPiTau": 18,
+      "gravityAndMutualForcesNegligible": true
+    }
+  ],
+  "assumptions": ["题设使用符号基准 m、q、B、a，按归一化标度 1 演示"]
+}

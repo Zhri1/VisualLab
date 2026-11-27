@@ -32,7 +32,7 @@ export function validateMultiBodyPlan(input: Obj, legacy: (v: unknown) => StageP
   const blockPlank = Array.isArray(draft.stages) && draft.stages.some(s => obj(s) && s.kind === 'block_plank');
   const pulley = !blockPlank && Array.isArray(draft.stages) && draft.stages.some(s => obj(s) && s.kind === 'pulley_system');
   const horizontal = !blockPlank && !pulley && (Array.isArray(draft.stages) && draft.stages.some(s => obj(s) && s.kind === 'horizontal_approach') || obj(draft.initial) && 'bodies' in draft.initial);
-  const usesGravity=(v:unknown):boolean=>Array.isArray(v)?v.some(usesGravity):obj(v)?v.kind==='projectile'||v.kind==='pendulum_swing'||v.kind==='pendulum_string'||typeof v.kineticFrictionCoefficient==='number'&&v.kineticFrictionCoefficient>0||Object.values(v).some(usesGravity):false;
+  const usesGravity=(v:unknown):boolean=>Array.isArray(v)?v.some(usesGravity):obj(v)?v.kind==='projectile'||v.kind==='pendulum_swing'||v.kind==='pendulum_string'||v.kind==='conveyor_belt'||typeof v.kineticFrictionCoefficient==='number'&&v.kineticFrictionCoefficient>0||Object.values(v).some(usesGravity):false;
   num(draft,'gravityMps2','/gravityMps2',v=>v>0,!horizontal||usesGravity(draft));
   if('massKg'in draft)issue('/massKg','PRECONDITION_CONFLICT','新摆计划的质量只取body表，请移除旧顶层质量。');
   if(!Array.isArray(draft.stages)){if(draft.stages==null)missing.push('/stages');else issue('/stages','TYPE','阶段列表须为数组。');structural=true;return result();}
@@ -184,7 +184,18 @@ export function validateMultiBodyPlan(input: Obj, legacy: (v: unknown) => StageP
             if(typeof x==='number'&&Math.abs(x+u2*tc)>1e-6*Math.max(1,Math.abs(x),Math.abs(u2*tc)))issue('/stages/1/targetApproach/initialXM','PRECONDITION_CONFLICT','给定初位与最低点同步到达不相容。');
             if(Array.isArray(collision.bodyIds)){
               const masses=collision.bodyIds.map(id=>bodies.find(b=>obj(b)&&b.bodyId===id)).map(b=>obj(b)?b.massKg:undefined);
-              if(masses.every((m):m is number=>typeof m==='number'&&m>0)&&['elastic','perfectly_inelastic'].includes(String(collision.mode)))collide1D(masses[0],masses[1],u1,u2,collision.mode as 'elastic'|'perfectly_inelastic');
+              if(masses.every((m):m is number=>typeof m==='number'&&m>0)&&(collision.mode==='elastic'||collision.mode==='perfectly_inelastic')){
+                const result=collide1D(masses[0],masses[1],u1,u2,collision.mode);
+                const parallel=stages[2];
+                if(obj(parallel)&&parallel.kind==='parallel_motion'&&obj(parallel.end)&&Array.isArray(parallel.tracks)){
+                  const follower=parallel.tracks.some(track=>obj(track)&&Array.isArray(track.stages)&&track.stages.some(leaf=>obj(leaf)&&leaf.kind==='horizontal_slide'&&obj(leaf.end)&&leaf.end.kind==='scene_end'));
+                  if(follower&&parallel.end.kind==='all_finite_tracks')missing.push('/stages/2/end');
+                  if(follower&&parallel.end.kind==='pendulum_turn'){
+                    const post=createPendulum(first.lengthM,draft.gravityMps2,masses[0],0,result.v1,false);
+                    if(!(post.firstTurn>0&&Number.isFinite(post.firstTurn)))issue('/stages/2/end','PRECONDITION_CONFLICT','指定摆没有有限首转折。');
+                  }
+                }
+              }
             }
           }
         }

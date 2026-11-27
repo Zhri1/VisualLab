@@ -19,7 +19,7 @@ type ExplicitArcPath = {
 type ExplicitVerticalArc = {
   kind: "vertical_arc";
   radiusM: number;
-  side: "inside";
+  side: "inside" | "rod";
   frictionless: true;
   path: ExplicitArcPath;
   endAngleDeg?: never;
@@ -29,7 +29,7 @@ type ExplicitVerticalArc = {
 - SI 单位；输入角度为度。圆心是固定世界坐标，不随物体或脱轨点重置。R、顶层 `gravityMps2`、`massKg` 均为有限正数，质量用于真实支持力。
 - `startAngleDeg` 从最低点量，0° 在最低点，90° 在最右，180° 在最高，270° 在最左。输入须在 `[-180,180]`；输出角度按实际行进连续展开，可越过 180°、360°。`direction` 指初始沿角增大/减小方向运动，不等同于始终向右/向左。
 - `sweepAngleDeg` 是从入口沿指定方向到计划终点的角程，有限且 >0。`physical_endpoint` 要求 <360°，表示题设轨道在该端确实终止；`observation` 要求 ≤360°，表示该处仍有轨道，只结束有限观察。完整圆轨用后者和360°，不能因开始和结束位置相同而捏造缺口。
-- 本增量仍只登记光滑**内侧单面接触**，支持力指向圆心、不能拉物体。外侧凸轨、双面卡槽、转动、摩擦圆弧、移动圆心均明确超范围；不能把题给外侧改成内侧。这不是以 `side` 缺省推断内轨，缺值仍待补。
+- 光滑内轨用 `side: "inside"`，仅有指向圆心的单面支持力。理想轻杆、光滑圆管或等效双轨允许沿径向双向作用，用 `side: "rod"`。外侧单面凸轨、运动体需要考虑转动、摩擦圆弧及移动圆心均超范围。约束类型缺值时待补。
 - 以 `path` 自有键判新分支，哪怕值是 `null` 也不回退旧模式。`path` 和 `endAngleDeg` 同时出现（包括null）是字段矛盾。只有旧模式才要求 `/stages/i/endAngleDeg`，新模式不得误报这个旧字段。
 
 ## 2. 入口状态与阶段接续
@@ -77,9 +77,11 @@ normalDirection = (−sinφ, cosφ)
 a = (−g sinφ)(cosφ,sinφ) − (q²/R)(sinφ,−cosφ)
 ```
 
-支持力是非负标量，向量为 N·normalDirection；它不是合向心力。上述关系由能量守恒及径向牛顿第二定律直接得到，可核对 [OpenStax 圆周运动](https://openstax.org/books/university-physics-volume-1/pages/6-3-centripetal-force)。时间用真实非线性方程/专用积分求解，不能弧长除初速。只复用/扩展现有圆弧和摆的低层数值工具，不构建任意规则求解器。
+单面内轨中 N 为非负支持力。双向约束中 N 为径向力的带符号分量，正值朝圆心、负值背离圆心，不能按 N 变负判脱轨。上述关系由能量守恒及径向牛顿第二定律直接得到，可核对 [OpenStax 圆周运动](https://openstax.org/books/university-physics-volume-1/pages/6-3-centripetal-force)。时间用真实非线性方程/专用积分求解，不能弧长除初速。只复用/扩展现有圆弧和摆的低层数值工具，不构建任意规则求解器。
 
 Nrequired 的负值不得被 `max(0,…)` 掩盖后继续贴轨。圆内低点出发 u²=5gR 时，最高点 N=0，但两侧 N>0，故继续完整绕行；u²略低时会在顶点之前脱轨；略高时过顶 N>0。从任意入口还须比较目标端点、转折与接触失效的先后，不能套“入口速率必须 √(5gR)”的低点特例。
+
+显式 `side: "rod"` 路径经由零速极限能量接近前方最高点时，沿用 [轻杆与双轨的零速极限](VERTICAL_ARC.md#轻杆与双轨的零速极限) 的有限观察规则。任意入口的临界条件为 `u² = 2gR(1 + cosφ₀)`。观察前缀内实际经过最低点时仍记录 `arc_lowest`。
 
 临界比较仅吸收按量级缩放的舍入误差；用 u²=5gR±0.004 的可分辨两侧验收。精确已解析边界钉住位置、速度和 N；判断零速、负 N、几何匹配及时间可表示性使用各自量纲，不能用同一绝对 epsilon。能量比、角速度、力或累计时长不可表示时报对应字段 RANGE，不让 Infinity 命中临界吸附。
 

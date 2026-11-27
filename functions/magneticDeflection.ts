@@ -79,6 +79,38 @@ function trig(phi: number) {
   return { sin: Math.sin(phi), cos: Math.cos(phi) };
 }
 
+// 通用磁圆：spin 为洛伦兹力相对速度的旋转方向，omega 为正角速度。
+export function createMagneticOrbit(entry: MagneticEntry, omega: number, spin: 1 | -1) {
+  const speed = Math.hypot(entry.vxMps, entry.vyMps);
+  const radiusM = speed / omega;
+  const center = {
+    xM: entry.xM - spin * entry.vyMps / omega,
+    yM: entry.yM + spin * entry.vxMps / omega,
+  };
+  if (!(Number.isFinite(radiusM) && radiusM > 0 && Number.isFinite(omega) && omega > 0
+    && Number.isFinite(center.xM) && Number.isFinite(center.yM))) {
+    throw new RangeError("磁场数值量级无法表示。");
+  }
+  const entryAngle = Math.atan2(spin * entry.vxMps * -1, spin * entry.vyMps);
+  return {
+    center, radiusM, omega, spin, entryAngle,
+    sweepTo(theta: number) {
+      const sweep = spin * (theta - entryAngle) % TAU;
+      return sweep < 0 ? sweep + TAU : sweep;
+    },
+    at(t: number): MagneticState {
+      if (t === 0) return { ...entry };
+      const { sin, cos } = trig(entryAngle + spin * omega * t);
+      return {
+        xM: center.xM + radiusM * cos,
+        yM: center.yM + radiusM * sin,
+        vxMps: -spin * speed * sin,
+        vyMps: spin * speed * cos,
+      };
+    },
+  };
+}
+
 /**
  * 求解匀强磁场中的匀速圆周偏转。重力按题目约定忽略（不参与计算）。
  * 半径 R = m·v/(|q|·B)，角速度 ω = |q|·B/m；旋转方向由 q 符号与 fieldDirection 按 F = qv×B 决定。
@@ -95,18 +127,11 @@ export function solveMagneticDeflection(stage: MagneticDeflectionStage, entry: M
   if (!(Number.isFinite(massKg) && massKg > 0)) throw fail("磁场偏转需要正质量（计划根 massKg）。", "/massKg");
   const speed = Math.hypot(entry.vxMps, entry.vyMps);
   if (!(Number.isFinite(speed) && speed > 0)) throw fail("磁场偏转需要非零入口速度。", "");
-  const radius = massKg * speed / (Math.abs(q) * B);
   const omega = Math.abs(q) * B / massKg;
-  if (!(Number.isFinite(radius) && radius > 0 && Number.isFinite(omega) && omega > 0)) throw fail("磁场数值量级无法表示。", "");
-
   // spin = +1 → 逆时针（圆心在速度左侧）；−1 → 顺时针（右侧）。
-  const spin = (q > 0 ? 1 : -1) * (fieldDirection === "into_page" ? 1 : -1);
+  const spin = (q > 0) === (fieldDirection === "into_page") ? 1 : -1;
   const direction: "cw" | "ccw" = spin > 0 ? "ccw" : "cw";
-  const center: MagneticPoint = {
-    xM: entry.xM + spin * radius * (-entry.vyMps / speed),
-    yM: entry.yM + spin * radius * (entry.vxMps / speed),
-  };
-  const entryAngle = Math.atan2(entry.yM - center.yM, entry.xM - center.xM);
+  const { center, radiusM: radius, entryAngle, at: orbitAt } = createMagneticOrbit(entry, omega, spin);
 
   // 求首次以指定方向穿越竖直边界 x = targetX 的时刻；outwardSign = +1 向右穿出，−1 向左穿出。
   const crossingTime = (targetX: number, outwardSign: 1 | -1): number => {
@@ -145,25 +170,12 @@ export function solveMagneticDeflection(stage: MagneticDeflectionStage, entry: M
 
   const duration = sweep / omega;
   const exitAngle = entryAngle + spin * sweep;
-  const exitTrig = trig(exitAngle);
-  const exitState: MagneticState = {
-    xM: center.xM + radius * exitTrig.cos,
-    yM: center.yM + radius * exitTrig.sin,
-    vxMps: spin * speed * -exitTrig.sin,
-    vyMps: spin * speed * exitTrig.cos,
-  };
+  const exitState = orbitAt(duration);
   const at = (t: number): MagneticState => {
     const clamped = Math.min(duration, Math.max(0, Number.isNaN(t) ? 0 : t));
     if (clamped <= 0) return { xM: entry.xM, yM: entry.yM, vxMps: entry.vxMps, vyMps: entry.vyMps };
     if (clamped >= duration) return { ...exitState };
-    const angle = entryAngle + spin * omega * clamped;
-    const { sin, cos } = trig(angle);
-    return {
-      xM: center.xM + radius * cos,
-      yM: center.yM + radius * sin,
-      vxMps: spin * speed * -sin,
-      vyMps: spin * speed * cos,
-    };
+    return orbitAt(clamped);
   };
 
   const geometry: MagneticGeometry = {

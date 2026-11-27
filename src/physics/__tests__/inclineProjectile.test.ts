@@ -5,6 +5,7 @@ import complete from '../../../fixtures/incline-projectile.reading.json';
 import fixedPlane from '../../../fixtures/incline-projectile-fixed-plane.reading.json';
 import beforeStop from '../../../fixtures/incline-projectile-stop-before.reading.json';
 import atStop from '../../../fixtures/incline-projectile-stop-at.reading.json';
+import uphill from '../../../fixtures/incline-projectile-uphill.reading.json';
 import reference from '../../../fixtures/incline-projectile.acceptance.json';
 
 function run(input: unknown) {
@@ -27,6 +28,51 @@ function edit(path: string[], value: unknown): StagePlanDraft {
 }
 
 describe('斜面末端直接斜抛', () => {
+  const slope = uphill.stages[0];
+  const theta = 37 * Math.PI / 180;
+  const aUp = 10 * (Math.sin(theta) + .25 * Math.cos(theta));
+  const aDown = 10 * (Math.sin(theta) - .25 * Math.cos(theta));
+  const criticalSpeed = Math.sqrt(2 * aUp * 2.5);
+
+  it.each([4, criticalSpeed])('上滑初速 %s 未正速冲出坡顶，保留滑回坡底的末态', speed => {
+    const motion = run({ ...uphill, initial: { speedMps: speed } });
+    const distance = speed ** 2 / (2 * aUp);
+    const returnSpeed = Math.sqrt(2 * aDown * distance);
+    const turnTime = speed / aUp;
+    expect(motion.durationSeconds).toBeCloseTo(turnTime + Math.sqrt(2 * distance / aDown), 12);
+    expect(motion.events.map(e => e.kind)).toEqual(['release', 'incline_turn', 'reach_bottom']);
+    expect(motion.segments.map(s => s.kind)).toEqual(['incline_slide']);
+    expect(motion.geometry.projectile).toBeUndefined();
+    expect(motion.endReason).toBe('returned_to_entry');
+    expect(motion.termination.eventId).toBe(motion.events[motion.events.length - 1].id);
+    state(motion.sampleAt(motion.events[1].timeSeconds), { xM: distance * Math.cos(theta), yM: distance * Math.sin(theta), vxMps: 0, vyMps: 0 });
+    state(motion.sampleAt(Infinity), { xM: 0, yM: 0, vxMps: -returnSpeed * Math.cos(theta), vyMps: -returnSpeed * Math.sin(theta) });
+  });
+
+  it('静摩擦足以让物块恰停坡顶时只保留停止事件', () => {
+    const motion = run({
+      ...uphill, initial: { speedMps: criticalSpeed },
+      stages: [{ ...slope, staticFrictionCoefficient: .8 }, uphill.stages[1]],
+    });
+    expect(motion.endReason).toBe('stop_at_target');
+    expect(motion.events.map(e => e.kind)).toEqual(['release', 'stop']);
+    expect(motion.geometry.projectile).toBeUndefined();
+    state(motion.sampleAt(Infinity), { xM: 2.5 * Math.cos(theta), yM: 2.5 * Math.sin(theta), vxMps: 0, vyMps: 0 });
+  });
+
+  it.each([8, criticalSpeed + 1e-10])('上滑初速 %s 正速过顶后真实接斜抛', speed => {
+    const motion = run({ ...uphill, initial: { speedMps: speed } });
+    const reach = motion.events[1], launch = motion.events[2];
+    expect([reach.kind, launch.kind]).toEqual(['reach_top', 'projectile_launch']);
+    expect(reach.timeSeconds).toBe(launch.timeSeconds);
+    expect(reach.velocityAfter).toEqual(launch.velocityBefore);
+    expect(launch.velocityAfter.vyMps).toBeGreaterThan(0);
+    expect(launch.velocityAfter.vyMps / launch.velocityAfter.vxMps).toBeCloseTo(Math.tan(theta), 12);
+    expect(motion.geometry.projectile?.launch).toEqual(motion.geometry.incline?.end);
+    expect(motion.endReason).toBe('landed');
+    expect(motion.events[motion.events.length - 1].kind).toBe('land');
+  });
+
   it.each([complete, fixedPlane])('两种地面都从檐口接斜向速度，首次落地速率为8', input => {
     const m = run(input), final = reference.cases[0].final!;
     expect(m.durationSeconds).toBeCloseTo(1.3928203230275509, 12);

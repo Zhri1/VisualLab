@@ -32,9 +32,9 @@ export function MultiBodyPlanEditor({draft,onChange,missingKeys,fieldErrors}:{dr
   const choices=(pairs:[unknown,string][])=>pairs.map(([value,label])=>({value,label}));
   const facts=[{value:true,label:'是'},{value:false,label:'否'}];
   const ref=(p:string,label:string)=>select(p,label,ids.map(id=>({value:id,label:id})));
-  function stage(s:Obj,path:string,owners:string[],index:number):React.ReactNode{
+  function stage(s:Obj,path:string,owners:string[],index:number,trackTail=false):React.ReactNode{
     const owner=owners.join(' + ')||'物体',kind=s.kind;
-    return <section className="stage-editor-card" data-stage-path={path} key={path}><p className="body-stage-title">{owner} · {kind==='pulley_system'?'轻绳与定滑轮':kind==='block_plank'?'滑块与可移动木板':kind==='horizontal_approach'?'水平接近':kind==='pendulum_swing'?'轻绳摆':kind==='horizontal_slide'?'水平滑动':kind==='projectile'?'抛体运动':kind==='collision_1d'?'水平正碰':'同步运动'}</p><table className="cond-table"><tbody>
+    return <section className="stage-editor-card" data-stage-path={path} key={path}><p className="body-stage-title">{owner} · {kind==='pulley_system'?'轻绳与定滑轮':kind==='block_plank'?'滑块与可移动木板':kind==='conveyor_belt'?'水平传送带':kind==='horizontal_approach'?'水平接近':kind==='pendulum_swing'?'轻绳摆':kind==='horizontal_slide'?'水平滑动':kind==='projectile'?'抛体运动':kind==='collision_1d'?'水平正碰':'同步运动'}</p><table className="cond-table"><tbody>
       {kind==='pulley_system'&&<>
         {ref(path+'/body1Id','支承/左侧物体 ID')}
         {ref(path+'/body2Id','右侧悬挂物体 ID')}
@@ -67,6 +67,13 @@ export function MultiBodyPlanEditor({draft,onChange,missingKeys,fieldErrors}:{dr
         {s.postCommonForce==null&&number(path+'/postCommonDurationSeconds','共速后继续观察时长','s','可选，留空则在共速处结束')}
       </>}
       {kind==null&&select(path+'/kind','待确认的运动阶段',choices(path.includes('/tracks/')?[['pendulum_swing','轻绳摆'],['horizontal_slide','水平滑动'],['projectile','抛体运动']]:horizontal&&index===0?[['horizontal_approach','水平接近']]:[['pendulum_swing','轻绳摆'],['collision_1d','正碰'],['parallel_motion','同时运动']]))}
+      {kind==='conveyor_belt'&&<>
+        {'inheritFromStageIndex'in s?<tr><td colSpan={3}>沿用阶段 1 的水平传送带参数，碰后继续在带面上受摩擦运动；未给地面时不生成落地。</td></tr>:<>
+          {number(path+'/beltLengthM','传送带长度 L','m')}
+          {number(path+'/initialBeltSpeedMps','传送带速度 v带','m/s','向右为正')}
+          {number(path+'/kineticFrictionCoefficient','动摩擦因数 μ','')}
+        </>}
+      </>}
       {kind==='horizontal_approach'&&<>
         {(list(s.tracks).length?list(s.tracks):ids.map(()=>({}))).map((tr,j)=><tr key={j}><td colSpan={3}><table className="cond-table"><tbody>{ref(path+`/tracks/${j}/bodyId`,`接近轨道${j+1} 物体 ID`)}{number(path+`/tracks/${j}/kineticFrictionCoefficient`,`${String(record(tr).bodyId??`轨道${j+1}`)} 接近摩擦 μ`,'')}</tbody></table></td></tr>)}
         {select(path+'/end/kind','接近阶段结束条件',choices([['contact_or_rest','实际接触或全体静止'],['time_limit','题给观察时长']]),v=>set(path+'/end',v==='time_limit'?{kind:v,durationSeconds:record(s.end).durationSeconds??null}:v?{kind:v}:null))}
@@ -80,12 +87,17 @@ export function MultiBodyPlanEditor({draft,onChange,missingKeys,fieldErrors}:{dr
           {select(path+'/pivotFixed','支点固定',facts)}{select(path+'/lightInextensibleString','轻且不可伸长的绳',facts)}{select(path+'/airResistanceNegligible','忽略空气阻力',facts)}
         </>}
         {select(path+'/end/kind',`${owner} 摆动范围`,choices(path.includes('/tracks/')?horizontal?[['scene_end','随其他物体到共同终点'],['first_turn','到首个转折'],['first_return_lowest','返回最低点']]:[['scene_end','随其他物体到共同终点']]:index===0?[['lowest_point','到最低点'],['first_turn','到首个转折'],['first_return_lowest','再次回到最低点']]:[['first_turn','到首个转折'],['first_return_lowest','返回最低点']]))}
+        {('peg'in s&&s.peg!=null)&&<>
+          {select(path+'/peg/side','同高侧向钉子位置',choices([['right','悬点 O 右侧'],['left','悬点 O 左侧']]))}
+          {number(path+'/peg/offsetXM','钉子水平距离 OP','m','临界反求时留空由物理库求解')}
+          {select(path+'/peg/criticalTopNonSlack','临界反求最小 OP（钉子正上方绳不松弛）',facts)}
+        </>}
         {select(path+'/slackContinuation/kind',`${owner} 松绳后`,choices([['end_at_slack','只播放到松绳'],['free_flight_until_retaut','自由飞行到再次张紧前']]),v=>set(path+'/slackContinuation',v==='free_flight_until_retaut'?{kind:v}:undefined))}
         <tr><td colSpan={3} className="body-note">未选择松绳后续时，只算到实际松绳处；再次张紧后尚未建模。</td></tr>
       </>}
       {kind==='horizontal_slide'&&<>
         {number(path+'/kineticFrictionCoefficient',`${owner} 动摩擦因数 μ`,'')}
-        {select(path+'/end/kind',`${owner} 水平结束条件`,choices([['distance','指定距离 / 桌沿'],['stop','摩擦停止']]),v=>set(path+'/end',v==='distance'?{kind:v,distanceM:record(s.end).distanceM??null}:v?{kind:v}:null))}
+        {select(path+'/end/kind',`${owner} 水平结束条件`,[...choices([['distance','指定距离 / 桌沿'],['stop','摩擦停止']]),...(trackTail?choices([['scene_end','光滑匀速至共同终点']]):[])],v=>set(path+'/end',v==='distance'?{kind:v,distanceM:record(s.end).distanceM??null}:v?{kind:v}:null))}
         {record(s.end).kind==='distance'&&number(path+'/end/distanceM',`${owner} 距目标 / 桌沿`,'m')}
       </>}
       {kind==='projectile'&&<>{number(path+'/landingPlaneYM',`${owner} 落地平面 y`,'m',horizontal?'沿用题面世界坐标，不重置碰撞点。':'与摆最低点共用世界坐标。')}
@@ -97,11 +109,12 @@ export function MultiBodyPlanEditor({draft,onChange,missingKeys,fieldErrors}:{dr
       </>}
       {kind==='collision_1d'&&<>
         {ref(path+'/bodyIds/0',horizontal?'碰撞第一物体 ID':'碰撞摆锤 ID')}{ref(path+'/bodyIds/1',horizontal?'碰撞第二物体 ID':'碰撞目标 ID')}
-        {horizontal?<>{select(path+'/contact/kind','接触来源',choices([['horizontal_meeting','由两条真实水平轨迹求接触']]))}{select(path+'/contact/approachStageIndex','引用接近阶段',[{value:0,label:'阶段1水平接近'}])}</>:select(path+'/contact/pendulumStageIndex','碰撞前的摆阶段',draft.stages.flatMap((st,i)=>i<index&&st.kind==='pendulum_swing'?[{value:i,label:`阶段${i+1}的最低点`}]:[]))}
-        {select(path+'/mode','碰撞模式',choices([['elastic','弹性碰撞'],['perfectly_inelastic','完全非弹性（粘连）']]),v=>{
+        {horizontal?<>{select(path+'/contact/kind','接触来源',choices([['horizontal_meeting','由两条真实水平轨迹求接触'],['conveyor_end','传送带末端与悬球正碰']]))}{record(s.contact).kind==='conveyor_end'?select(path+'/contact/conveyorStageIndex','引用传送带阶段',[{value:0,label:'阶段1水平传送带'}]):select(path+'/contact/approachStageIndex','引用接近阶段',[{value:0,label:'阶段1水平接近'}])}</>:select(path+'/contact/pendulumStageIndex','碰撞前的摆阶段',draft.stages.flatMap((st,i)=>i<index&&st.kind==='pendulum_swing'?[{value:i,label:`阶段${i+1}的最低点`}]:[]))}
+        {select(path+'/mode','碰撞模式',choices([['elastic','弹性碰撞'],['perfectly_inelastic','完全非弹性（粘连）'],['specified_post_velocity','题给某物体碰后速度（动量反求另一物体）']]),v=>{
           let next=replacePlanValue(draft,path+'/mode',v);const pair=list(s.bodyIds),after=draft.stages[index+1];
+          if(v==='specified_post_velocity'&&!s.knownPostVelocity){next=replacePlanValue(next,path+'/knownPostVelocity',{bodyId:pair[0]??null,vxMps:null});}
           if(horizontal){
-            if(after&&pair.length===2&&v){
+            if(after&&pair.length===2&&v&&v!=='specified_post_velocity'){
               const constraint=list(record(root.initial).bodies).map(record).find(b=>b.constraint!=null),constrained=constraint?.bodyId;
               const track=(owners:unknown[])=>({bodyIds:owners,stages:constrained&&owners.includes(constrained)?[{kind:'pendulum_swing',inheritFromBodyId:constrained,end:{kind:'scene_end'}}]:[{kind:'horizontal_slide',kineticFrictionCoefficient:null,end:{kind:'distance',distanceM:null}}]});
               next=replacePlanValue(next,`/stages/${index+1}`,{kind:'parallel_motion',tracks:v==='perfectly_inelastic'?[track(pair)]:pair.map(id=>track([id])),end:null});
@@ -113,6 +126,10 @@ export function MultiBodyPlanEditor({draft,onChange,missingKeys,fieldErrors}:{dr
             else if(v==='elastic')next=replacePlanValue(next,`/stages/${index+1}`,{kind:'parallel_motion',tracks:[{bodyIds:[pair[0]],stages:[{kind:'pendulum_swing',inheritFromStageIndex:inherited,end:{kind:'scene_end'}}]},{bodyIds:[pair[1]],stages:[{kind:'horizontal_slide',kineticFrictionCoefficient:null,end:{kind:'stop'}}]}],end:{kind:'all_finite_tracks'}});
           }onChange(next);
         })}
+        {s.mode==='specified_post_velocity'&&<>
+          {ref(path+'/knownPostVelocity/bodyId','已知碰后速度的物体 ID')}
+          {number(path+'/knownPostVelocity/vxMps','题给碰后水平速度 vₓ','m/s','向右为正，向左为负')}
+        </>}
         <tr><td colSpan={3} className="body-note">{horizontal?'切换模式会重建碰后轨道，请确认共同范围、摩擦与距离。法线可从不同初位推得；同点接触必须确认方向。':'切换模式会重建碰后范围：粘连先看到首转折；分离需确认目标摩擦。'}</td></tr>
         {horizontal?<>
           {select(path+'/normalXM','接触法线（同点须确认）',choices([[1,'第一物体指向第二物体：右'],[-1,'第一物体指向第二物体：左']]))}
@@ -127,11 +144,11 @@ export function MultiBodyPlanEditor({draft,onChange,missingKeys,fieldErrors}:{dr
         {select(path+'/externalImpulseNegligible','碰撞水平外冲量可忽略',facts)}
       </>}
       {kind==='parallel_motion'&&<>
-        {select(path+'/end/kind','共同播放终点',choices([['all_finite_tracks',horizontal?'有限轨道完成或先到物理边界':'目标轨道完成，摆继续取样'],['pendulum_turn','明确看到摆锤首转折']]),v=>{const pend=list(s.tracks).map(record).find(tr=>list(tr.stages).some(st=>record(st).kind==='pendulum_swing'));set(path+'/end',v==='pendulum_turn'?{kind:v,bodyId:list(pend?.bodyIds)[0]??null}:v?{kind:v}:null);})}
-        {record(s.end).kind==='pendulum_turn'&&ref(path+'/end/bodyId','结束时跟随的摆锤 ID')}
+        {select(path+'/end/kind','共同播放终点',choices([['all_finite_tracks',horizontal?'有限轨道完成或先到物理边界':'目标轨道完成，摆继续取样'],['pendulum_turn','明确看到摆锤首转折'],['pendulum_peg_top','摆锤到达钉子正上方最高点（不足时先松绳/转折）']]),v=>{const pend=list(s.tracks).map(record).find(tr=>list(tr.stages).some(st=>record(st).kind==='pendulum_swing'));set(path+'/end',v==='pendulum_turn'||v==='pendulum_peg_top'?{kind:v,bodyId:list(pend?.bodyIds)[0]??null}:v?{kind:v}:null);})}
+        {(record(s.end).kind==='pendulum_turn'||record(s.end).kind==='pendulum_peg_top')&&ref(path+'/end/bodyId','结束时跟随的摆锤 ID')}
       </>}
     </tbody></table>
-    {kind==='parallel_motion'&&list(s.tracks).map((track,j)=>{const tr=record(track),owners=list(tr.bodyIds).filter((v):v is string=>typeof v==='string');return <div className="body-track-editor" key={j}><table className="cond-table"><tbody>{list(tr.bodyIds).map((_id,k)=>ref(path+`/tracks/${j}/bodyIds/${k}`,`轨道${j+1} 物体${k+1} ID`))}</tbody></table>{list(tr.stages).map((leaf,k)=>stage(record(leaf),path+`/tracks/${j}/stages/${k}`,owners,index))}</div>;})}
+    {kind==='parallel_motion'&&list(s.tracks).map((track,j)=>{const tr=record(track),owners=list(tr.bodyIds).filter((v):v is string=>typeof v==='string');return <div className="body-track-editor" key={j}><table className="cond-table"><tbody>{list(tr.bodyIds).map((_id,k)=>ref(path+`/tracks/${j}/bodyIds/${k}`,`轨道${j+1} 物体${k+1} ID`))}</tbody></table>{list(tr.stages).map((leaf,k,leaves)=>stage(record(leaf),path+`/tracks/${j}/stages/${k}`,owners,index,k===leaves.length-1))}</div>;})}
     </section>;
   }
   const initial=record(root.initial),signed='tangentialSpeedMps'in initial;

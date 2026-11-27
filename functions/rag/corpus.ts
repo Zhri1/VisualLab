@@ -115,9 +115,9 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     title: "足够长粗糙斜面上滑与下滑加速度不对称往返",
     source: "高考经典母题 · 斜面往返动力学",
     difficulty: "中档",
-    stageSignature: ["incline_slide", "incline_slide"],
+    stageSignature: ["incline_slide"],
     tags: ["斜面上滑", "原路返回", "加速度不对称", "往返时间"],
-    stem: "足够长的粗糙斜面倾角 37°，动摩擦因数 μ = 0.25（最大静摩擦力等于滑动摩擦力）。质量 m = 1 kg 的物块从底端以 v₀ = 8 m/s 沿斜面向上冲出，g = 10 m/s²，求物块上滑的最大距离、返回底端时的速度及往返总时间。",
+    stem: "足够长的粗糙斜面倾角 θ 约为 37°（取 sinθ = 0.6、cosθ = 0.8），动摩擦因数 μ = 0.25（最大静摩擦力等于滑动摩擦力）。质量 m = 1 kg 的物块从底端以 v₀ = 8 m/s 沿斜面向上冲出，g = 10 m/s²，求物块上滑的最大距离、返回底端时的速度及往返总时间。",
     keyFormulas: [
       "a_上 = g(sinθ + μcosθ)，a_下 = g(sinθ - μcosθ)",
       "t_上 = v₀ / a_上，t_下 = √(2s_max / a_下)",
@@ -130,7 +130,7 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     solutionOutline:
       "上滑加速度 a_上 = 8 m/s²，经 t_上 = 1 s 到达最高点 s_max = 4 m。因 μ = 0.25 < tan37° = 0.75，物块加速下滑，a_下 = 4 m/s²，下滑时间 t_下 = √2 s，返回底端速度 v_返 = 4√2 m/s，往返总时间 (1 + √2) s。",
     planHint:
-      "stages: incline_slide(direction:'up', angleDeg:37, lengthM:null, μ:0.25) -> incline_slide(direction:'down', angleDeg:37, lengthM:4, μ:0.25)",
+      "stages: incline_slide(direction:'up', angleDeg:36.86989764584402, lengthM:null, kineticFrictionCoefficient:0.25, staticFrictionCoefficient:0.25)，整段自动求折返",
   },
   {
     id: "gk-incline-up-projectile-06",
@@ -226,7 +226,7 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     solutionOutline:
       "物块加速加速度 a = 2 m/s²，经 t_共 = 2 s 达共速 4 m/s，对地位移 x_物 = 4 m < 6 m，此后匀速运动 0.5 s。共速期间传送带位移 x_带 = 8 m，划痕 Δs = 4 m，摩擦生热 Q = 16 J，电动机多耗能 16 + 16 = 32 J。",
     planHint:
-      "stages: conveyor_belt(initialBeltSpeedMps:4, segments:[{a:0,dt:3}], μ:0.2, beltLengthM:6)",
+      "stages: conveyor_belt(initialBeltSpeedMps:4, kineticFrictionCoefficient:0.2, beltLengthM:6)，未给时长，按实际带端结束",
   },
   {
     id: "gk-conveyor-horizontal-segmented-10",
@@ -300,15 +300,12 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     difficulty: "拔高",
     stageSignature: [
       "conveyor_belt",
-      "lossless_turn",
       "incline_slide",
-      "incline_slide",
-      "lossless_turn",
       "conveyor_belt",
       "projectile",
     ],
     tags: ["水平传送带", "光滑斜面折返", "双向相对运动", "桌沿平抛"],
-    stem: "长 L = 3 m、距地面高 H = 1.25 m 的水平传送带左端悬空，右端平滑连接倾角 37°、足够长的光滑斜面。传送带以 v_带 = 4 m/s 逆时针（向左）匀速运行，质量 m = 1 kg 的物块以 v₀ = 6 m/s 从传送带左端向右滑上，物块与传送带间 μ = 0.2，g = 10 m/s²，求物块滑上斜面的最大位移及最终从左端平抛落地的水平射程。",
+    stem: "长 L = 3 m、距地面高 H = 1.25 m 的水平传送带左端悬空，右端平滑连接倾角 θ 约为 37°（取 sinθ = 0.6、cosθ = 0.8）、足够长的光滑斜面。传送带以 v_带 = 4 m/s 逆时针（向左）匀速运行，质量 m = 1 kg 的物块以 v₀ = 6 m/s 从传送带左端向右滑上，物块与传送带间 μ = 0.2，g = 10 m/s²，求物块滑上斜面的最大位移及最终从左端平抛落地的水平射程。",
     keyFormulas: [
       "右行减速：v_右² = v₀² - 2μgL",
       "光滑斜面折返：v_返 = v_右，s_斜 = v_右² / (2gsinθ)",
@@ -321,29 +318,29 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     solutionOutline:
       "右行受向左摩擦力 a = 2 m/s²，到达右端速度 v_右 = 2√6 m/s，冲上光滑斜面最大位移 s_斜 = 24/(2×6) = 2 m。原速返回传送带左端方向，因 2√6 > 4 m/s，先以 2 m/s² 减速 2 m 至共速 4 m/s，再匀速 1 m 从左端平抛，落地时间 0.5 s，水平射程 2 m。",
     planHint:
-      "stages: conveyor_belt(v:-4, L:3) -> lossless_turn -> incline_slide(up, μ:0) -> incline_slide(down, μ:0) -> lossless_turn -> conveyor_belt(v:-4, L:3) -> projectile(dropHeightM:1.25)",
+      "stages: conveyor_belt(initialBeltSpeedMps:-4, beltLengthM:3, kineticFrictionCoefficient:0.2, entryEdge:'start', continuationExitEdge:'end') -> incline_slide(direction:'up', lengthM:null, angleDeg:36.86989764584402, kineticFrictionCoefficient:0) -> conveyor_belt(initialBeltSpeedMps:-4, beltLengthM:3, kineticFrictionCoefficient:0.2, entryEdge:'end', continuationExitEdge:'start') -> projectile(dropHeightM:1.25)",
   },
   {
     id: "gk-incline-conveyor-projectile-14",
-    title: "光滑斜面滑下接逆向水平传送带后左端平抛",
-    source: "高考经典母题 · 斜面传送带平抛组合",
+    title: "光滑斜面滑下接逆向水平传送带后右端平抛",
+    source: "镜像变式 · 斜面传送带平抛组合",
     difficulty: "中档",
     stageSignature: ["incline_slide", "lossless_turn", "conveyor_belt", "projectile"],
     tags: ["斜面下滑", "逆向传送带", "匀减速出射", "平抛运动"],
-    stem: "倾角 30°、长 L₁ = 3.6 m 的光滑斜面底端平滑连接高 H = 1.25 m、长 L₂ = 4 m 的水平传送带右端，传送带左端悬空并以 v_带 = 2 m/s 顺时针（向右）匀速运行。质量 m = 1 kg 的物块从斜面顶端由静止释放，物块与传送带间 μ = 0.2，g = 10 m/s²，求物块离开传送带左端的速度及落地点距左端的水平距离。",
+    stem: "倾角 30°、长 L₁ = 3.6 m 的光滑斜面底端平滑连接高 H = 1.25 m、长 L₂ = 4 m 的水平传送带左端，传送带右端悬空，带面以 v_带 = 2 m/s 向左匀速运行。质量 m = 1 kg 的物块从斜面顶端由静止释放，物块与传送带间 μ = 0.2，g = 10 m/s²，求物块离开传送带右端的速度及落地点距右端的水平距离。",
     keyFormulas: [
       "v_底 = √(2gL₁·sinθ)",
-      "v_左² = v_底² - 2μgL₂",
-      "x = v_左·√(2H/g)",
+      "v_右² = v_底² - 2μgL₂",
+      "x = v_右·√(2H/g)",
     ],
     pitfalls: [
       "物块逆着传送带方向滑行时，只要未减速至零，全程均受与运动方向相反的滑动摩擦力",
-      "平抛初速度由传送带左端出射速度 v_左 决定，而非传送带自身速度 v_带",
+      "平抛初速度由传送带右端出射速度 v_右 决定，而非传送带自身速度 v_带",
     ],
     solutionOutline:
-      "物块从光滑斜面滑下得底端速度 v_底 = √(2×10×0.5×3.6) = 6 m/s（向左）。在向右运行的传送带上以 a = 2 m/s² 匀减速滑过 4 m，离开左端速度 v_左 = √(36 - 16) = 2√5 m/s。平抛落地用时 0.5 s，水平射程 x = √5 m。",
+      "物块从光滑斜面滑下得底端速度 v_底 = √(2×10×0.5×3.6) = 6 m/s（向右）。在向左运行的传送带上以 a = 2 m/s² 匀减速滑过 4 m，离开右端速度 v_右 = √(36 - 16) = 2√5 m/s。平抛落地用时 0.5 s，水平射程 x = √5 m。",
     planHint:
-      "stages: incline_slide(down, angleDeg:30, lengthM:3.6, μ:0) -> lossless_turn -> conveyor_belt(v:2, μ:0.2, beltLengthM:4) -> projectile(dropHeightM:1.25)",
+      "stages: incline_slide(down, angleDeg:30, lengthM:3.6, μ:0) -> lossless_turn -> conveyor_belt(initialBeltSpeedMps:-2, kineticFrictionCoefficient:0.2, beltLengthM:4, entryEdge:'start', continuationExitEdge:'end') -> projectile(dropHeightM:1.25)",
   },
 
   // =========================================================================
@@ -381,12 +378,12 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     stem: "质量 m = 1 kg 的小球置于半径 R = 0.8 m 的竖直光滑细圆管（等效轻杆模型，内外壁均可提供弹力）最低点，给小球水平初速度 v₀ = 6 m/s 使其沿管内做圆周运动，g = 10 m/s²，求小球到达最高点时的速度大小及圆管对小球作用力的大小与方向。",
     keyFormulas: [
       "½mv₀² = ½mv_顶² + mg·2R",
-      "轻杆/圆管最高点通过临界：v_顶min = 0（对应底端 v_底min = 2√(gR)）",
+      "轻杆/圆管从最低点出发的能量阈值为 v_底 = 2√(gR)，等号时以趋于零的速度渐近最高点，有限时间通过需 v_底 > 2√(gR)",
       "弹力方向分界 v = √(gR)：0 ≤ v < √(gR) 时受向上支持力，v > √(gR) 时受向下压力",
     ],
     pitfalls: [
       "套用单内轨公式导致 N = mv²/R - mg 算得负值后不知所措，负号正说明弹力竖直向上",
-      "混淆“恰好到达最高点（v = 0）”与“最高点弹力为零（v = √(gR)）”两个不同的临界状态",
+      "把能量阈值下渐近最高点的零速极限当作有限时间内真实到达，或把它与最高点速度为 √(gR) 时的零弹力混淆",
     ],
     solutionOutline:
       "由机械能守恒得最高点速度 v_顶 = √(36 - 32) = 2 m/s。因 v_顶 = 2 m/s < √(gR) = 2√2 m/s，所需向心力 mv_顶²/R = 5 N 小于重力 10 N，故圆管内壁对小球施加竖直向上的支持力 N = mg - mv_顶²/R = 5 N。",
@@ -400,7 +397,7 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     difficulty: "拔高",
     stageSignature: ["projectile", "vertical_arc", "horizontal_slide", "vertical_arc"],
     tags: ["平抛切向入轨", "无碰撞衔接", "粗糙水平段", "完整圆轨临界"],
-    stem: "质量 m = 1 kg 的小球从高台以水平初速度 v₀ = 3 m/s 抛出，恰好沿切线无碰撞进入圆心角 53°、半径 R₁ = 1.0 m 的竖直光滑圆弧轨道左端（入口切线与水平成 53°），滑至圆弧底端后经长 d = 2.0 m、μ = 0.2 的粗糙水平直轨，再平滑进入半径 R₂ = 0.5 m 的竖直光滑完整圆形内轨道，g = 10 m/s²，求平抛下落高度及小球能否通过圆形轨道最高点。",
+    stem: "质量 m = 1 kg 的小球从高台以水平初速度 v₀ = 3 m/s 抛出，恰好沿切线无碰撞进入圆心角 53°、半径 R₁ = 1.0 m 的竖直光滑圆弧轨道左端（53° 为标称值，入口切线倾角满足 sinθ = 4/5、cosθ = 3/5），滑至圆弧底端后经长 d = 2.0 m、μ = 0.2 的粗糙水平直轨，再平滑进入半径 R₂ = 0.5 m 的竖直光滑完整圆形内轨道，g = 10 m/s²，求平抛下落高度及小球能否通过圆形轨道最高点。",
     keyFormulas: [
       "切向无碰撞入轨：v_y = v₀·tanθ，h = v_y² / (2g)",
       "圆弧入口速度：v_A = v₀ / cosθ，下降高度 Δh₁ = R₁(1 - cosθ)",
@@ -411,9 +408,9 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
       "计算圆弧段重力做功时误把下降高度写成 R₁·sinθ，正确表达式为 R₁(1 - cosθ)",
     ],
     solutionOutline:
-      "由切向入轨得 v_y = 3×(4/3) = 4 m/s，下落高度 h = 0.8 m，入口速度 v_A = 5 m/s。沿圆弧下落 Δh₁ = 0.4 m，经 2 m 粗糙直轨损耗动能 8 J，得圆轨底端 v_C² = 25 + 8 - 8 = 25（v_C = 5 m/s），恰好满足 v_C = √(5gR₂)，能恰好通过圆轨最高点。",
+      "由切向入轨得 v_y = 3×(4/3) = 4 m/s，下落高度 h = 0.8 m，入口速度 v_A = 5 m/s。沿圆弧下落 Δh₁ = 0.4 m，经 2 m 粗糙直轨损耗动能 8 J，得圆轨底端 v_C² = 25 + 8 - 8 = 25（v_C = 5 m/s），恰好满足 v_C = √(5gR₂)，能恰好通过圆轨最高点，此时支持力为 0。",
     planHint:
-      "stages: projectile(end:{kind:'tangent_to_next_arc'}) -> vertical_arc(radiusM:1.0, endAngleDeg:53, side:'inside') -> horizontal_slide(μ:0.2, distanceM:2.0) -> vertical_arc(radiusM:0.5, side:'inside', fullLoop:true)",
+      "stages: projectile(end:{kind:'tangent_to_next_arc'}) -> vertical_arc(radiusM:1, side:'inside', frictionless:true, path:{startAngleDeg:-53.13010235415598, direction:'positive', end:{kind:'physical_endpoint', sweepAngleDeg:53.13010235415598} }) -> horizontal_slide(kineticFrictionCoefficient:0.2, end:{kind:'distance', distanceM:2}) -> vertical_arc(radiusM:0.5, side:'inside', frictionless:true, path:{startAngleDeg:0, direction:'positive', end:{kind:'observation', sweepAngleDeg:360} })",
   },
 
   // =========================================================================
@@ -517,25 +514,25 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
   },
   {
     id: "gk-movable-arc-recoil-projectile-22",
-    title: "可动光滑圆弧槽反冲人船位移接桌沿平抛",
-    source: "高考经典母题 · 人船模型与平抛综合",
+    title: "可动光滑圆弧槽反冲接桌沿平抛",
+    source: "拟题变式 · 水平动量守恒与平抛",
     difficulty: "中档",
-    stageSignature: ["movable_arc", "projectile"],
-    tags: ["可移动圆弧槽", "人船模型", "反冲位移", "桌沿平抛"],
-    stem: "光滑水平台面距地面高 H = 1.25 m，质量 M = 2 kg、半径 R = 0.6 m 的四分之一光滑圆弧槽静置于台面上可自由滑动，槽底左端恰好与台面左沿对齐。质量 m = 1 kg 的小球从槽顶（切线竖直）由静止释放，滑离槽底后立即从台面左沿水平飞出落地，g = 10 m/s²，求小球离槽时槽的反冲位移及小球平抛的水平射程。",
+    stageSignature: ["movable_arc", "horizontal_slide", "projectile"],
+    tags: ["可移动圆弧槽", "水平动量守恒", "光滑水平匀速", "桌沿平抛"],
+    stem: "光滑水平台面距地面高 H = 1.25 m，质量 M = 2 kg、半径 R = 0.6 m 的四分之一光滑圆弧槽静置于台面上，可自由滑动。质量 m = 1 kg 的小球从槽顶（切线竖直）由静止释放，从槽底向左离槽时，离槽点距台面左沿 d = 0.35 m。小球随后沿台面滑到桌沿并水平飞出落地，g = 10 m/s²。求小球从离槽到落地的总时间，以及落地点到桌沿的水平距离。",
     keyFormulas: [
-      "人船模型反冲位移：x_槽 = mR / (M + m)，x_球 = MR / (M + m)",
-      "离槽球速：v_球 = √[2gRM / (M + m)]",
-      "平抛射程：x = v_球·√(2H/g)",
+      "联立水平动量守恒与机械能守恒：m v_球 = M v_槽，mgR = ½m v_球² + ½M v_槽²",
+      "总时间为台面匀速滑行时间与平抛时间之和：t = d/v_球 + √(2H/g)",
+      "从桌沿量起的平抛射程：x = v_球·√(2H/g)",
     ],
     pitfalls: [
       "错把固定圆弧槽速度 √(2gR) 套用于可动圆弧槽，忽略槽获得反冲动能导致球速变小",
-      "人船模型中 x_槽 + x_球 = R，位移与质量成反比，不可把槽与球的质量位置写反",
+      "从离槽到落地包含台面滑行与空中飞行两段，平抛射程从桌沿起算",
     ],
     solutionOutline:
-      "球槽水平动量守恒，由人船模型得圆弧槽向右反冲位移 x_槽 = 1×0.6/3 = 0.2 m。联立能量守恒得小球离槽水平速度 v_球 = √(2×10×0.6×2/3) = 2√2 m/s。小球从高 1.25 m 桌沿平抛落地用时 0.5 s，水平射程 √2 ≈ 1.41 m。",
+      "联立水平动量守恒和机械能守恒，得离槽球速 2√2 m/s，方向向左。小球以该速度滑过题给的 0.35 m，到桌沿用时 0.35/(2√2) s。平抛用时 0.5 s，从离槽到落地共约 0.624 s。落地点到桌沿的水平距离为 √2 m，约 1.41 m。",
     planHint:
-      "stages: movable_arc(radiusM:0.6, grooveMassKg:2.0, exitDirection:-1) -> projectile(dropHeightM:1.25)",
+      "stages: movable_arc(radiusM:0.6, grooveMassKg:2.0, exitDirection:-1) -> horizontal_slide(kineticFrictionCoefficient:0, end:{kind:'distance', distanceM:0.35}) -> projectile(dropHeightM:1.25)",
   },
 
   // =========================================================================
@@ -561,7 +558,7 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     solutionOutline:
       "A 匀速运动 0.2 s 撞上静止的 B。由一维弹性碰撞公式得 v₁' = -2 m/s（向左反弹）、v₂' = 4 m/s（向右）。B 沿桌面右行 0.8 m（用时 0.2 s）到达桌沿水平飞出，落地用时 0.5 s，水平射程 x_B = 4×0.5 = 2.0 m。",
     planHint:
-      "stages: horizontal_approach(μ:0) -> collision_1d(mode:'elastic') -> parallel_motion(A:horizontal_slide, B:horizontal_slide(0.8)->projectile(landingPlaneYM:-1.25))",
+      "initial.bodies 按题给 A、B 的 xM / vxMps；stages: horizontal_approach(tracks 中两物体的 kineticFrictionCoefficient 均为 0, end:{kind:'contact_or_rest'}) -> collision_1d(mode:'elastic', contact:{kind:'horizontal_meeting', approachStageIndex:0}) -> parallel_motion(A:horizontal_slide(kineticFrictionCoefficient:0, end:{kind:'scene_end'}), B:horizontal_slide(kineticFrictionCoefficient:0, end:{kind:'distance', distanceM:0.8})->projectile(landingPlaneYM:-1.25), end:{kind:'all_finite_tracks'})",
   },
   {
     id: "gk-horizontal-inelastic-collision-heat-24",
@@ -596,7 +593,7 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     difficulty: "中档",
     stageSignature: ["pendulum_swing", "collision_1d", "parallel_motion"],
     tags: ["轻绳单摆", "最低点张力", "弹性正碰", "碰后上摆高度"],
-    stem: "长 L = 0.8 m 的不可伸长轻绳上端固定于 O 点，下端系质量 m₁ = 1 kg 的小球 A。将 A 拉至轻绳水平（偏角 90°）由静止释放，摆至最低点时与静置于光滑水平面上的质量 m₂ = 3 kg 的小球 B 发生弹性正碰，g = 10 m/s²，求碰前瞬间轻绳拉力、碰后两球速度及 A 反弹上摆的最大高度。",
+    stem: "长 L = 0.8 m 的不可伸长轻绳上端固定于 O 点，下端系质量 m₁ = 1 kg 的小球 A。将 A 拉至支点左侧的水平位置（偏角 90°）由静止释放，摆至最低点时与静置于光滑水平面上的质量 m₂ = 3 kg 的小球 B 发生弹性正碰，g = 10 m/s²，求碰前瞬间轻绳拉力、碰后两球速度及 A 反弹上摆的最大高度。",
     keyFormulas: [
       "下摆机械能守恒：v₁ = √(2gL)",
       "最低点张力：T = m₁g + m₁v₁²/L（90° 释放时 T = 3m₁g）",
@@ -609,14 +606,14 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     solutionOutline:
       "A 从水平位置下摆至最低点速度 v₁ = √(2×10×0.8) = 4 m/s，碰前张力 T = 10 + 16/0.8 = 30 N。与 m₂ = 3 kg 的 B 弹性正碰后，v₁' = -2 m/s、v₂' = 2 m/s；B 向右匀速运动，A 向左反弹上摆的最大高度 h = 4/20 = 0.2 m。",
     planHint:
-      "stages: pendulum_swing(lengthM:0.8, initialAngleDeg:90, end:'lowest_point') -> collision_1d(mode:'elastic') -> parallel_motion(A:pendulum_swing(end:'first_turn'), B:horizontal_slide(μ:0))",
+      "stages: pendulum_swing(lengthM:0.8, initialAngleDeg:-90, end:{kind:'lowest_point'}) -> collision_1d(mode:'elastic') -> parallel_motion(A:pendulum_swing(inheritFromStageIndex:0, end:{kind:'scene_end'}), B:horizontal_slide(kineticFrictionCoefficient:0, end:{kind:'scene_end'}), end:{kind:'pendulum_turn', bodyId:'A'})",
   },
   {
     id: "gk-pendulum-inelastic-slack-26",
     title: "单摆最低点迎面完全非弹性碰撞与上摆松绳临界",
     source: "高考压轴母题 · 单摆碰撞与松绳临界",
     difficulty: "拔高",
-    stageSignature: ["pendulum_swing", "collision_1d", "parallel_motion"],
+    stageSignature: ["pendulum_swing", "collision_1d", "pendulum_swing"],
     tags: ["轻绳单摆", "完全非弹性碰撞", "松绳临界", "竖直圆周"],
     stem: "长 L = 0.8 m 的不可伸长轻绳上端固定于 O 点，下端系质量 m₁ = 1 kg 的小球 A。将 A 拉至左侧水平位置（偏角 90°）由静止释放，摆至最低点时与沿光滑水平面向左以 14 m/s 迎面驶来的质量 m₂ = 1 kg 的滑块 B 发生完全非弹性碰撞并粘为一体，随后共同绕 O 点向左上方摆动，g = 10 m/s²，判断粘连体能否做完整圆周运动并求轻绳恰好松弛时绳与竖直向上方向的夹角余弦值。",
     keyFormulas: [
@@ -631,7 +628,7 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     solutionOutline:
       "A 摆至最低点向右速度 4 m/s，与向左 14 m/s 的 B 粘连得共同向左速度 v_共 = 5 m/s。因 2gL = 16 < 25 < 5gL = 40，不能做完整圆周运动而在上半圆松绳。联立 T = 0 与机械能守恒得 3gL·cosα = v_共² - 2gL = 9，解得 cosα = 9/24 = 0.375。",
     planHint:
-      "stages: pendulum_swing(lengthM:0.8, initialAngleDeg:90, end:'lowest_point') -> collision_1d(mode:'perfectly_inelastic', targetVx:-14) -> parallel_motion(AB:pendulum_swing(end:'first_turn'))",
+      "stages: pendulum_swing(lengthM:0.8, initialAngleDeg:-90, end:{kind:'lowest_point'}) -> collision_1d(mode:'perfectly_inelastic', targetApproach:{kind:'uniform_horizontal', velocityXMps:-14, endsAtContact:true}) -> pendulum_swing(bodyIds:['A','B'], inheritFromStageIndex:0, end:{kind:'first_turn'})；实际先到松绳时结束，不填写松绳续段",
   },
 
   // =========================================================================
@@ -736,7 +733,7 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     difficulty: "中档",
     stageSignature: ["pulley_system"],
     tags: ["定滑轮连接体", "粗糙桌面", "整体法隔离法", "松绳滑停"],
-    stem: "粗糙水平桌面（动摩擦因数 μ = 0.2）上静置质量 m₁ = 3 kg 的物块 A，经平行于桌面的轻绳绕过桌边理想定滑轮与竖直悬挂的质量 m₂ = 2 kg 的物块 B 相连，A 距滑轮足够远，B 距地面高 h = 1.4 m，由静止释放，g = 10 m/s²，求 B 下落过程中的加速度、轻绳张力及 B 落地后 A 在桌面上继续滑行的距离。",
+    stem: "粗糙水平桌面（动摩擦因数 μₖ = 0.2）上静置质量 m₁ = 3 kg 的物块 A，经平行于桌面的轻绳绕过桌边理想定滑轮与竖直悬挂的质量 m₂ = 2 kg 的物块 B 相连，A 距滑轮足够远，B 距地面高 h = 1.4 m，由静止释放后 B 向下运动，g = 10 m/s²，求 B 下落过程中的加速度、轻绳张力及 B 落地后 A 在桌面上继续滑行的距离。",
     keyFormulas: [
       "a = (m₂g - μm₁g) / (m₁ + m₂)",
       "T = m₂(g - a) = m₁(a + μg)",
@@ -749,7 +746,7 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     solutionOutline:
       "整体法得加速度 a = (20 - 6)/(3 + 2) = 2.8 m/s²，轻绳张力 T = 2×(10 - 2.8) = 14.4 N。B 下落 1.4 m 用时 t = √(2×1.4/2.8) = 1.0 s，落地速度 v = 2.8 m/s；此后轻绳松弛，A 在桌面以 2 m/s² 减速滑行 s = 7.84/4 = 1.96 m 停下。",
     planHint:
-      "stages: pulley_system(body1Mass:3, body2Mass:2, surface:{kind:'horizontal', μ:0.2}, body2DropToGroundM:1.4)",
+      "bodies 分别给 A 的 massKg:3、B 的 massKg:2；stages: pulley_system(body1Id:'A', body2Id:'B', surface:{kind:'horizontal', kineticFrictionCoefficient:0.2, slidesAfterRelease:true}, body2DropToGroundM:1.4)",
   },
   {
     id: "gk-pulley-incline-slack-32",
@@ -758,7 +755,7 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     difficulty: "拔高",
     stageSignature: ["pulley_system"],
     tags: ["斜面定滑轮", "连接体", "落地松绳", "二次匀减速上滑"],
-    stem: "倾角 37°、足够长的粗糙斜面（μ = 0.25）上静置质量 m₁ = 2 kg 的物块 A，经平行于斜面的轻绳绕过斜面顶端理想定滑轮与竖直悬挂的质量 m₂ = 3 kg 的物块 B 相连，B 距地面高 h = 1.4 m，由静止释放，g = 10 m/s²，求 B 落地瞬间的速度大小及落地松绳后 A 沿斜面继续上滑的最大距离。",
+    stem: "倾角约 37°（sinθ = 3/5、cosθ = 4/5）、足够长的粗糙斜面（动摩擦因数 μₖ = 0.25）上静置质量 m₁ = 2 kg 的物块 A，经平行于斜面的轻绳绕过斜面顶端理想定滑轮与竖直悬挂的质量 m₂ = 3 kg 的物块 B 相连，B 距地面高 h = 1.4 m，由静止释放后 B 向下运动，g = 10 m/s²，求 B 落地瞬间的速度大小及落地松绳后 A 沿斜面继续上滑的最大距离。",
     keyFormulas: [
       "拉动阶段：a₁ = [m₂g - m₁g(sinθ + μcosθ)] / (m₁ + m₂)",
       "松绳阶段：a₂ = g(sinθ + μcosθ)",
@@ -766,11 +763,11 @@ export const PHYSICS_RAG_CORPUS: readonly RagKnowledgeEntry[] = [
     ],
     pitfalls: [
       "B 落地松绳后，A 沿斜面继续上滑时摩擦力仍沿斜面向下，减速加速度为 g(sinθ + μcosθ) 而非 gsinθ",
-      "容易漏判启动条件：须先确认 m₂g > m₁g(sinθ + μ_s·cosθ) 才会向上加速",
+      "题面已给 B 从静止向下运动；若没有起动事实，须有静摩擦信息才能判定启动",
     ],
     solutionOutline:
       "A 上滑阻力 m₁g(sin37° + μcos37°) = 16 N < m₂g = 30 N，系统加速 a₁ = (30 - 16)/5 = 2.8 m/s²。B 下落 1.4 m 用时 1.0 s，落地速率 v = 2.8 m/s。松绳后 A 以 a₂ = 8 m/s² 沿斜面匀减速上滑，继续上滑距离 s₂ = 7.84/16 = 0.49 m，总上滑距离 1.89 m。",
     planHint:
-      "stages: pulley_system(body1Mass:2, body2Mass:3, surface:{kind:'incline', angleDeg:37, μ:0.25}, body2DropToGroundM:1.4)",
+      "bodies 分别给 A 的 massKg:2、B 的 massKg:3；stages: pulley_system(body1Id:'A', body2Id:'B', surface:{kind:'incline', angleDeg:36.86989764584402, kineticFrictionCoefficient:0.25, slidesAfterRelease:true}, body2DropToGroundM:1.4)",
   },
 ];

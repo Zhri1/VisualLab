@@ -1,12 +1,14 @@
 // 由 scripts/sync-functions.mjs 从 src/physics/circularArc.ts 复制生成，请勿手改。
 // 改动请改源文件后重新运行：node scripts/sync-functions.mjs
-import { integrate } from './quadrature.ts';
+import { criticalRodArc, rodLimitSpeedRatio } from './criticalRodArc.ts';
+import { integrate, integrateAdaptive } from './quadrature.ts';
 import type { StageSample, VerticalArcGeometry } from './arcTypes.ts';
 export type ExplicitArcPath = {
   center?: {xM:number;yM:number}; startAngleDeg:number; direction:'positive'|'negative';
   end:{kind:'physical_endpoint'|'observation';sweepAngleDeg:number};
 };
 export type CircularStage = {kind:'vertical_arc';radiusM:number;side?:'inside'|'rod';path:ExplicitArcPath};
+type CircularMarker = {kind:string;time:number;state:StageSample};
 export class CircularRangeError extends RangeError { field: string; constructor(message:string,field:string){super(message);this.field=field;} }
 const near=(a:number,b:number)=>Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<=16*Number.EPSILON*Math.max(Math.abs(a),Math.abs(b),Number.MIN_VALUE);
 export function arcTrig(phi:number){
@@ -56,13 +58,17 @@ export function solveCircularArc(stage:CircularStage,start:StageSample,g:number,
   const u=Math.hypot(start.vxMps,start.vyMps),entry=circularEntry(stage,u,g,m,index,start),geometry=circularGeometry(stage,index,start);
   const t0=arcTrig(phi0),unit=Math.sqrt(R)*Math.sqrt(g),scale=Math.sqrt(R)/Math.sqrt(g),r=(u/unit)**2;
   let h=r-2*t0.cos;
-  for(const b of isRod?[0,2]:[0,3])if(near(h,b))h=b;
+  for(const b of [0,3])if(near(h,b))h=b;
   // h接近0时用能量比的量级吸收抵消误差，绝不使用无穷大的容差。
   if(Math.abs(h)<=16*Number.EPSILON*Math.max(r,Math.abs(2*t0.cos)))h=0;
+  const rodEntryLimit=rodLimitSpeedRatio(phi0);
+  const rodEnergyExcess=near(r,rodEntryLimit)?0:r-rodEntryLimit;
   const k2=h===0?.5:r/4+Math.sin(phi0/2)**2,k=Math.sqrt(k2);
-  const rodCriticalTop=isRod&&Math.abs(k2-1)<=1e-9;
-  const effR=rodCriticalTop?r+1e-6:r;
-  const ratioAt=(phi:number)=>rodCriticalTop?effR-4*Math.sin((phi+phi0)/2)*Math.sin((phi-phi0)/2):h===3&&!isRod?1+4*Math.cos(phi/2)**2:h===0?2*arcTrig(phi).cos:r-4*Math.sin((phi+phi0)/2)*Math.sin((phi-phi0)/2);
+  const ratioAt=(phi:number)=>{
+    if(isRod)return Math.abs(rodEnergyExcess)<1?rodEnergyExcess+rodLimitSpeedRatio(phi):r-4*Math.sin((phi+phi0)/2)*Math.sin((phi-phi0)/2);
+    if(h===3)return 1+4*Math.cos(phi/2)**2;
+    return h===0?2*arcTrig(phi).cos:r-4*Math.sin((phi+phi0)/2)*Math.sin((phi-phi0)/2);
+  };
   const at=(phi:number,q:number,constrained=true):StageSample=>{
     const t=arcTrig(phi);
     const rawN=m*g*(!isRod&&h===3?t.cos===-1?0:6*Math.cos(phi/2)**2:(q/unit)**2+t.cos);
@@ -73,38 +79,64 @@ export function solveCircularArc(stage:CircularStage,start:StageSample,g:number,
         ...(isRod?{forceRole:(rodN>0?'pull':rodN<0?'support':'none') as 'pull'|'support'|'none'}:{}),
         normalDirection:isRod&&rodN<0?{x:t.sin||0,y:-t.cos||0}:{x:-t.sin||0,y:t.cos}}}:{})};};
   if(u===0&&t0.sin===0){geometry.actualExit={position:{xM:entry.xM,yM:entry.yM},angleDeg:p.startAngleDeg,reason:'stationary'};
-    return{geometry,entry,boundary:entry,end:entry,duration:0,ascentSeconds:0,returns:false,markers:[] as {kind:string;time:number;state:StageSample}[],sampleAt:()=>({...entry})};}
+    return{geometry,entry,boundary:entry,end:entry,duration:0,ascentSeconds:0,returns:false,markers:[] as CircularMarker[],sampleAt:()=>({...entry})};}
   const angleSpan=d*(planned-phi0),tol=16*Number.EPSILON*Math.max(1,Math.abs(phi0),Math.abs(planned));
-  function nextRoot(cosine:number,uphill:boolean){
-    if(cosine < -1||cosine>1)return Infinity;
-    const a=Math.acos(cosine),candidates:number[]=[];
+  if (isRod && rodEnergyExcess === 0) {
+    const critical = criticalRodArc(phi0, planned, scale, unit);
+    const { approachingTop, duration, endAngle, lowestAngle } = critical;
+    if (!(duration > 0) || !Number.isFinite(duration)) throw new RangeError('圆轨时长无法表示。');
+    const remains = approachingTop || p.end.kind === 'observation';
+    const boundary = at(endAngle, critical.speedAt(endAngle));
+    const end = remains ? boundary : at(endAngle, critical.speedAt(endAngle), false);
+    geometry.actualExit = { position: { xM: end.xM, yM: end.yM }, angleDeg: endAngle * 180 / Math.PI, reason: remains ? 'range_end' : 'endpoint' };
+    const markers: CircularMarker[] = [];
+    if (d * (lowestAngle - phi0) > tol && d * (endAngle - lowestAngle) >= 0) {
+      markers.push({ kind: 'arc_lowest', time: lowestAngle === endAngle ? duration : critical.timeAt(lowestAngle), state: at(lowestAngle, critical.speedAt(lowestAngle)) });
+    }
+    return {
+      geometry, entry, boundary, end, duration, ascentSeconds: duration, returns: false, markers, approachingTop,
+      sampleAt(time: number) {
+        if (time <= 0) return { ...entry };
+        if (time >= duration) return { ...end };
+        const phi = critical.angleAt(time);
+        return at(phi, critical.speedAt(phi));
+      },
+    };
+  }
+  function nextRoot(a:number){
+    if(!Number.isFinite(a))return Infinity;
+    const candidates:number[]=[];
     for(let n=-2;n<=2;n++)for(const base of [a,-a]){const phi=base+2*Math.PI*n,s=d*(phi-phi0);
-      if(s>=-tol&&s<=angleSpan+tol&&(!uphill||d*arcTrig(phi).sin>0)){
+      if(s>=-tol&&s<=angleSpan+tol&&d*arcTrig(phi).sin>0){
         // 零速释放的入口本身不是后续转折。
         if(s<=tol&&u===0)continue;
         candidates.push(Math.max(0,s));
       }}
     return candidates.length?Math.min(...candidates):Infinity;
   }
-  const turnSpan=!rodCriticalTop&&k<1?nextRoot(1-2*k2,true):Infinity;
-  const lossSpan=isRod?Infinity:(h>0&&h<3?nextRoot(-h/3,true):Infinity);
+  const transformed=isRod?rodEnergyExcess<0:k<1;
+  const turnAngle=isRod ? (rodEnergyExcess>-2 ? Math.PI-2*Math.asin(Math.sqrt(-rodEnergyExcess)/2) : 2*Math.asin(k)) : Math.acos(1-2*k2);
+  const turnSpan=transformed?nextRoot(turnAngle):Infinity;
+  const lossSpan=isRod?Infinity:(h>0&&h<3?nextRoot(Math.acos(-h/3)):Infinity);
   const returns=turnSpan<=angleSpan+tol&&turnSpan<=lossSpan+tol;
   const loses=!returns&&Number.isFinite(lossSpan)&&(lossSpan<angleSpan-tol||p.end.kind==='observation'&&lossSpan<=angleSpan+tol);
   const endSpan=returns?turnSpan:loses?lossSpan:angleSpan,phiEnd=phi0+d*endSpan;
-  const transformed=!rodCriticalTop&&k<1,well=2*Math.PI*Math.round(phi0/(2*Math.PI));
+  const well=2*Math.PI*Math.round(phi0/(2*Math.PI));
   const parameter=(phi:number)=>transformed?Math.asin(Math.max(-1,Math.min(1,Math.sin((phi-well)/2)/k))):phi;
   const a=parameter(phi0),b=returns?d*Math.PI/2:parameter(phiEnd),length=Math.abs(b-a);
-  const f=(s:number)=>{const v=a+d*s;return transformed?scale/Math.sqrt(1-k2*Math.sin(v)**2):scale/Math.sqrt(ratioAt(v));};
+  const oneMinusK2=isRod?-rodEnergyExcess/4:1-k2;
+  const f=(s:number)=>{const v=a+d*s;return transformed?scale/Math.sqrt(Math.cos(v)**2+oneMinusK2*Math.sin(v)**2):scale/Math.sqrt(ratioAt(v));};
+  const integrateRange=isRod?integrateAdaptive:integrate;
   const n=96,step=length/n,sums=[0];
-  for(let i=0;i<n;i++)sums.push(sums[i]+integrate(f,i*step,(i+1)*step));
+  for(let i=0;i<n;i++)sums.push(sums[i]+integrateRange(f,i*step,(i+1)*step));
   const ascentSeconds=sums[n],duration=ascentSeconds*(returns?2:1);
   if(!Number.isFinite(duration)||duration<0||duration===0&&endSpan>0)throw new RangeError('圆轨时长无法表示。');
   const timeFor=(phi:number)=>{
     if(phi===phi0)return 0;if(phi===phiEnd||near(phi,phiEnd))return ascentSeconds;
     const value=Math.abs(parameter(phi)-a),cell=Math.min(n-1,Math.floor(value/step));
-    return sums[cell]+integrate(f,cell*step,value);
+    return sums[cell]+integrateRange(f,cell*step,value);
   };
-  const exactSpeedAt=(phi:number)=>rodCriticalTop&&arcTrig(phi).cos===-1?0:unit*Math.sqrt(Math.max(0,ratioAt(phi)));
+  const exactSpeedAt=(phi:number)=>unit*Math.sqrt(Math.max(0,ratioAt(phi)));
   const qEnd=returns?0:d*exactSpeedAt(phiEnd);
   const boundary=at(phiEnd,qEnd);
   if(loses)boundary.constraint!.normalForceN=0;
@@ -117,12 +149,12 @@ export function solveCircularArc(stage:CircularStage,start:StageSample,g:number,
     const back=returns&&time>ascentSeconds,target=back?duration-time:time;
     let lo=0,hi=n;while(hi-lo>1){const j=(lo+hi)>>>1;if(sums[j]<=target)lo=j;else hi=j;}
     const base=lo*step;let left=base,right=hi*step;
-    for(let j=0;j<44;j++){const mid=(left+right)/2;if(sums[lo]+integrate(f,base,mid)<target)left=mid;else right=mid;}
+    for(let j=0;j<44;j++){const mid=(left+right)/2;if(sums[lo]+integrateRange(f,base,mid)<target)left=mid;else right=mid;}
     const z=a+d*(left+right)/2,phi=transformed?well+2*Math.asin(Math.max(-1,Math.min(1,k*Math.sin(z)))):z;
     const magnitude=transformed?2*unit*k*Math.cos(z):unit*Math.sqrt(Math.max(0,ratioAt(phi)));
     return at(phi,(back?-d:d)*magnitude);
   }
-  const markers:{kind:string;time:number;state:StageSample}[]=[];
+  const markers:CircularMarker[]=[];
   for(let j=-3;j<=4;j++){const phi=j*Math.PI,s=d*(phi-phi0);if(s>tol&&s<=endSpan+tol){const time=timeFor(phi),state=at(phi,returns&&near(phi,phiEnd)?0:d*exactSpeedAt(phi));
     markers.push({kind:j%2?'arc_top':'arc_lowest',time,state});
     if(returns&&time<ascentSeconds)markers.push({kind:j%2?'arc_top':'arc_lowest',time:duration-time,state:at(phi,-d*exactSpeedAt(phi))});

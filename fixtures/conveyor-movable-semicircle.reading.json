@@ -1,0 +1,34 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "massKg": 0.2,
+  "initial": { "speedMps": 0 },
+  "stages": [
+    {
+      "kind": "incline_slide",
+      "lengthM": 1.6,
+      "angleDeg": 30,
+      "kineticFrictionCoefficient": 0,
+      "slidesAfterRelease": true,
+      "startLabel": "P",
+      "endLabel": "B"
+    },
+    { "kind": "lossless_turn", "lossless": true },
+    {
+      "kind": "conveyor_belt",
+      "initialBeltSpeedMps": 5,
+      "kineticFrictionCoefficient": 0.25,
+      "lengthSufficientForCommonSpeed": true
+    },
+    {
+      "kind": "movable_semicircle",
+      "radiusM": 0.36,
+      "grooveMassKg": 1.8,
+      "direction": "right",
+      "frictionless": true,
+      "groundFrictionless": true,
+      "startLabel": "C"
+    }
+  ]
+}

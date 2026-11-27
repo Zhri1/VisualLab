@@ -170,11 +170,14 @@ export function WorkspaceLayout({ ws }: Props) {
     constant_force_1d: "常力",
     conveyor_belt: "传送带",
     movable_arc: "可移动圆弧槽",
+    movable_semicircle: "可平动半圆轨道",
     spring_pair: "弹簧双球",
     spring_contact: "弹簧",
     projectile: "抛体",
     vertical_arc: "圆弧",
     magnetic_deflection: "匀强磁场偏转",
+    switchable_em_collision: "分区电磁场与正碰",
+    magnetic_reencounter: "磁场双粒子正碰与再相遇",
   } as const;
   const title = stagePlan
     ? stagePlan.stages.map((stage) => stageLabels[stage.kind as keyof typeof stageLabels] ?? "未知阶段").join(" · ")

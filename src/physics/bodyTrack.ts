@@ -16,6 +16,17 @@ const pos=(s:Scalar)=>({xM:s.xM,yM:s.yM});
       const path=`/stages/2/tracks/${track}/stages/${i}`,start={...current};let dt=0,end:Scalar,at:(t:number)=>Scalar;
       if(stage.kind==='horizontal_slide'){
         const u=Math.abs(current.vxMps),sign=Math.sign(current.vxMps),a=stage.kineticFrictionCoefficient*g;
+        if(stage.end.kind==='scene_end'){
+          // 共同终点由外层并行求解。这里只提供可按有限时刻取样的匀速运动。
+          pieces.push({start:t,end:Infinity,x:start.xM,y:start.yM,vx:start.vxMps,vy:0,ax:0,ay:0});
+          segs.push({kind:stage.kind,bodyIds:ids,stagePath:path,stageIndex:2,startSeconds:t,endSeconds:Infinity});
+          geoms.push({start:t,value:{bodyIds:ids,stagePath:path,horizontal:{start:pos(start),plannedEnd:null}}});
+          return {duration:Infinity,reason:'prefix_end',track,pieces,segments:segs,events:es,geometry:geoms,at(age:number):Scalar{
+            if(age>=t)return {...linearState(start.xM,start.yM,start.vxMps,0,0,0,age-t),status:u===0?'resting':'moving'};
+            const run=runs.find(r=>age>=r.start&&age<r.end);
+            return run?run.at(age-run.start):start;
+          }};
+        }
         const distance=stage.end.kind==='distance'?stage.end.distanceM:null,stopDistance=a>0?u*u/(2*a):Infinity;
         const stops=u===0||distance===null||stopDistance<distance||close(stopDistance,distance);
         if(distance===null&&a===0&&u>0)throw new PlanError(path+'/end','光滑面上的非零速度不能因摩擦停止。');
@@ -43,5 +54,5 @@ const pos=(s:Scalar)=>({xM:s.xM,yM:s.yM});
     }
     const final={...current};
     if(final.status==='resting')pieces.push({start:t,end:Infinity,x:final.xM,y:final.yM,vx:0,vy:0,ax:0,ay:0});
-    return {duration:t,reason,track,pieces,segments:segs,events:es,geometry:geoms,at(age:number):Scalar{if(age>=t)return {...final};const r=runs.find(r=>age>=r.start&&age<r.end);return r?r.at(age-r.start):{...final};}};
+    return {duration:t,reason,track,pieces,segments:segs,events:es,geometry:geoms,at(age:number):Scalar{if(age>=t||close(age,t))return {...final};const r=runs.find(r=>age>=r.start&&age<r.end);return r?r.at(age-r.start):{...final};}};
   }

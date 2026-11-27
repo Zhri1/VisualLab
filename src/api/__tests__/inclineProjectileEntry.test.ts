@@ -4,6 +4,7 @@ import { handler } from '../../../functions/handler';
 import { motionLibrary } from '../../adapters';
 import { truncateStagePlan } from '../../physics';
 import type { StagePlanDraft } from '../../physics';
+import { PHYSICS_RAG_CORPUS } from '../../rag/corpus';
 import complete from '../../../fixtures/incline-projectile.reading.json';
 import plane from '../../../fixtures/incline-projectile-fixed-plane.reading.json';
 import stopBefore from '../../../fixtures/incline-projectile-stop-before.reading.json';
@@ -56,6 +57,39 @@ describe.each([['Node', handlePlan], ['Qoder', handler]] as const)('%s 斜面直
       expect(upstream).toHaveBeenCalledTimes(1);
     });
   }
+  it('同一足够长粗糙斜面用一段上滑计划播放折返，母题提示与 Skill 一致', async () => {
+    const source = PHYSICS_RAG_CORPUS.find(item => item.id === 'gk-incline-up-return-asymmetric-05')!;
+    const raw = {
+      kind: 'stage_plan', schemaVersion: 1, gravityMps2: 10, massKg: 1,
+      initial: { speedMps: 8 },
+      stages: [{
+        kind: 'incline_slide', direction: 'up', lengthM: null, angleDeg: Math.atan2(3, 4) * 180 / Math.PI,
+        kineticFrictionCoefficient: 0.25, staticFrictionCoefficient: 0.25,
+      }],
+    };
+    upstream.mockResolvedValueOnce(Response.json({ choices: [{ message: { content: JSON.stringify(raw) } }] }));
+    const form = new FormData(); form.set('text', source.stem);
+    const response = await entry(new Request('http://localhost/api/animation/plan', { method: 'POST', body: form }));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.status).toBe('ok');
+    expect(body.reading.stages.map((stage: { kind: string }) => stage.kind)).toEqual(source.stageSignature);
+    const motion = build(body.reading);
+    expect(motion.segments.map(({ kind }) => kind)).toEqual(['incline']);
+    expect(motion.events.map(({ eventKind }) => eventKind)).toEqual(['release', 'incline_turn', 'reach_bottom']);
+    expect(motion.durationSeconds).toBeCloseTo(1 + Math.SQRT2, 12);
+    const apex = motion.sampleAt(1);
+    expect(Math.hypot(apex.position.x, apex.position.y)).toBeCloseTo(4, 12);
+    const end = motion.sampleAt(motion.durationSeconds);
+    expect(end.position).toEqual({ x: 0, y: 0 });
+    expect(Math.hypot(end.velocity.x, end.velocity.y)).toBeCloseTo(4 * Math.SQRT2, 12);
+    expect(source.planHint).toContain("direction:'up'");
+    expect(source.planHint).not.toContain('->');
+    const messages = JSON.parse(String(upstream.mock.calls[0][1]?.body)).messages;
+    expect(messages[0].content[0].text).toContain('整段只输出一个 `incline_slide`');
+    expect(messages[1].content.map((part: { text: string }) => part.text).join(' ')).toContain(source.planHint);
+  });
+
   it('真实指令分派截到斜面，保留斜向末速度且不调用模型', async () => {
     const form = new FormData(); form.set('command', '只看斜面'); form.set('currentPlan', JSON.stringify(complete));
     const response = await entry(new Request('http://localhost/api/animation/plan', { method: 'POST', body: form }));

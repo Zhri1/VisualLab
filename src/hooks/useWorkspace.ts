@@ -275,9 +275,18 @@ export function useWorkspace() {
       setGeneratingSimilarId(null);
 
       if (res.status === "ok") {
+        setNotice(null);
+        const applied = applyReading(res.reading);
+        if (isSimilarInWorkspace && !applied.ok) {
+          const message = formatErrors(applied.errors);
+          setMessages((prev) => [
+            ...prev,
+            { id: uid(), role: "assistant", text: `生成变式题动画失败：${message}`, error: true },
+          ]);
+          return { status: "error" as const, message };
+        }
         setPhase("workspace");
         setTutorStyle("tutor");
-        setNotice(null);
         const nextProblemText =
           res.problemText ?? (input.similarId && input.text?.trim() ? input.text.trim() : null);
         setProblemText(nextProblemText);
@@ -291,7 +300,6 @@ export function useWorkspace() {
             return nextImageUrl ?? null;
           });
         }
-        applyReading(res.reading);
         // 假设不写在正文里重复：有假设时正文只报条数，条目交给对话胶囊；
         // 没有假设就退回回包 message（或通用开场白），离线 mock 与真实服务保持一致。
         const assumptions = res.assumptions ?? [];
@@ -320,6 +328,16 @@ export function useWorkspace() {
       }
 
       if (res.status === "needs_input") {
+        const hint =
+          res.message || (res.reading ? "还有条件需要补齐，补全后即可生成动画。" : "没能识别出全部信息，请补齐条件。");
+        if (isSimilarInWorkspace) {
+          setNotice({ kind: "info", text: hint });
+          setMessages((prev) => [
+            ...prev,
+            { id: uid(), role: "assistant", text: `变式题缺少可用条件：${hint}`, error: true },
+          ]);
+          return res;
+        }
         // 即使 reading 为 null，也给核对表一个可编辑的空壳，避免死路
         const shell: WorkspaceReading = res.reading ?? {
           templateId: "incline_spring",
@@ -357,8 +375,6 @@ export function useWorkspace() {
         setMotion(null);
         setAppliedReading(null);
         setMissingKeys(res.missingKeys.length ? res.missingKeys : ["templateId"]);
-        const hint =
-          res.message || (res.reading ? "还有条件需要补齐，补全后即可生成动画。" : "没能识别出全部信息，请补齐条件。");
         setNotice({ kind: "info", text: hint, fieldErrors: res.fieldErrors ?? [] });
         // 缺项助手消息也挂 assumptions：页面复用同一套假设胶囊，不必区分 ok/needs_input
         setMessages([

@@ -4,17 +4,17 @@
 
 ## 1. 参考系、坐标与输入结构
 
-- **参考系与正方向**：地面惯性系，`x` 水平向右为正，`y = 0`，SI 单位。滑块初位置在地面系 `x = 0`，带面参考点初位置 `x_belt(0) = 0`。
+- **参考系与正方向**：地面惯性系，`x` 水平向右为正，`y` 向上为正，SI 单位。沿带正向的局部坐标为 `s`。定长带两个固定滚轮位于 `s = 0`（`start`）和 `s = beltLengthM`（`end`），水平带对应左端和右端。带面材料位移从进入该段开始计算。
 - **位移参考系**：
-  - 滑块对地位移：\(x(t)\)；
+  - 滑块对地沿带位移：\(s(t)-s(0)\)；
   - 带面位移：\(x_{\text{belt}}(t) = \int_0^t v_{\text{belt}}(\tau)\,d\tau\)；
-  - 滑块相对带面位移：\(\Delta x_{\text{rel}}(t) = x(t) - x_{\text{belt}}(t)\)。
+  - 滑块相对带面位移：\(\Delta x_{\text{rel}}(t) = s(t)-s(0) - x_{\text{belt}}(t)\)。
 - **初态**：首段为 `conveyor_belt` 时，顶层 `initial` 使用 `{ vxMps: number }`（带符号水平对地初速，向右为正、向左为负）；顶层必填 `gravityMps2`（>0），`massKg` 可选（不填时运动学与相对位移仍可唯一求解）。
 
 ```ts
 type ConveyorBeltSegment = {
   accelerationMps2: number; // 有限实数，带面加速度（0 表示匀速）
-  durationSeconds: number;  // > 0，该带速段持续时间
+  durationSeconds: number | null; // >0；单段定长匀速且无指定时长时为 null
 };
 
 type ConveyorBeltStage = {
@@ -23,12 +23,16 @@ type ConveyorBeltStage = {
   segments: ConveyorBeltSegment[];      // 非空，分段恒加速带速序列
   kineticFrictionCoefficient: number;   // >= 0，动摩擦因数 μk
   staticFrictionCoefficient?: number | null; // >= μk；存在非零带加速度时必填，禁止默认 μs = μk
-  beltLengthM?: number | null;          // 可选 > 0，若给出则以 [0, beltLengthM] 为带长边界
+  beltLengthM?: number | null;          // >0，固定滚轮在局部 s=0 与 s=L
+  entryEdge?: "start" | "end" | null;   // 可选，入带时物块位于哪一端
+  continuationExitEdge?: "start" | "end" | null; // 可选，哪个出口连接计划后缀
 };
 ```
 
+- `entryEdge` 与 `continuationExitEdge` 都以给定 `beltLengthM` 为前提。入带端省略时，保留旧规则：首段从 `start` 放上，继承负向入射速度的后续定长水平带从 `end` 入带，其余从 `start` 入带。指定入带端时，固定带移到与实际入带位置相合，粒子世界坐标保持连续。
+- 定长匀速且题面无给定运行时长时可省略 `segments` 或给单段 `{ accelerationMps2: 0, durationSeconds: null }`，由求解器停止在实际离带或达到可持续静止时。明确给出的时长表示观察窗口，保留原值。无定长或分段变速仍给各段有限时长。
 - **缺项规则**：
-  - 缺 `initialBeltSpeedMps`、`segments`、`kineticFrictionCoefficient` 或 `gravityMps2` 仅报对应叶路径。
+  - 缺 `initialBeltSpeedMps`、`kineticFrictionCoefficient`、`gravityMps2` 或必需的 `segments` 仅报对应叶路径。
   - 若 `segments` 中存在 `accelerationMps2 !== 0`，则 `staticFrictionCoefficient` 必填；缺失时报 `NEEDS_INPUT`（`missingKeys: ["/stages/0/staticFrictionCoefficient"]`），**严禁默认 \(\mu_s = \mu_k\)**。
   - `staticFrictionCoefficient < kineticFrictionCoefficient` 报 `RANGE`。
 
@@ -44,7 +48,9 @@ type ConveyorBeltStage = {
    - 比较 \(|a_{\text{belt}}|\) 与静摩擦上限 \(\mu_s g\)：
      - \(|a_{\text{belt}}| \le \mu_s g(1 + 64\varepsilon)\)：静摩擦可维持共速，滑块随带以 \(a = a_{\text{belt}}\) 运动（相对速度保持 0，相对带面位移不变）。
      - \(|a_{\text{belt}}| > \mu_s g\)：静摩擦不足以维持，发 `conveyor_reslide`，滑块相对带面朝 \(-\operatorname{sgn}(a_{\text{belt}})\) 方向滑出，加速度切换为 \(a = \operatorname{sgn}(a_{\text{belt}})\,\mu_k g\)。
-3. **带长边界（仅当给出 `beltLengthM` 时）**：到达 `x = 0`（向左离开）或 `x = beltLengthM`（向右离开）时发 `conveyor_exit` 并以 `endReason = "conveyor_exit"` 结束，保留离开瞬间速度，不伪造未给出的落地过程。未给 `beltLengthM` 时在所有带速段结束处以 `prefix_end` 结束。
+3. **离带与观察边界**：仅向带外跨过固定滚轮时产生 `conveyor_exit`，事件携带 `conveyorExitEdge`（`start` / `end`）和实际位置，保留离带瞬间速度。到端速度为零后静止或折回时仍在带上，判别式的舍入误差不计为正速离带。真实离带与给定时长同刻时，离带优先。
+   - 若给出 `continuationExitEdge`，只有实际离开该端才接续下一阶段；从另一端离开的计算止于 `conveyor_exit`。未指定端点的历史计划仍可在实际离开任一端时接续。抛体从同一位置、时间和实际速度分量起算。
+   - 截至给定时长仍在带上时发 `force_segment_end`，以 `prefix_end` 结束。定长匀速、未给时长且物块达到可持续静止时发 `stop`，以 `stopped` 结束。两种情况均不生成后续落地或其他运动。
 
 ## 3. 共享基准与独立复算
 
