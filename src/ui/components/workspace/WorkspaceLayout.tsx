@@ -16,7 +16,7 @@ import {
   X,
 } from "lucide-react";
 import type { Workspace } from "../../../hooks/useWorkspace";
-import { isStageReading } from "../../../types";
+import { isStageReading, type MotionSegment } from "../../../types";
 import { ChatPanel } from "../chat/ChatPanel";
 import { PhysicsCanvas } from "./PhysicsCanvas";
 import { MultiBodyReadouts } from "./MultiBodyPhysicsCanvas";
@@ -49,6 +49,50 @@ export function stageForLegend(plan:{stages:unknown[]},stagePath:string|undefine
   return value!==null&&typeof value==='object'?value as Record<string,unknown>:null;
 }
 
+export interface CurrentStageBadgeData {
+  code: string;
+  name: string;
+  frictionText: string | null;
+  fullLabel: string;
+}
+
+/** 仅提取当前播放路段的一条简洁状态，复用既有 activeSegment 与 stageForLegend，不复制阶段选择逻辑。 */
+export function buildCurrentStageBadge(
+  activeSegment: MotionSegment | undefined,
+  stagePlan: { stages: unknown[] } | null,
+  legacyFriction: number | null | undefined,
+): CurrentStageBadgeData | null {
+  if (!activeSegment) return null;
+  if (stagePlan) {
+    const stage = stageForLegend(stagePlan, activeSegment.stagePath, activeSegment.stageIndex);
+    const friction =
+      stage && "kineticFrictionCoefficient" in stage && typeof stage.kineticFrictionCoefficient === "number"
+        ? stage.kineticFrictionCoefficient
+        : null;
+    const code = String((activeSegment.stageIndex ?? 0) + 1).padStart(2, "0");
+    const bodyPrefix = activeSegment.bodyIds?.length ? `${activeSegment.bodyIds.join(" + ")} ` : "";
+    const name = `${bodyPrefix}${activeSegment.name}`.trim();
+    const frictionText = friction != null ? `μ = ${friction.toFixed(2)}` : null;
+    const fullLabel = frictionText ? `${code} ${name} · ${frictionText}` : `${code} ${name}`;
+    return { code, name, frictionText, fullLabel };
+  }
+  if (activeSegment.kind === "incline") {
+    const frictionText = typeof legacyFriction === "number" ? `μ = ${legacyFriction.toFixed(2)}` : null;
+    const fullLabel = frictionText ? `AB 斜面 · ${frictionText}` : "AB 斜面";
+    return { code: "AB", name: "斜面", frictionText, fullLabel };
+  }
+  if (activeSegment.kind === "horizontal") {
+    return { code: "BC", name: "水平面", frictionText: "μ = 0", fullLabel: "BC 水平面 · μ = 0" };
+  }
+  if (activeSegment.kind === "spring") {
+    const name = activeSegment.name || "弹簧压缩与反弹";
+    return { code: "CD", name, frictionText: null, fullLabel: `CD ${name}` };
+  }
+  const code = String((activeSegment.stageIndex ?? 0) + 1).padStart(2, "0");
+  const name = activeSegment.name;
+  return { code, name, frictionText: null, fullLabel: `${code} ${name}` };
+}
+
 type MobileTab = "player" | "chat";
 
 /** 只在手机宽度渲染标签，桌面 DOM 与改动前保持一致。 */
@@ -72,7 +116,7 @@ export function WorkspaceLayout({ ws }: Props) {
   const [mobileTab, setMobileTab] = useState<MobileTab>("player");
   const [metaOpen, setMetaOpen] = useState(false);
   const [explainOpen, setExplainOpen] = useState(false);
-  /** 自动慢放开关：默认开（只放慢不加速），可关回原始物理流速。 */
+  /** 自动调速开关：默认开（只放慢不加速），可关回原始物理流速。 */
   const [paceEnabled, setPaceEnabled] = useState(true);
   const [forcesOn, setForcesOn] = useState(false);
   const [decomposeOn, setDecomposeOn] = useState(false);
@@ -537,32 +581,28 @@ export function WorkspaceLayout({ ws }: Props) {
                 <span>路段·计时</span>
                 <ChevronDown size={13} strokeWidth={2} className="chev" />
               </button>
+              {motion && (() => {
+                const badge = buildCurrentStageBadge(
+                  activeSegment,
+                  stagePlan,
+                  legacyReading?.conditions.kineticFrictionCoefficient,
+                );
+                if (!badge) return null;
+                return (
+                  <div
+                    className="current-stage-badge"
+                    role="status"
+                    aria-live="polite"
+                    aria-label={`当前路段：${badge.fullLabel}`}
+                    title={badge.fullLabel}
+                  >
+                    <b className="current-stage-code">{badge.code}</b>
+                    <span className="current-stage-name">{badge.name}</span>
+                    {badge.frictionText && <span className="current-stage-mu">· {badge.frictionText}</span>}
+                  </div>
+                );
+              })()}
             </div>
-            {motion && (
-              <ul className={'scene-legend'+(motion.primaryBodyId?' body-scene-legend':'')} aria-label="路段与动摩擦因数">
-                {stagePlan ? motion.segments.map((segment) => {
-                  const stage = stageForLegend(stagePlan,segment.stagePath,segment.stageIndex);
-                  const friction = stage && "kineticFrictionCoefficient" in stage && typeof stage.kineticFrictionCoefficient === "number"
-                    ? stage.kineticFrictionCoefficient
-                    : null;
-                  return (
-                    <li key={`${segment.stagePath??segment.stageIndex}-${segment.kind}-${segment.startSeconds}`} aria-current={activeSegment === segment ? "step" : undefined}>
-                      <b>{String((segment.stageIndex ?? 0) + 1).padStart(2, "0")}</b> {segment.bodyIds?.join(' + ')} {segment.name}
-                      {friction != null && <span>μ = {friction.toFixed(2)}</span>}
-                    </li>
-                  );
-                }) : (
-                  <>
-                    <li aria-current={activeSegment?.kind === "incline" ? "step" : undefined}>
-                      <b>AB</b> 斜面 <span>μ = {legacyReading?.conditions.kineticFrictionCoefficient?.toFixed(2)}</span>
-                    </li>
-                    <li aria-current={activeSegment?.kind !== "incline" ? "step" : undefined}>
-                      <b>BC</b> 水平面 <span>μ = 0</span>
-                    </li>
-                  </>
-                )}
-              </ul>
-            )}
             <div id="player-meta" className={`player-meta${metaOpen ? "" : " is-collapsed"}`}>
               {motion?.timing && <div className="notice info" role="status"><span>{motion.timing.mode === "full" ? "全程精确播放" : motion.timing.mode === "suffix" ? "前段示意 · 从B精确计时" : "仅展示已知状态 · 用时未知"}：{motion.timing.reason}
                 {motion.calculations?.map(c => <span key={c.quantity}>　{{ initial_elastic_energy: "初始弹性势能", release_speed: "脱离速度", arc_entry_speed: "入弧速度" }[c.quantity] ?? c.quantity} = {Number(c.value.toPrecision(6))} {c.unit}（{c.source === "derived" ? "物理推导" : "题设/用户给定"}）</span>)}</span></div>}
