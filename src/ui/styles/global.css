@@ -1365,6 +1365,25 @@ textarea {
   justify-content: space-between;
   margin-top: 2px;
 }
+.chat-preview-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin: 6px 0 6px;
+}
+.chat-preview-bar .chat-preview {
+  margin-top: 0;
+}
+.chat-preview-hint {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--text-tertiary);
+  padding-left: 2px;
+}
+.chat-composer-error {
+  margin: 4px 2px 6px;
+}
 
 /* ---- 快捷入口（Antigravity 风格极简纵向列表） ---- */
 .quick-toggle-btn {

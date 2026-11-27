@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { Workspace } from "../../../hooks/useWorkspace";
 import { getLocalFollowupSuggestions, getQuickParamSuggestions } from "../../../services/chatService";
+import { checkImageFile, prepareImageFile } from "../home/imageTools";
 import { ChatComposer } from "./ChatComposer";
 import { ChatMessageRow } from "./ChatMessage";
 
@@ -34,6 +35,10 @@ const SOCRATIC_PLACEHOLDER = "回复老师的引导问题，说出你的思路�
 
 export function ChatPanel({ ws, className }: Props) {
   const [input, setInput] = useState("");
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [preparingImage, setPreparingImage] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const [showAnalyzeOptions, setShowAnalyzeOptions] = useState(false);
   const [showParamSuggestions, setShowParamSuggestions] = useState(false);
@@ -41,6 +46,63 @@ export function ChatPanel({ ws, className }: Props) {
   const panelRef = useRef<HTMLElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
+  const previewUrlRef = useRef<string | null>(null);
+  const pickSeqRef = useRef(0);
+
+  const revokePreview = (url: string | null) => {
+    if (url) URL.revokeObjectURL(url);
+  };
+
+  const clearPendingImage = () => {
+    pickSeqRef.current += 1;
+    revokePreview(previewUrlRef.current);
+    previewUrlRef.current = null;
+    setPendingFile(null);
+    setPreviewUrl(null);
+    setImageError(null);
+    setPreparingImage(false);
+  };
+
+  useEffect(
+    () => () => {
+      revokePreview(previewUrlRef.current);
+      previewUrlRef.current = null;
+    },
+    [],
+  );
+
+  const handlePickImage = (file: File) => {
+    if (ws.isChatLoading || ws.isRecognizing) return;
+    const check = checkImageFile(file);
+    if (!check.ok) {
+      setImageError(check.message);
+      return;
+    }
+    const seq = ++pickSeqRef.current;
+    const nextUrl = URL.createObjectURL(file);
+    revokePreview(previewUrlRef.current);
+    previewUrlRef.current = nextUrl;
+    setPendingFile(file);
+    setPreviewUrl(nextUrl);
+    setImageError(null);
+    setPreparingImage(true);
+    void prepareImageFile(file)
+      .then((prepared) => {
+        if (pickSeqRef.current !== seq) return;
+        setPendingFile(prepared);
+      })
+      .catch((err) => {
+        if (pickSeqRef.current !== seq) return;
+        revokePreview(previewUrlRef.current);
+        previewUrlRef.current = null;
+        setPendingFile(null);
+        setPreviewUrl(null);
+        setImageError(err instanceof Error ? err.message : "图片处理失败");
+      })
+      .finally(() => {
+        if (pickSeqRef.current === seq) setPreparingImage(false);
+      });
+  };
 
   const hasUserMessage = useMemo(
     () => ws.messages.some((m) => m.role === "user"),
@@ -87,7 +149,19 @@ export function ChatPanel({ ws, className }: Props) {
 
   const send = () => {
     const text = input.trim();
-    if (!text || ws.isChatLoading) return;
+    if (ws.isChatLoading || ws.isRecognizing || preparingImage) return;
+    if (pendingFile) {
+      const fileToSend = pendingFile;
+      setInput("");
+      clearPendingImage();
+      setQuickOpen(false);
+      setShowAnalyzeOptions(false);
+      setShowParamSuggestions(false);
+      setLocalQaActive(false);
+      void ws.recognize({ file: fileToSend, text: text || undefined });
+      return;
+    }
+    if (!text) return;
     setInput("");
     setQuickOpen(false);
     setShowAnalyzeOptions(false);
@@ -402,12 +476,15 @@ export function ChatPanel({ ws, className }: Props) {
         value={input}
         onChange={setInput}
         onSend={send}
-        disabled={ws.isChatLoading}
+        disabled={ws.isChatLoading || ws.isRecognizing}
         placeholder={composerPlaceholder}
         inputRef={composerInputRef}
-        onImagePick={(file) => {
-          void ws.recognize({ file });
-        }}
+        onImagePick={handlePickImage}
+        file={pendingFile}
+        previewUrl={previewUrl}
+        onClearImage={clearPendingImage}
+        error={imageError}
+        preparing={preparingImage}
       />
     </section>
   );
