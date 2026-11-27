@@ -260,4 +260,52 @@ describe("弹性势能发射 → 平抛 → 首次落地反弹", () => {
       expect(vNode.fieldErrors.some((e) => e.path === "/stages/0/bounce")).toBe(true);
     }
   });
+
+  it("改值重算：沿用 derivedCalculations 的 bounce_apex_height 来源，改 h=1→2 或改 e 后重算派生落差；手动改落差仍独立校验", () => {
+    const raw = loadFixture("spring-energy-projectile-bounce-normalized.reading.json");
+    const first = validateStagePlan(raw);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect((first.reading.stages[1] as { dropHeightM?: number }).dropHeightM).toBeCloseTo(1.5625, 10);
+
+    // 模拟网页编辑：直接改已校验 reading 中的 bounce.apexHeightM = 2（旧派生 dropHeightM=1.5625 仍在对象上）
+    const editedH = structuredClone(first.reading);
+    (editedH.stages[1] as { bounce?: { apexHeightM?: number } }).bounce!.apexHeightM = 2;
+    const vEditedHNode = validateStagePlan(editedH);
+    const vEditedHQoder = validateQoderStagePlan(editedH);
+    expect(vEditedHNode.ok).toBe(true);
+    expect(vEditedHQoder.ok).toBe(true);
+    if (vEditedHNode.ok) {
+      expect((vEditedHNode.reading.stages[1] as { dropHeightM?: number }).dropHeightM).toBeCloseTo(3.125, 10);
+      const s = assembleStageScene(vEditedHNode.reading);
+      expect(s.ok).toBe(true);
+      if (s.ok) {
+        const b = buildStageMotion(s.scene);
+        expect(b.ok).toBe(true);
+        if (b.ok) {
+          const apex = b.motion.events.find((e) => e.kind === "bounce_apex")!;
+          expect(apex.position!.yM - (-3.125)).toBeCloseTo(2, 10);
+        }
+      }
+    }
+
+    // 改 e = 0.5（保留 h = 1）→ H = 1 / 0.25 = 4
+    const editedE = structuredClone(first.reading);
+    (editedE.stages[1] as { bounce?: { normalRestitution?: number } }).bounce!.normalRestitution = 0.5;
+    const vEditedE = validateStagePlan(editedE);
+    expect(vEditedE.ok).toBe(true);
+    if (vEditedE.ok) {
+      expect((vEditedE.reading.stages[1] as { dropHeightM?: number }).dropHeightM).toBeCloseTo(4, 10);
+    }
+
+    // 手动改 dropHeightM 为 2.0（与旧派生 1.5625 不同，且与 h=1, e=0.8 矛盾）→ 仍报冲突
+    const manualDrop = structuredClone(first.reading);
+    (manualDrop.stages[1] as { dropHeightM?: number }).dropHeightM = 2.0;
+    const vManual = validateStagePlan(manualDrop);
+    expect(vManual.ok).toBe(false);
+    if (!vManual.ok) {
+      expect(vManual.code).toBe("INCONSISTENT_CONDITIONS");
+      expect(vManual.fieldErrors.some((e) => e.path === "/stages/1/bounce/apexHeightM")).toBe(true);
+    }
+  });
 });

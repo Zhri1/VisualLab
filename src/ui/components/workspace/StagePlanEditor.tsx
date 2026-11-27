@@ -163,6 +163,41 @@ export function updateCircularMode(draft:StagePlanDraft,index:number,explicit:bo
   return next;
 }
 
+export function updateStagePlanBounceNumber(
+  draft: StagePlanDraft,
+  index: number,
+  bKey: "normalRestitution" | "apexHeightM",
+  value: number | null,
+): StagePlanDraft {
+  const stage = draft.stages[index];
+  const bounce = stage.bounce && typeof stage.bounce === "object" ? stage.bounce as Record<string, unknown> : null;
+  const nextBounce = { ...(bounce ?? { stopAt: "first_apex" }), [bKey]: value };
+  const nextStage: Record<string, unknown> = { ...stage, bounce: nextBounce };
+  const isDerivedDrop = draft.derivedCalculations?.some(
+    (c) => c.rule === "bounce_apex_height" && c.stageIndex === index && c.targetPath === `/stages/${index}/dropHeightM`,
+  );
+  if (isDerivedDrop && (bKey === "apexHeightM" || bKey === "normalRestitution")) {
+    delete nextStage.dropHeightM;
+  }
+  const stages = [...draft.stages];
+  stages[index] = nextStage;
+  return { ...draft, stages };
+}
+
+export function updateStagePlanProjectileHeight(
+  draft: StagePlanDraft,
+  index: number,
+  key: "dropHeightM" | "landingPlaneYM",
+  value: number | null,
+): StagePlanDraft {
+  const stages = [...draft.stages];
+  stages[index] = { ...draft.stages[index], [key]: value };
+  const nextDerived = draft.derivedCalculations?.filter(
+    (c) => !(c.rule === "bounce_apex_height" && c.stageIndex === index && c.targetPath === `/stages/${index}/${key}`),
+  );
+  return { ...draft, stages, ...(nextDerived?.length ? { derivedCalculations: nextDerived } : { derivedCalculations: undefined }) };
+}
+
 export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: Props) {
   if(draft.bodies||draft.stages.some(s=>s.kind==='pendulum_swing'))return <MultiBodyPlanEditor draft={draft} onChange={onChange} missingKeys={missingKeys} fieldErrors={fieldErrors}/>;
   const errorMap = new Map(fieldErrors.filter((error) => error.path).map((error) => [error.path!, error.message]));
@@ -389,8 +424,11 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                     const fixed = "landingPlaneYM" in stage || (!("dropHeightM" in stage) && draft.stages[index - 1]?.kind === "vertical_arc");
                     const key = fixed ? "landingPlaneYM" : "dropHeightM";
                     const bounce = stage.bounce && typeof stage.bounce === "object" ? stage.bounce as Record<string, unknown> : null;
-                    const setBounceNumber = (bKey: string, raw: string) => {
-                      setStage(index, { ...stage, bounce: { ...(bounce ?? { stopAt: "first_apex" }), [bKey]: asNumber(raw) } });
+                    const setBounceNumber = (bKey: "normalRestitution" | "apexHeightM", raw: string) => {
+                      onChange(updateStagePlanBounceNumber(draft, index, bKey, asNumber(raw)));
+                    };
+                    const setProjectileHeight = (raw: string) => {
+                      onChange(updateStagePlanProjectileHeight(draft, index, key, asNumber(raw)));
                     };
                     return <>
                       <tr data-field-path={`/stages/${index}`}><td className="name">落地基准</td><td className="val">
@@ -403,7 +441,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                         </select></td><td /></tr>
                       {numberRow({ key, label: fixed ? "落地平面高度 y" : fromIncline ? "檐口到地面高度 h" : "落地平面落差 h", unit: "m", step: .05,
                         hint: fromIncline ? fixed ? "以檐口为(0,0)，地面y≤0" : "从檐口量到地面，不从坡顶量高度" : fixed ? "与场景共用坐标原点；圆弧后必须固定地面" : "非负落差，圆弧后请切换为固定高度",
-                        path: `/stages/${index}/${key}`, value: stage[key], onChange: raw => setStageNumber(index, key, raw) })}
+                        path: `/stages/${index}/${key}`, value: stage[key], onChange: setProjectileHeight })}
                       {bounce && (
                         <>
                           {numberRow({ key: "normalRestitution", label: "竖直恢复系数 e", unit: "", step: 0.05, hint: "0 ≤ e ≤ 1，vy+ = −e·vy−",

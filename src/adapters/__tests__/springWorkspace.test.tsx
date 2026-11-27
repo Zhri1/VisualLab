@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { StagePlanEditor, updateStagePlanKind, updateStagePlanNumber } from '../../ui/components/workspace/StagePlanEditor';
+import { StagePlanEditor, updateStagePlanKind, updateStagePlanNumber, updateStagePlanBounceNumber, updateStagePlanProjectileHeight } from '../../ui/components/workspace/StagePlanEditor';
 import { StagePhysicsCanvas, drawStageScene } from '../../ui/components/workspace/StagePhysicsCanvas';
 import fixed from '../../../fixtures/precompressed-spring-fixed-energy.reading.json';
 import full from '../../../fixtures/precompressed-spring-complete.reading.json';
+import bounceNormalized from '../../../fixtures/spring-energy-projectile-bounce-normalized.reading.json';
 import type { StagePlanDraft } from '../../physics';
 import { validateStagePlan } from '../../physics';
 import { motionLibrary } from '../index';
@@ -47,5 +48,24 @@ describe('预压工作区接线',()=>{
     const p={...fixed,stages:fixed.stages.slice(0,2)},m=build(p);expect(m.timing?.mode).toBe('state_only');expect(m.sampleAt(0).velocity.x).toBeGreaterThan(4);
     const ctx=new Proxy({}, {get:(_t,key)=>key==='measureText'?()=>({width:60}):()=>{}}) as CanvasRenderingContext2D;
     expect(()=>drawStageScene(ctx,375,250,m,0)).not.toThrow();expect(renderToStaticMarkup(<StagePhysicsCanvas motion={m} time={0}/>)).toContain('4.47');
+  });
+  it('工作区编辑反弹最高高度 h=1→2 重算派生落差为 3.125，手动改落差仍独立校验',()=>{
+    const first = validateStagePlan(bounceNormalized);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    // 模拟网页编辑器拿到已装配的 reading（含 derivedCalculations），将 h 从 1 改为 2
+    const editedH = updateStagePlanBounceNumber(first.reading as unknown as StagePlanDraft, 1, 'apexHeightM', 2);
+    const checkedH = validateStagePlan(editedH);
+    expect(checkedH.ok).toBe(true);
+    if (!checkedH.ok) return;
+    expect((checkedH.reading.stages[1] as { dropHeightM?: number }).dropHeightM).toBeCloseTo(3.125, 9);
+    const motionH = build(checkedH.reading);
+    expect(motionH.events.some(e => e.id.includes('bounce_apex'))).toBe(true);
+    expect(motionH.sampleAt(motionH.durationSeconds).position.y).toBeCloseTo(-3.125 + 2, 6);
+    // 手动把落差改成矛盾值 2.0，仍应报冲突
+    const editedDrop = updateStagePlanProjectileHeight(first.reading as unknown as StagePlanDraft, 1, 'dropHeightM', 2.0);
+    const checkedDrop = validateStagePlan(editedDrop);
+    expect(checkedDrop.ok).toBe(false);
+    if (!checkedDrop.ok) expect(checkedDrop.fieldErrors.some(e => e.code === 'PRECONDITION_CONFLICT')).toBe(true);
   });
 });

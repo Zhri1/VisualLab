@@ -59,6 +59,7 @@ export type StagePlanDraft = {
   stages: Array<Record<string, unknown>>;
   energy?: Energy;
   constraints?: unknown;
+  derivedCalculations?: DerivedCalculation[];
 };
 export type StageFieldError = { path: string; code: string; message: string };
 export type StagePlanFailure = {
@@ -319,6 +320,22 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
       const fromArc = stages[i - 1]?.kind === "vertical_arc";
       const hasDropValue = hasDrop && source.dropHeightM !== null;
       const hasPlaneValue = hasPlane && source.landingPlaneYM !== null;
+      const priorDerivedDrop = Array.isArray(input.derivedCalculations)
+        ? (input.derivedCalculations as Array<Record<string, unknown>>).find(
+            (c) =>
+              record(c) &&
+              c.rule === "bounce_apex_height" &&
+              c.stageIndex === i &&
+              c.targetPath === path + "/dropHeightM" &&
+              typeof c.value === "number",
+          )
+        : undefined;
+      const isUneditedDerivedDrop =
+        hasDropValue &&
+        typeof source.dropHeightM === "number" &&
+        typeof priorDerivedDrop?.value === "number" &&
+        Math.abs(source.dropHeightM - priorDerivedDrop.value) <= 1e-9 * Math.max(1, Math.abs(priorDerivedDrop.value));
+      const hasManualDropValue = hasDropValue && !isUneditedDerivedDrop;
       let bounce: Record<string, unknown> | undefined;
       if (source.bounce != null) {
         if (!record(source.bounce)) {
@@ -372,7 +389,7 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
           issue(path + "/bounce/apexHeightM", "PRECONDITION_CONFLICT", "恢复系数为 0 时竖直方向不反弹，无法反推或达到非零反弹高度。");
         }
         const canInvertH =
-          !hasDropValue &&
+          !hasManualDropValue &&
           !hasPlaneValue &&
           !fromArc &&
           apexH !== null &&
