@@ -32,59 +32,68 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
   const b={x1:data.bounds.minX,x2:data.bounds.maxX,y1:data.bounds.minY,y2:data.bounds.maxY};
   const color=(id:string)=>data.ids.indexOf(id)===0?INK:TARGET;
   ctx.clearRect(0,0,W,H);ctx.fillStyle=PAPER;ctx.fillRect(0,0,W,H);ctx.lineWidth=1.3;ctx.font=`12px ${FONT}`;ctx.textBaseline='alphabetic';
+  const emLabelReqs:{text:string;color:string;cx:number;by:number;dir:1|-1}[]=[];
+  const emOccupied:{x:number;y:number;w:number;h:number}[]=[];
   if(motion.stageGeometry?.switchableEM){
     const em=motion.stageGeometry.switchableEM;
     const eOn=true;
     const bOn=time<em.offSeconds-1e-9||time>=em.restoreSeconds-1e-9;
     const restored=time>=em.restoreSeconds-1e-9;
     const axisY=Y(0);
-    const xL=Math.max(8,X(b.x1)-10),xR=Math.min(W-8,X(b.x2)+10);
-    const yTop=Math.max(8,Y(b.y2)-10),yBot=Math.min(H-8,Y(b.y1)+10);
-    // 上半区 y > 0 匀强电场（全程保持存在）
-    if(axisY>yTop+4){
+    const splitY=Math.max(0,Math.min(H,axisY));
+    const drawCornerBadge=(text:string,x:number,y:number,align:'left'|'right',color:string)=>{
+      ctx.save();
+      const tw=ctx.measureText(text).width;
+      const padX=6,h=18,bx=align==='left'?x-padX:x-tw-padX,by=y-13;
+      ctx.fillStyle='rgba(251,251,249,0.86)';
+      ctx.fillRect(bx,by,tw+padX*2,h);
+      ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='alphabetic';
+      ctx.fillText(text,x,y);
+      ctx.restore();
+      emOccupied.push({x:bx,y:by,w:tw+padX*2,h});
+    };
+    // 1. 上半区 y > 0 匀强电场（铺满可见画布上、左、右边，全程保持开启）
+    if(splitY>0){
       ctx.save();
       ctx.fillStyle='rgba(180,120,40,0.06)';
-      ctx.fillRect(xL,yTop,Math.max(0,xR-xL),Math.max(0,axisY-yTop));
-      ctx.strokeStyle='rgba(160,105,30,0.45)';
+      ctx.fillRect(0,0,W,splitY);
+      ctx.strokeStyle='rgba(160,105,30,0.38)';
       ctx.lineWidth=1;
-      const stepX=Math.max(44,(xR-xL)/7);
-      for(let px=xL+stepX*0.5;px<xR-16;px+=stepX){
-        const ay1=yTop+12,ay2=axisY-10;
-        if(ay2>ay1+12){
+      const stepX=Math.max(64,Math.min(96,W/9));
+      const ay1=splitY>46?28:8,ay2=splitY-10;
+      if(ay2>ay1+12){
+        for(let px=stepX*0.5;px<W-12;px+=stepX){
           ctx.beginPath();ctx.moveTo(px,ay1);ctx.lineTo(px,ay2);
           ctx.moveTo(px-3.5,ay2-5);ctx.lineTo(px,ay2);ctx.lineTo(px+3.5,ay2-5);ctx.stroke();
         }
       }
-      ctx.fillStyle='#8a5a18';ctx.textAlign='left';ctx.fillText(eOn?'E ↓（电场恒定开启）':'E',xL+6,yTop+15);
       ctx.restore();
     }
-    // 下半区 y < 0 匀强磁场
-    if(yBot>axisY+4){
+    // 2. 下半区 y < 0 匀强磁场（铺满可见画布下、左、右边，不受轨迹外接框与撤场竖线裁剪）
+    if(splitY<H){
       ctx.save();
       ctx.fillStyle=bOn?'rgba(56,110,138,0.06)':'rgba(150,150,145,0.025)';
-      ctx.fillRect(xL,axisY,Math.max(0,xR-xL),Math.max(0,yBot-axisY));
-      ctx.fillStyle=bOn?'rgba(56,110,138,0.55)':'rgba(150,150,145,0.22)';
+      ctx.fillRect(0,splitY,W,H-splitY);
+      ctx.fillStyle=bOn?'rgba(56,110,138,0.48)':'rgba(150,150,145,0.20)';
       ctx.textAlign='center';ctx.textBaseline='middle';
       const glyph=em.fieldDirection==='into_page'?'×':'·';
-      const step=Math.max(32,Math.min(48,(xR-xL)/9));
-      for(let px=xL+step*0.5;px<xR-8;px+=step){
-        for(let py=axisY+step*0.5;py<yBot-8;py+=step)ctx.fillText(glyph,px,py);
+      const step=Math.max(44,Math.min(62,W/12));
+      for(let px=step*0.5;px<W-8;px+=step){
+        for(let py=splitY+step*0.5;py<H-8;py+=step)ctx.fillText(glyph,px,py);
       }
-      ctx.textAlign='left';ctx.textBaseline='alphabetic';
-      ctx.fillStyle=bOn?TARGET:SOFT;
-      const bLabel=em.fieldDirection==='into_page'?'B ⊗':'B ⊙';
-      ctx.fillText(bOn?(restored?`${bLabel}（磁场已恢复）`:`${bLabel}（磁场开启）`):`${bLabel}（磁场已撤 · 匀速漂移）`,xL+6,Math.min(yBot-6,axisY+18));
       ctx.restore();
     }
-    // 分界线 y = 0 与撤场竖线 x = switchOffX
+    // 3. 分界线 y = 0（贯穿可见宽度 0..W）与撤场竖线 x = switchOffX（虚线，不作为磁场边界）
     ctx.save();
-    ctx.strokeStyle=INK;ctx.lineWidth=1.4;
-    ctx.beginPath();ctx.moveTo(xL,axisY);ctx.lineTo(xR,axisY);ctx.stroke();
+    if(axisY>=0&&axisY<=H){
+      ctx.strokeStyle=INK;ctx.lineWidth=1.4;
+      ctx.beginPath();ctx.moveTo(0,axisY);ctx.lineTo(W,axisY);ctx.stroke();
+    }
     ctx.setLineDash([5,4]);ctx.strokeStyle='#8a5a18';ctx.lineWidth=1.2;
     const offX=X(em.switchOffX);
-    ctx.beginPath();ctx.moveTo(offX,yTop);ctx.lineTo(offX,yBot);ctx.stroke();
-    ctx.fillStyle='#8a5a18';ctx.textAlign='left';ctx.fillText('撤场竖线',Math.min(W-60,offX+5),yTop+28);
-    // 恢复磁场后的两回旋圆及外切点（非碰撞）
+    ctx.beginPath();ctx.moveTo(offX,0);ctx.lineTo(offX,H);ctx.stroke();
+    ctx.setLineDash([]);
+    // 恢复磁场后的两回旋圆及外切点标记（非碰撞）
     em.circles.forEach((circle,idx)=>{
       ctx.save();
       ctx.strokeStyle=idx===0?INK:TARGET;
@@ -97,19 +106,27 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
     const tx=X(em.tangency.xM),ty=Y(em.tangency.yM);
     ctx.save();ctx.strokeStyle='#b42318';ctx.fillStyle=PAPER;ctx.lineWidth=1.5;
     ctx.beginPath();ctx.arc(tx,ty,4,0,2*Math.PI);ctx.fill();ctx.stroke();
-    ctx.fillStyle='#b42318';ctx.textAlign='left';ctx.fillText('外切点（非碰撞）',Math.min(W-108,tx+7),Math.max(16,ty-4));
     ctx.restore();
-    // 地标 S, P, Q
+    // 地标点 S, P, Q（文字交由下方防重叠标签层绘制在轨迹与粒子之上）
     for(const lm of motion.stageGeometry.landmarks??[]){
       const lx=X(lm.position.xM),ly=Y(lm.position.yM);
       ctx.fillStyle=SOFT;ctx.beginPath();ctx.arc(lx,ly,2.5,0,2*Math.PI);ctx.fill();
-      ctx.textAlign='left';ctx.fillText(lm.label,lx+6,ly-5);
+      emLabelReqs.push({text:lm.label,color:SOFT,cx:lx+10,by:ly-6,dir:-1});
+    }
+    emLabelReqs.push({text:'撤场竖线',color:'#8a5a18',cx:Math.min(W-34,Math.max(34,offX+28)),by:splitY>50?40:Math.min(H-14,splitY+38),dir:1});
+    emLabelReqs.push({text:'外切点（非碰撞）',color:'#b42318',cx:Math.min(W-56,tx+54),by:Math.max(20,ty-6),dir:-1});
+    // 固定边角状态标签（留边且带浅色底板，窄屏避免与归一化徽章重叠）
+    if(splitY>=22){
+      drawCornerBadge(eOn?(narrow?'E ↓（电场开启）':'E ↓（电场恒定开启）'):'E',12,18,'left','#8a5a18');
+    }
+    if(H-splitY>=22){
+      const bLabel=em.fieldDirection==='into_page'?'B ⊗':'B ⊙';
+      const bText=bOn?(restored?`${bLabel}（磁场已恢复）`:`${bLabel}（磁场开启）`):`${bLabel}（磁场已撤 · 匀速漂移）`;
+      drawCornerBadge(bText,12,Math.min(H-8,splitY+20),'left',bOn?TARGET:SOFT);
     }
     if(em.scaleMode==='normalized'){
-      const badge='归一化标度：m = q = L = v₀ = 1';
-      const bw=ctx.measureText(badge).width+14;
-      ctx.fillStyle='rgba(251,251,249,0.88)';ctx.fillRect(W-bw-10,8,bw,20);
-      ctx.fillStyle=SOFT;ctx.textAlign='right';ctx.fillText(badge,W-17,22);
+      const badge=narrow?'归一化：m=q=L=v₀=1':'归一化标度：m = q = L = v₀ = 1';
+      drawCornerBadge(badge,W-12,18,'right',SOFT);
     }
     ctx.restore();
   }
@@ -170,8 +187,8 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
   // 标签防重叠：先画几何与物体，把物体/支点占位记入 occupied，
   // 再为所有文字（速度、张力、接触点、地面、P/O）按优先级挑选不冲突的行。
   type Req={text:string;color:string;cx:number;by:number;dir:1|-1;leader?:{x:number;y:number}};
-  const reqs:Req[]=[],vel:Req[]=[];
-  const occupied:{x:number;y:number;w:number;h:number}[]=[];
+  const reqs:Req[]=[...emLabelReqs],vel:Req[]=[];
+  const occupied:{x:number;y:number;w:number;h:number}[]=[...emOccupied];
   const block=(x:number,y:number,r:number)=>occupied.push({x:x-r,y:y-r,w:2*r,h:2*r});
   const marked=new Set<string>();
   const gx1=Math.max(8,X(b.x1)-14),gx2=Math.min(W-8,X(b.x2)+14);

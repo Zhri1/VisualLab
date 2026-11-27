@@ -55,10 +55,7 @@ export default function App() {
             void ws.recognize({ file, text });
           }}
           onSample={(id) => ws.loadSample(id)}
-          onLoadFavorite={(entry) => {
-            if (entry.sampleId) ws.loadSample(entry.sampleId);
-            else if (entry.reading) ws.applyReadingOverride(entry.reading as Parameters<typeof ws.applyReadingOverride>[0]);
-          }}
+          onLoadFavorite={(entry) => ws.loadFavorite(entry)}
         />
       ) : (
         <WorkspaceLayout ws={ws} />

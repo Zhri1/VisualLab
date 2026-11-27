@@ -1,28 +1,34 @@
 import { describe, expect, it } from "vitest";
 import { motionLibrary } from "../index";
 import { drawStageScene, stageWorldBounds } from "../../ui/components/workspace/StagePhysicsCanvas";
+import { drawMultiBodyScene } from "../../ui/components/workspace/MultiBodyPhysicsCanvas";
 import { computeDefaultPace } from "../../ui/components/workspace/playback";
 import type { Motion, StageGeometry } from "../../types";
 import type { StagePlanDraft } from "../../physics";
 import inclineSpringFixture from "../../../fixtures/stage-composition.reading.json";
 import verticalArcFixture from "../../../fixtures/vertical-arc-endpoint.reading.json";
+import switchableEmFixture from "../../../fixtures/switchable-em-collision.reading.json";
 
 interface MockCanvasLog {
   texts: Array<{ text: string; x: number; y: number }>;
   lines: Array<[number, number]>;
   moveTos: Array<[number, number]>;
+  segments: Array<{ from: [number, number]; to: [number, number] }>;
+  fillRects: Array<{ x: number; y: number; w: number; h: number }>;
 }
 
 function createMockCtx() {
-  const log: MockCanvasLog = { texts: [], lines: [], moveTos: [] };
+  const log: MockCanvasLog = { texts: [], lines: [], moveTos: [], segments: [], fillRects: [] };
+  let cur: [number, number] = [0, 0];
   const ctx = new Proxy(
     {},
     {
       get: (_target, key) => {
         if (key === "measureText") return (text: string) => ({ width: text.length * 8 });
         if (key === "fillText") return (text: string, x: number, y: number) => log.texts.push({ text, x, y });
-        if (key === "lineTo") return (x: number, y: number) => log.lines.push([x, y]);
-        if (key === "moveTo") return (x: number, y: number) => log.moveTos.push([x, y]);
+        if (key === "lineTo") return (x: number, y: number) => { log.lines.push([x, y]); log.segments.push({ from: cur, to: [x, y] }); cur = [x, y]; };
+        if (key === "moveTo") return (x: number, y: number) => { log.moveTos.push([x, y]); cur = [x, y]; };
+        if (key === "fillRect") return (x: number, y: number, w: number, h: number) => log.fillRects.push({ x, y, w, h });
         return () => {};
       },
     },
@@ -243,6 +249,63 @@ describe("多段同类几何数组化、地标标注与多轨道画布", () => {
       const { ctx } = createMockCtx();
       expect(() => drawStageScene(ctx, 955, 358, built.motion, built.motion.durationSeconds / 2)).not.toThrow();
       expect(() => drawStageScene(ctx, 327, 349, built.motion, built.motion.durationSeconds / 2)).not.toThrow();
+    }
+  });
+
+  it.each([
+    { name: "宽屏 960x480", w: 960, h: 480 },
+    { name: "窄屏 340x400", w: 340, h: 400 },
+  ])("switchableEM $name：上下场区铺满可见画布四边、y=0 分界贯穿全宽、场符号延伸至两侧且三状态标签清晰", ({ w, h }) => {
+    const assembled = motionLibrary.assembleScene(switchableEmFixture as unknown as StagePlanDraft);
+    expect(assembled.ok).toBe(true);
+    if (!assembled.ok) return;
+    const built = motionLibrary.buildMotion(assembled.scene);
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const em = built.motion.stageGeometry!.switchableEM!;
+
+    const moments = [
+      { name: "开始", t: 0, expectB: "磁场开启" },
+      { name: "撤场中", t: (em.offSeconds + em.restoreSeconds) / 2, expectB: "磁场已撤" },
+      { name: "恢复后", t: em.restoreSeconds + 0.05, expectB: "磁场已恢复" },
+    ];
+
+    for (const m of moments) {
+      const { ctx, log } = createMockCtx();
+      expect(() => drawMultiBodyScene(ctx, w, h, built.motion, m.t)).not.toThrow();
+
+      // 1. 电场底色从 (0, 0) 铺满宽 w 至分界 splitY；磁场底色从 (0, splitY) 铺满宽 w 至底边 h
+      const electricFill = log.fillRects.find((r) => r.x === 0 && r.y === 0 && r.w === w && r.h > 0 && r.h < h);
+      expect(electricFill).toBeDefined();
+      const splitY = electricFill!.h;
+      const magneticFill = log.fillRects.find(
+        (r) => r.x === 0 && Math.abs(r.y - splitY) < 1e-6 && r.w === w && Math.abs(r.h - (h - splitY)) < 1e-6,
+      );
+      expect(magneticFill).toBeDefined();
+
+      // 2. y=0 分界线贯穿可见宽度 0 → w
+      const hasFullBoundary = log.segments.some(
+        (s) => s.from[0] === 0 && Math.abs(s.from[1] - splitY) < 1e-6 && s.to[0] === w && Math.abs(s.to[1] - splitY) < 1e-6,
+      );
+      expect(hasFullBoundary).toBe(true);
+
+      // 3. 磁场符号延伸至左右两侧，不局限于轨迹外接框内
+      const glyphs = log.texts.filter((t) => t.text === "·" || t.text === "×");
+      expect(glyphs.length).toBeGreaterThan(10);
+      expect(Math.min(...glyphs.map((g) => g.x))).toBeLessThan(w * 0.2);
+      expect(Math.max(...glyphs.map((g) => g.x))).toBeGreaterThan(w * 0.8);
+
+      // 4. 电场全程开启、磁场状态按时刻切换、S/P/Q 与外切/撤场竖线标签全部绘制且在画布内
+      expect(log.texts.some((t) => t.text.includes("电场") && t.text.includes("开启"))).toBe(true);
+      expect(log.texts.some((t) => t.text.includes(m.expectB))).toBe(true);
+      for (const label of ["S", "P", "Q", "撤场竖线", "外切点（非碰撞）"]) {
+        const found = log.texts.find((t) => t.text === label);
+        expect(found, `${m.name} 缺少标签 ${label}`).toBeDefined();
+        expect(found!.x).toBeGreaterThan(0);
+        expect(found!.x).toBeLessThan(w);
+        expect(found!.y).toBeGreaterThan(0);
+        expect(found!.y).toBeLessThan(h);
+      }
     }
   });
 });

@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   ClipboardCheck,
+  Crop,
   GitFork,
   Image as ImageIcon,
   Pencil,
@@ -12,7 +13,7 @@ import {
   Repeat,
   Share2,
   Trash2,
-  Volume2,
+  X,
 } from "lucide-react";
 import type { Workspace } from "../../../hooks/useWorkspace";
 import { isStageReading } from "../../../types";
@@ -27,10 +28,12 @@ import { advancePlayback, computeDefaultPace, segmentAt } from "./playback";
 import { getSample } from "../../../data/samples";
 import { AnnotationLayer } from "../../../features/annotate/AnnotationLayer";
 import type { AnnotationMode, AnnotationStroke } from "../../../features/annotate/types";
-import { useEventSpeech } from "../../../features/speech/useEventSpeech";
 import { ExportMenu } from "../../../features/export/ExportMenu";
+import { downloadBlob } from "../../../features/export/capture";
+import { captureRegionPng, copyPngToClipboard, type RegionRect } from "../../../features/export/regionCapture";
+import { RegionScreenshotOverlay } from "../../../features/export/RegionScreenshotOverlay";
 import { PracticePanel } from "../../../features/practice/PracticePanel";
-import { isFavorite, removeFavorite, saveFavorite } from "../../../features/share/favorites";
+import { isFavorite, removeFavorite, saveFavoriteWithResult } from "../../../features/share/favorites";
 import { buildShareUrl } from "../../../features/share/shareLink";
 import "./player.css";
 
@@ -71,11 +74,14 @@ export function WorkspaceLayout({ ws }: Props) {
   const [decomposeOn, setDecomposeOn] = useState(false);
   const [annotationMode, setAnnotationMode] = useState<AnnotationMode>("off");
   const [strokes, setStrokes] = useState<AnnotationStroke[]>([]);
-  const [speechOn, setSpeechOn] = useState(false);
+  const [screenshotMode, setScreenshotMode] = useState(false);
+  const [shotToast, setShotToast] = useState<{ kind: "busy" | "ok" | "error"; text: string; blob?: Blob } | null>(null);
   const [practiceOn, setPracticeOn] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [copiedShare, setCopiedShare] = useState(false);
+  const playerPaneRef = useRef<HTMLElement | null>(null);
   const frameBoxRef = useRef<HTMLDivElement | null>(null);
+  const shotTimerRef = useRef<number | null>(null);
   const [frameSize, setFrameSize] = useState({ w: 0, h: 0 });
 
   const activeReading = (ws.appliedReading ?? ws.reading) as unknown;
@@ -93,8 +99,34 @@ export function WorkspaceLayout({ ws }: Props) {
     setFavorited(isFavorite(favoriteId));
   }, [favoriteId]);
 
-  const speech = useEventSpeech(motion?.events ?? [], currentTime, speechOn);
   const masked = practiceOn && !revealed && samplePractice.length > 0;
+
+  useEffect(() => () => {
+    if (shotTimerRef.current !== null) window.clearTimeout(shotTimerRef.current);
+  }, []);
+
+  const handleRegionCapture = async (rect: RegionRect) => {
+    setScreenshotMode(false);
+    const pane = playerPaneRef.current;
+    if (!pane) return;
+    if (shotTimerRef.current !== null) {
+      window.clearTimeout(shotTimerRef.current);
+      shotTimerRef.current = null;
+    }
+    setShotToast({ kind: "busy", text: "正在生成截图并复制到剪贴板…" });
+    // 等一帧确保选区遮罩完全卸载后再合成
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    let blob: Blob | undefined;
+    try {
+      blob = await captureRegionPng(pane, rect);
+      await copyPngToClipboard(blob);
+      setShotToast({ kind: "ok", text: "已复制截图到剪贴板，可直接粘贴" });
+      shotTimerRef.current = window.setTimeout(() => setShotToast(null), 3200);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "复制截图失败，可直接保存 PNG";
+      setShotToast({ kind: "error", text: msg, blob });
+    }
+  };
 
   useEffect(() => {
     const box = frameBoxRef.current;
@@ -120,16 +152,20 @@ export function WorkspaceLayout({ ws }: Props) {
   const toggleFavorite = () => {
     if (favorited) {
       removeFavorite(favoriteId);
-      setFavorited(false);
+      setFavorited(isFavorite(favoriteId));
     } else {
-      saveFavorite({
+      const res = saveFavoriteWithResult({
         id: favoriteId,
         title: sampleTitle,
         savedAt: Date.now(),
         sampleId: ws.sampleId ?? undefined,
         reading: activeReading,
       });
-      setFavorited(true);
+      if (res.ok) {
+        setFavorited(true);
+      } else {
+        setShotToast({ kind: "error", text: res.error ?? "收藏保存失败，请检查浏览器本地存储权限或空间" });
+      }
     }
   };
 
@@ -288,6 +324,7 @@ export function WorkspaceLayout({ ws }: Props) {
 
       <div className="workspace">
         <section
+          ref={playerPaneRef}
           id="work-panel-player"
           role="tabpanel"
           aria-labelledby="work-tab-player"
@@ -446,16 +483,16 @@ export function WorkspaceLayout({ ws }: Props) {
                   <button
                     type="button"
                     className="tool-toggle"
-                    aria-pressed={speechOn}
-                    disabled={!speech.supported}
+                    aria-label="截图"
+                    aria-pressed={screenshotMode}
                     onClick={() => {
                       closeDrawMode();
-                      setSpeechOn((v) => !v);
+                      setScreenshotMode((v) => !v);
                     }}
-                    title={speech.supported ? "语音朗读关键事件讲解" : "当前浏览器不支持语音合成"}
+                    title="框选动画工作区并复制 PNG 到剪贴板（Esc 取消）"
                   >
-                    <Volume2 size={13} strokeWidth={2} />
-                    <span>朗读</span>
+                    <Crop size={13} strokeWidth={2} />
+                    <span>截图</span>
                   </button>
                   <button
                     type="button"
@@ -573,10 +610,6 @@ export function WorkspaceLayout({ ws }: Props) {
               </div>
             )}
           </div>
-          {motion && speechOn && (() => {
-            const cue = [...motion.events].reverse().find((e) => e.timeSeconds <= currentTime);
-            return cue ? <div className="speech-caption" role="status"><b>{cue.label}</b>{cue.caption}</div> : null;
-          })()}
 
           {motion ? (
             <>
@@ -640,6 +673,43 @@ export function WorkspaceLayout({ ws }: Props) {
         fieldErrors={ws.notice?.fieldErrors ?? []}
         onApply={ws.applyConditions}
       />
+
+      <RegionScreenshotOverlay
+        active={screenshotMode}
+        containerRef={playerPaneRef}
+        onCancel={() => setScreenshotMode(false)}
+        onSelect={handleRegionCapture}
+      />
+
+      {shotToast && (
+        <div
+          className={`region-shot-toast${shotToast.kind === "error" ? " is-error" : ""}`}
+          data-screenshot-exclude="true"
+          role={shotToast.kind === "error" ? "alert" : "status"}
+        >
+          <span>{shotToast.text}</span>
+          {shotToast.kind === "error" && shotToast.blob && (
+            <button
+              type="button"
+              className="region-shot-save-btn"
+              onClick={() => {
+                downloadBlob(`${sampleTitle}-截图.png`, shotToast.blob!);
+                setShotToast(null);
+              }}
+            >
+              保存 PNG
+            </button>
+          )}
+          <button
+            type="button"
+            className="region-shot-dismiss"
+            aria-label="关闭截图提示"
+            onClick={() => setShotToast(null)}
+          >
+            <X size={14} strokeWidth={2.2} />
+          </button>
+        </div>
+      )}
     </>
   );
 }
