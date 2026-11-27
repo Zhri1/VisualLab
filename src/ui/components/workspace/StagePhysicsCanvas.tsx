@@ -36,6 +36,8 @@ const SOFT = "#8e8e88";
 const HAIR = "#d6d6d1";
 const PAPER = "#fbfbf9";
 const FILL = "#eaeae6";
+/** 速度强调色（墨绿）：默认保持黑色，仅在开启受力矢量或处于磁场区内时灵活切换，避免与受力/磁场混色。 */
+const VELOCITY_ACCENT = "#2e6b5e";
 const MATH = '"Cambria", "Cambria Math", Georgia, serif';
 const SANS = '-apple-system, "Segoe UI", "PingFang SC", sans-serif';
 
@@ -1121,6 +1123,15 @@ export function drawStageScene(
     ctx.fillText("停止点", X(last.position.x), Math.min(H - 16, Y(last.position.y) + halfPx + 8));
   }
 
+  const activeMagnetics = g.magnetics ?? (g.magnetic ? [g.magnetic] : []);
+  const activeStageKind = active?.stageIndex !== undefined ? motion.stagePlan?.stages[active.stageIndex]?.kind : undefined;
+  const inMagneticZone = activeStageKind === "magnetic_deflection"
+    || activeMagnetics.some((mg) => center.x >= mg.entry.xM - 0.15 && center.x <= mg.entry.xM + mg.regionWidthM + 0.15);
+  // 默认保持经典黑色；开启受力矢量或位于磁场区内时灵活切换为墨绿色，避免与受力箭头/磁场符号混淆。
+  const useAccentVelocity = Boolean(forceArrows?.length) || inMagneticZone;
+  const velArrowColor = useAccentVelocity ? VELOCITY_ACCENT : "#3a3a36";
+  const velTextColor = useAccentVelocity ? VELOCITY_ACCENT : INK;
+
   const speed = Math.hypot(sample.velocity.x, sample.velocity.y);
   if (speed > 0.08) {
     const ux = sample.velocity.x / speed;
@@ -1142,14 +1153,14 @@ export function drawStageScene(
       startX = endX - ux * length;
       startY = endY - uy * length;
     }
-    ctx.strokeStyle = "#3a3a36";
+    ctx.strokeStyle = velArrowColor;
     ctx.lineWidth = 1.6;
     ctx.beginPath();
     ctx.moveTo(X(startX), Y(startY));
     ctx.lineTo(X(endX), Y(endY));
     ctx.stroke();
     const angle = Math.atan2(Y(endY) - Y(startY), X(endX) - X(startX));
-    ctx.fillStyle = "#3a3a36";
+    ctx.fillStyle = velArrowColor;
     ctx.beginPath();
     ctx.moveTo(X(endX), Y(endY));
     ctx.lineTo(X(endX) - 8 * Math.cos(angle) + 3 * Math.sin(angle), Y(endY) - 8 * Math.sin(angle) - 3 * Math.cos(angle));
@@ -1208,8 +1219,18 @@ export function drawStageScene(
   const preferredX = g.positionReference === "particle" ? X(center.x) + labelWidth / 2 + 16 : X(center.x);
   const labelX = explicitArc?W-labelWidth/2-12:Math.min(W - labelWidth / 2 - 8, Math.max(labelWidth / 2 + 8, preferredX));
   const labelY = explicitArc?20:Math.min(H - 28, Math.max(20, Y(center.y) - (g.positionReference === "particle" ? 18 : halfPx + 9)));
-  if(!explicitArc){ctx.fillStyle = PAPER; ctx.fillRect(labelX - labelWidth / 2 - 3, labelY - 15, labelWidth + 6, sample.constraint ? 35 : 18);}
-  ctx.fillStyle = INK; ctx.fillText(label, labelX, labelY);
+  // 去掉实色底块，改为纸色细描边光晕，既不遮挡下方轨道/磁场又保持清晰可读。
+  const haloText = (text: string, x: number, y: number, color: string) => {
+    ctx.save();
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(251,251,249,0.9)";
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+    ctx.restore();
+  };
+  haloText(label, labelX, labelY, velTextColor);
   let velBoxW = labelWidth;
   if (sample.constraint) {
     const isRodCurrent = currentArc && "side" in currentArc && currentArc.side === "rod";
@@ -1218,7 +1239,7 @@ export function drawStageScene(
       ? (nVal < -1e-9 ? `支持力 ${normalText(Math.abs(nVal), explicitArc)} N` : nVal > 1e-9 ? `拉力 ${normalText(nVal, explicitArc)} N` : "杆力 0.00 N")
       : `N = ${normalText(nVal, explicitArc)} N`;
     velBoxW = Math.max(velBoxW, ctx.measureText(forceLabel).width || forceLabel.length * 7);
-    ctx.fillStyle = SOFT; ctx.fillText(forceLabel, labelX, labelY + 18);
+    haloText(forceLabel, labelX, labelY + 18, SOFT);
   }
   const velLabelRect = {
     x: labelX - velBoxW / 2 - 4,

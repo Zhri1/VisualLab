@@ -379,7 +379,8 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
     if(by===null||!rect){by=Math.max(15,Math.min(H-6,cand[0]));rect={x:cx-w/2,y:by-13,w,h};}
     rects.push(rect);
     if(q.leader&&Math.abs(by-q.by)>=12){ctx.save();ctx.strokeStyle=HAIR;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(q.leader.x,q.leader.y);ctx.lineTo(cx,by+(q.dir===-1?4:-13));ctx.stroke();ctx.restore();}
-    ctx.fillStyle=PAPER;ctx.fillRect(rect.x,rect.y,w,h);ctx.fillStyle=q.color;ctx.textAlign='center';ctx.fillText(q.text,cx,by);
+    // 去掉实色底块，改用纸色细描边光晕，避免遮挡绳、滑轮与电磁场轨迹。
+    ctx.save();ctx.textAlign='center';ctx.lineJoin='round';ctx.lineWidth=3;ctx.strokeStyle='rgba(251,251,249,0.9)';ctx.strokeText(q.text,cx,by);ctx.fillStyle=q.color;ctx.fillText(q.text,cx,by);ctx.restore();
   }
   if(forceArrows?.length)drawForceArrows(ctx,forceArrows,X,Y);
 }
