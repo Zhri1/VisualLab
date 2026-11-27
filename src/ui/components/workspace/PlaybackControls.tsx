@@ -368,7 +368,7 @@ export function PlaybackControls({
                   checked={paceEnabled}
                   onChange={(event) => onPaceEnabledChange(event.target.checked)}
                 />
-                <span>自动慢放</span>
+                <span>自动调速</span>
                 {paceAdjusted && <span className="pace-badge">{formatPace(defaultPace)}×</span>}
               </label>
             )}

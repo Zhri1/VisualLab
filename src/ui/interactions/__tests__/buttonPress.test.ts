@@ -158,7 +158,7 @@ describe("统一按钮按压手感 buttonPress", () => {
     uninstall();
   });
 
-  it("label.transport-pill（如关键点暂停 / 自动慢放）同样支持按压与松手回弹", () => {
+  it("label.transport-pill（如关键点暂停 / 自动调速）同样支持按压与松手回弹", () => {
     expect(PRESSABLE_BUTTON_SELECTOR).toContain("label.transport-pill");
     const { doc } = createMockDoc(false);
     const uninstall = installButtonPressFeel(doc as unknown as Document);

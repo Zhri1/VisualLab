@@ -116,7 +116,7 @@ export function WorkspaceLayout({ ws }: Props) {
   const [mobileTab, setMobileTab] = useState<MobileTab>("player");
   const [metaOpen, setMetaOpen] = useState(false);
   const [explainOpen, setExplainOpen] = useState(false);
-  /** 自动慢放开关：默认开（只放慢不加速），可关回原始物理流速。 */
+  /** 自动调速开关：默认开（只放慢不加速），可关回原始物理流速。 */
   const [paceEnabled, setPaceEnabled] = useState(true);
   const [forcesOn, setForcesOn] = useState(false);
   const [decomposeOn, setDecomposeOn] = useState(false);
