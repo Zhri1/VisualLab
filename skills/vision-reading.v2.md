@@ -458,6 +458,14 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - 最高点 `0 ≤ v < √(gR)` 时杆/内管壁提供**向上的支持力**，`v > √(gR)` 时提供**向下的拉力/外管壁压力**，均由 B 计算并在画面标注；
 - 若配合 `constraints: [{ kind: "critical_arc_top", stageIndex }]` 反求半径，B 自动按 `v_top = 0`（`R = u² / (4g)`）求解。
 
+### 11.3 连续圆弧衔接与斜面相切入圆轨的切线角约定
+
+显式 `path` 的圆心角 `φ` 从圆轨道**最低点（0°）**起算、逆时针为正（+90° 为右侧，180° 为最高点，-90° 为左侧），入口切向单位矢量为 `(direction === "positive" ? 1 : -1) × (cos φ₀, sin φ₀)`：
+- **下滑斜面直接相切入圆轨（`incline_slide → vertical_arc(path)`）**：倾角为 `θ` 的下滑斜面末端速度方向为 `(cos θ, -sin θ)`。进入向上弯曲的内轨（`direction: "positive"`）时，入口角必须填 **`"startAngleDeg": -θ`**（例如 `37°` 斜面直接相切进入螺旋圆轨时填 `-37`，**严禁填 `0`**），且省略 `path.center` 由物理库按切点自动反算圆心。
+- **两段连续 1/4 圆弧拼接（如 S 形双 1/4 细圆管 `D→E→F`）**：当题面明确由**两段半径为 `R` 的四分之一圆周平滑拼接**（水平入口 `D` → 先向下弯曲至竖直中点 `E` → 再向下弯曲至水平出口 `F`，总落差 `2R`）时，**必须拆成两段连续的 `vertical_arc`**（细圆管设 `side: "rod"`），不得合并成单段 `90°` 圆弧：
+  1. 第一段 `D→E`（水平向右从顶端向下弯 90° 至竖直向下）：`path: { center: { xM: 0, yM: -R }, startAngleDeg: 180, direction: "negative", end: { kind: "physical_endpoint", sweepAngleDeg: 90 } }`（入口切向 `(+1, 0)`，出口切向 `(0, -1)`）；
+  2. 第二段 `E→F`（竖直向下再弯 90° 至最低点水平向右）：`path: { startAngleDeg: -90, direction: "positive", end: { kind: "physical_endpoint", sweepAngleDeg: 90 } }`（省略 `center` 自动与前段 `E` 点相切衔接，入口切向 `(0, -1)`，出口切向 `(+1, 0)`）。
+
 ## 12. 粗糙弹簧接触与能量显示
 
 共享契约 `ROUGH_SPRING_CONTACT.md`。滑块以水平正速入射压缩粗糙面上的弹簧时，沿用 `spring_contact`，使用互斥字段 `kineticFrictionCoefficient`（不得同时输出 `frictionless`），顶层必填 `massKg` 与 `gravityMps2`：
@@ -760,7 +768,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 ## 21. 分区电磁场、弹性正碰与撤场恢复（`switchable_em_collision`）
 
-共享契约 `SWITCHABLE_EM_COLLISION.md`。题面特征：世界坐标 `y > 0` 仅有沿 `-y` 方向的匀强电场，`y < 0` 仅有垂直于 `xOy` 平面的匀强磁场；正电粒子甲从 `(0, L)` 以初速度 `v₀` 沿 `+x` 方向射入电场，经 `x` 轴某点进入磁场后，与静止在磁区内定点 `Q` 的另一正电粒子乙发生弹性正碰；碰后当乙首次穿过某题设竖直线 `x = x_off` 时撤去磁场（及电场），经一段时间恢复磁场后两粒子回旋轨迹恰好不相交（首次有效外切）。
+共享契约 `SWITCHABLE_EM_COLLISION.md`。题面特征：世界坐标 `y > 0` 仅有沿 `-y` 方向的匀强电场，`y < 0` 仅有垂直于 `xOy` 平面的匀强磁场；正电粒子甲从 `(0, L)` 以初速度 `v₀` 沿 `+x` 方向射入电场，经 `x` 轴某点进入磁场后，与静止在磁区内定点 `Q` 的另一正电粒子乙发生弹性正碰；碰后当乙首次穿过某题设竖直线 `x = x_off` 时撤去下半区磁场（上半区电场保持存在），经一段时间恢复磁场后两粒子回旋轨迹恰好不相交（首次有效外切）。
 
 - 使用唯一复合阶段 `switchable_em_collision`，**不与其他阶段混用**，顶层 `initial` 固定写 `{ "speedMps": null }`（速度标度放段内）。
 - `scaleMode`：题面只给符号基准 `m、q、L、v₀` 时填 `"normalized"`（四个标度 `massScaleKg`、`chargeScaleC`、`lengthScaleM`、`speedScaleMps` 可省略，物理库按 1 归一化演示，并在 `assumptions` 说明）；题面给出具体数值基准时填 `"si"` 并填齐四个标度。

@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { validateStagePlan, assembleStageScene, buildStageMotion } from "./index";
-import { adaptStageMotion } from "../adapters/stageMotionAdapter";
-import { validateStagePlan as validateQoderStagePlan } from "../../functions/stagePlan";
+import { validateStagePlan, assembleStageScene, buildStageMotion } from "../index";
+import { adaptStageMotion } from "../../adapters/stageMotionAdapter";
+import { validateStagePlan as validateQoderStagePlan } from "../../../functions/stagePlan";
 
 const loadFixture = (name: string) =>
   JSON.parse(readFileSync(join(process.cwd(), "fixtures", name), "utf8"));
 
 describe("switchable_em_collision 分区电磁场与双粒子正碰回归", () => {
-  it("归一化标度下精确复现入磁角 -30°、E/B、撤场时长 6L/(√7 v₀) 与甲路程 2√21L/7", () => {
+  it("归一化标度下精确复现入磁角 -30°、E/B、撤场时长 6L/(√7 v₀) 与甲路程 2√21L/7，且仅撤下半区磁场", () => {
     const raw = loadFixture("switchable-em-collision.reading.json");
     const vNode = validateStagePlan(raw);
     const vQoder = validateQoderStagePlan(raw);
@@ -33,7 +33,7 @@ describe("switchable_em_collision 分区电磁场与双粒子正碰回归", () =
     expect(byName("撤场至恢复的时长")).toBeCloseTo(6 / Math.sqrt(7), 10);
     expect(byName("撤场期间甲的路程")).toBeCloseTo((2 * Math.sqrt(21)) / 7, 10);
 
-    // 2. 核对入磁角 -30° 与事件序列
+    // 2. 核对入磁角 -30°、事件序列以及仅撤磁场（上半区电场保持存在）
     const enter = motion.events.find((e) => e.kind === "magnetic_enter")!;
     const enterAngleDeg = (Math.atan2(enter.velocityAfter.vyMps, enter.velocityAfter.vxMps) * 180) / Math.PI;
     expect(enterAngleDeg).toBeCloseTo(-30, 8);
@@ -45,6 +45,10 @@ describe("switchable_em_collision 分区电磁场与双粒子正碰回归", () =
       "magnetic_restored",
       "observation_end",
     ]);
+    const fieldsOff = motion.events.find((e) => e.kind === "fields_off")!;
+    expect(fieldsOff.label).toContain("撤去磁场");
+    expect(fieldsOff.label).not.toContain("两场撤去");
+    expect(fieldsOff.explanation).toContain("上半区电场保持存在");
 
     // 3. 核对恢复磁场两圆外切且不表示再次碰撞
     const em = motion.geometry.switchableEM!;
@@ -85,11 +89,8 @@ describe("switchable_em_collision 分区电磁场与双粒子正碰回归", () =
     expect(built.ok).toBe(true);
     if (!built.ok) return;
     const byName = (q: string) => built.motion.calculations?.find((c) => c.quantity === q)?.value;
-    // E = m v0^2 / (6 q L) = 2 * 16 / (6 * 0.5 * 3) = 32 / 9
     expect(byName("电场强度 E")).toBeCloseTo(32 / 9, 8);
-    // Δt = 6 L / (√7 v0) = 18 / (4√7)
     expect(byName("撤场至恢复的时长")).toBeCloseTo((6 * 3) / (Math.sqrt(7) * 4), 8);
-    // distance = (2√21 / 7) L
     expect(byName("撤场期间甲的路程")).toBeCloseTo((2 * Math.sqrt(21) * 3) / 7, 8);
   });
 
@@ -121,23 +122,19 @@ describe("conveyor_belt (足够长与显式带长) + movable_semicircle 回归",
     if (!built.ok) return;
     const motion = built.motion;
 
-    // 1. 坡底 4 m/s
     const bottom = motion.events.find((e) => e.kind === "reach_bottom")!;
     expect(Math.hypot(bottom.velocityAfter.vxMps, bottom.velocityAfter.vyMps)).toBeCloseTo(4, 8);
 
-    // 2. 共速 5 m/s、滑痕 0.2 m、摩擦功 0.9 J
     const common = motion.events.find((e) => e.kind === "conveyor_common_velocity")!;
     expect(common.velocityAfter.vxMps).toBeCloseTo(5, 8);
     expect(common.conveyorSlipDistanceM).toBeCloseTo(0.2, 8);
     expect(common.conveyorFrictionWorkJ).toBeCloseTo(0.9, 8);
 
-    // 3. 明确标注略去未知共速段，不把 1.8 m 当作物理带长
     expect(motion.geometry.conveyor?.beltLengthM).toBeNull();
     expect(motion.geometry.conveyor?.endOmitted).toBe(true);
     expect(motion.playbackGaps?.length).toBe(1);
     expect(motion.events.some((e) => e.kind === "conveyor_uniform_omitted")).toBe(true);
 
-    // 4. 可平动半圆顶点相对速率 3 m/s、压力 3 N、绝对速度 -2.2 和 +0.8 m/s
     const top = motion.events.find((e) => e.kind === "movable_semicircle_top")!;
     expect(top.normalForceAfterN).toBeCloseTo(3, 8);
     const endSample = motion.sampleAt(motion.durationSeconds);
@@ -148,14 +145,12 @@ describe("conveyor_belt (足够长与显式带长) + movable_semicircle 回归",
     expect(endSample.constraint?.normalForceN).toBeCloseTo(3, 8);
     expect(endGroove.grooveXM).toBeGreaterThan(motion.geometry.movableSemicircle!.entry.xM);
 
-    // 5. 适配层透传 playbackGaps 和 movableSemicircleAt
     const adapted = adaptStageMotion(motion, vNode.reading);
     expect(adapted.playbackGaps?.length).toBe(1);
     expect(adapted.movableSemicircleAt?.(adapted.durationSeconds)?.grooveVX).toBeCloseTo(0.8, 8);
   });
 
   it("显式带长变式按实际带长计算，不省略共速段；短带未共速按实际离带速进入半圆", () => {
-    // 变式 A：显式带长 3.0 m（> 1.8 m），共速后继续匀速 1.2 m 至带端
     const longExplicit = loadFixture("conveyor-movable-semicircle.reading.json");
     longExplicit.stages[2] = {
       kind: "conveyor_belt",
@@ -183,7 +178,6 @@ describe("conveyor_belt (足够长与显式带长) + movable_semicircle 回归",
       }
     }
 
-    // 变式 B：显式短带 1.0 m（< 1.8 m），离开时未共速 v = sqrt(4^2 + 2*2.5*1) = sqrt(21) ≈ 4.5826 m/s
     const shortExplicit = loadFixture("conveyor-movable-semicircle.reading.json");
     shortExplicit.stages[2] = {
       kind: "conveyor_belt",
@@ -207,5 +201,73 @@ describe("conveyor_belt (足够长与显式带长) + movable_semicircle 回归",
         }
       }
     }
+  });
+});
+
+describe("BT-1 切入角预检一致性与 BT-3 双段 1/4 圆管回归", () => {
+  it("斜面切向入圆轨角度不匹配时，Node 与 Qoder validateStagePlan 均在预检阶段拦截", () => {
+    const mismatched = {
+      kind: "stage_plan",
+      schemaVersion: 1,
+      gravityMps2: 10,
+      massKg: 1,
+      initial: { speedMps: 0 },
+      stages: [
+        { kind: "incline_slide", lengthM: 2, angleDeg: 37, kineticFrictionCoefficient: 0, slidesAfterRelease: true },
+        { kind: "vertical_arc", radiusM: 0.4, side: "inside", frictionless: true, path: { startAngleDeg: 0, direction: "positive", end: { kind: "observation", sweepAngleDeg: 360 } } },
+      ],
+    };
+    const vNode = validateStagePlan(mismatched);
+    const vQoder = validateQoderStagePlan(mismatched);
+    expect(vNode.ok).toBe(false);
+    expect(vQoder.ok).toBe(false);
+    if (!vNode.ok) {
+      expect(vNode.code).toBe("INCONSISTENT_CONDITIONS");
+      expect(vNode.fieldErrors.some((e) => e.path === "/stages/1/path")).toBe(true);
+    }
+
+    // 修正入口角为 -37° 后，两端校验与装配计算均通过
+    const matched = structuredClone(mismatched);
+    (matched.stages[1] as { path: { startAngleDeg: number } }).path.startAngleDeg = -37;
+    const vOk = validateStagePlan(matched);
+    expect(vOk.ok).toBe(true);
+    if (vOk.ok) {
+      const scene = assembleStageScene(vOk.reading);
+      expect(scene.ok).toBe(true);
+      if (scene.ok) {
+        const built = buildStageMotion(scene.scene);
+        expect(built.ok).toBe(true);
+        if (built.ok) {
+          const top = built.motion.events.find((e) => e.kind === "arc_top")!;
+          expect(top.normalForceAfterN).toBeCloseTo(14.209, 2);
+        }
+      }
+    }
+  });
+
+  it("两段连续 1/4 细圆管（D→E→F）精确计算 vF ≈ 4.899 m/s、NF ≈ 8.40 N", () => {
+    const pipePlan = {
+      kind: "stage_plan",
+      schemaVersion: 1,
+      gravityMps2: 10,
+      massKg: 0.12,
+      initial: { speedMps: Math.sqrt(8) },
+      stages: [
+        { kind: "vertical_arc", radiusM: 0.4, side: "rod", frictionless: true, path: { center: { xM: 0, yM: -0.4 }, startAngleDeg: 180, direction: "negative", end: { kind: "physical_endpoint", sweepAngleDeg: 90 } }, startLabel: "D", endLabel: "E" },
+        { kind: "vertical_arc", radiusM: 0.4, side: "rod", frictionless: true, path: { startAngleDeg: -90, direction: "positive", end: { kind: "physical_endpoint", sweepAngleDeg: 90 } }, startLabel: "E", endLabel: "F" },
+      ],
+    };
+    const v = validateStagePlan(pipePlan);
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    const scene = assembleStageScene(v.reading);
+    expect(scene.ok).toBe(true);
+    if (!scene.ok) return;
+    const built = buildStageMotion(scene.scene);
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const lowest = built.motion.events.find((e) => e.kind === "arc_lowest")!;
+    expect(Math.hypot(lowest.velocityAfter.vxMps, lowest.velocityAfter.vyMps)).toBeCloseTo(Math.sqrt(24), 6);
+    expect(lowest.normalForceAfterN).toBeCloseTo(8.4, 6);
   });
 });

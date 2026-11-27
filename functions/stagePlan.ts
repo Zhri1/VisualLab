@@ -550,6 +550,26 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
   if(!missingKeys.length&&!fieldErrors.length)for(const [i,s]of draft.stages.entries())if(s.kind==='vertical_arc'&&s.path){
     try{circularGeometry(s as unknown as Extract<Stage,{kind:'vertical_arc'}>&{path:ExplicitArcPath},i);}
     catch(e){issue('/stages/'+i+((e as {field?:string}).field??'/path'),'RANGE',(e as Error).message);}
+    if(i>0){
+      const prev=draft.stages[i-1],p=s.path as ExplicitArcPath;
+      const phi0=p.startAngleDeg*Math.PI/180,d=p.direction==='positive'?1:-1;
+      const ax=d*Math.cos(phi0),ay=d*Math.sin(phi0);
+      let tx:number|undefined,ty:number|undefined;
+      if(prev.kind==='incline_slide'&&prev.direction!=='up'&&typeof prev.angleDeg==='number'){
+        const rad=prev.angleDeg*Math.PI/180;
+        tx=Math.cos(rad);ty=-Math.sin(rad);
+      }else if(prev.kind==='lossless_turn'){
+        tx=1;ty=0;
+      }else if(prev.kind==='vertical_arc'&&prev.path){
+        const pp=prev.path as ExplicitArcPath,dp=pp.direction==='positive'?1:-1;
+        const endRad=(pp.startAngleDeg+dp*pp.end.sweepAngleDeg)*Math.PI/180;
+        tx=dp*Math.cos(endRad);ty=dp*Math.sin(endRad);
+      }
+      if(tx!==undefined&&ty!==undefined){
+        const diff=Math.acos(Math.max(-1,Math.min(1,tx*ax+ty*ay)));
+        if(diff>0.03)issue('/stages/'+i+'/path','PRECONDITION_CONFLICT','圆轨入口位置或速度不符合声明的切线与方向。');
+      }
+    }
   }
   const playback = resolveSpringEnergy(input, draft, missingKeys, issue, numberField);
   if (!missingKeys.length && !fieldErrors.length && draft.stages[0].kind === 'vertical_arc' && draft.stages[0].path) {
