@@ -60,7 +60,7 @@ export function computeSwitchableEMMotion(stage: SwitchableEMStage): StageMotion
   addEvent('release', 0, '甲进入电场', '甲水平发射，电场只改变竖直速度。用实际入磁点的横、竖位移反求 E。', start, contact);
   addEvent('magnetic_enter', enterSeconds, '甲穿过场区分界', `速度方向为 ${display(degrees(entry))}°。由入射切线与入磁点至碰撞点的弦反求磁场，E ≈ ${display(E)} N/C，B ≈ ${display(B)} T，E/B ≈ ${display(ratio)} m/s。`, entry, contact);
   addEvent('em_collision', contactSeconds, '甲、乙弹性正碰', `两粒子沿入射切线正碰。该方向的总动量为 ${display(momentumBefore)} → ${display(momentumAfter)} kg·m/s，动能为 ${display(collision.energyBeforeJ)} → ${display(collision.energyAfterJ)} J。碰后切向速度为 ${display(collision.v1)}、${display(collision.v2)} m/s。`, aCollision, bCollision, incoming, contact);
-  addEvent('fields_off', offSeconds, '乙首次穿过竖线，两场撤去', '撤场瞬间两粒子的位置和速度连续，此后各自沿切线匀速直行。', aOff, bOff);
+  addEvent('fields_off', offSeconds, '乙首次穿过竖线，撤去磁场', '撤去下半区磁场瞬间两粒子的位置和速度连续，上半区电场保持存在，两粒子在磁区内各自沿切线匀速直行。', aOff, bOff);
   addEvent('magnetic_restored', restoreSeconds, '恢复磁场，两回旋圆外切', `首次可达的正等待时间 Δt ≈ ${display(restored.time)} s。此时圆心距等于半径之和，甲在撤场期间走过约 ${display(distanceM)} m（${display(distanceM / stage.lengthScaleM)} L）。切点是两条轨迹的外切几何交点，不表示两粒子发生再次碰撞。`, restored.aState, restored.bState);
   const finalA = restored.a.at(solved.observationTime), finalB = restored.b.at(solved.observationTime);
   addEvent('observation_end', durationSeconds, '回旋观察结束', '两粒子均已完成至少一周回旋，仍在磁场中运动。', finalA, finalB);

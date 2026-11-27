@@ -32,20 +32,19 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
   ctx.clearRect(0,0,W,H);ctx.fillStyle=PAPER;ctx.fillRect(0,0,W,H);ctx.lineWidth=1.3;ctx.font=`12px ${FONT}`;ctx.textBaseline='alphabetic';
   if(motion.stageGeometry?.switchableEM){
     const em=motion.stageGeometry.switchableEM;
-    const eOn=time<em.offSeconds-1e-9;
+    const eOn=true;
     const bOn=time<em.offSeconds-1e-9||time>=em.restoreSeconds-1e-9;
     const restored=time>=em.restoreSeconds-1e-9;
     const axisY=Y(0);
     const xL=Math.max(8,X(b.x1)-10),xR=Math.min(W-8,X(b.x2)+10);
     const yTop=Math.max(8,Y(b.y2)-10),yBot=Math.min(H-8,Y(b.y1)+10);
-    // 上半区 y > 0 匀强电场
+    // 上半区 y > 0 匀强电场（全程保持存在）
     if(axisY>yTop+4){
       ctx.save();
-      ctx.fillStyle=eOn?'rgba(180,120,40,0.06)':'rgba(150,150,145,0.03)';
+      ctx.fillStyle='rgba(180,120,40,0.06)';
       ctx.fillRect(xL,yTop,Math.max(0,xR-xL),Math.max(0,axisY-yTop));
-      ctx.strokeStyle=eOn?'rgba(160,105,30,0.45)':'rgba(150,150,145,0.28)';
+      ctx.strokeStyle='rgba(160,105,30,0.45)';
       ctx.lineWidth=1;
-      if(!eOn)ctx.setLineDash([3,4]);
       const stepX=Math.max(44,(xR-xL)/7);
       for(let px=xL+stepX*0.5;px<xR-16;px+=stepX){
         const ay1=yTop+12,ay2=axisY-10;
@@ -54,7 +53,7 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
           ctx.moveTo(px-3.5,ay2-5);ctx.lineTo(px,ay2);ctx.lineTo(px+3.5,ay2-5);ctx.stroke();
         }
       }
-      ctx.fillStyle=eOn?'#8a5a18':SOFT;ctx.textAlign='left';ctx.fillText(eOn?'E ↓（电场开启）':'E（已撤去）',xL+6,yTop+15);
+      ctx.fillStyle='#8a5a18';ctx.textAlign='left';ctx.fillText(eOn?'E ↓（电场恒定开启）':'E',xL+6,yTop+15);
       ctx.restore();
     }
     // 下半区 y < 0 匀强磁场
@@ -290,7 +289,7 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
 export function MultiBodyReadouts({motion,time,isPlaying=false}:{motion:Motion;time:number;isPlaying?:boolean}){
   const sample=motion.sampleAt(time),ids=Object.keys(sample.bodies??{}).sort(),firstKind=motion.stagePlan?.stages[0]?.kind,horizontal=firstKind==='horizontal_approach'||firstKind==='block_plank';
   const em=motion.stageGeometry?.switchableEM;
-  const emStatus=em?(time<em.offSeconds-1e-9?'电场开 · 磁场开':time<em.restoreSeconds-1e-9?'两场撤去 · 匀速直线漂移':'磁场已恢复 · 两轨迹外切（非碰撞）'):null;
+  const emStatus=em?(time<em.offSeconds-1e-9?'电场开 · 磁场开':time<em.restoreSeconds-1e-9?'电场开 · 磁场撤去（匀速直线漂移）':'电场开 · 磁场已恢复（两轨迹外切，非碰撞）'):null;
   return <figcaption id="multi-body-readouts" className={'multi-body-readouts'+(ids.some(id=>id.length>16)?' has-long-ids':'')+(horizontal?' has-horizontal-states':'')} aria-live={isPlaying?'off':'polite'}>
     {ids.map((id,i)=>{const b=sample.bodies![id];return <span className="body-body-value" key={id} data-body-id={id}><i className="body-swatch" style={{background:i===0?INK:TARGET}}/>{id}：v = {formatSpeed(Math.hypot(b.velocity.x,b.velocity.y))} m/s；{bodyStatusText[b.status]}{b.groupId?' · 粘连':''}{(horizontal||!!em)&&<><br/>x = {signed(b.position.x)}，y = {signed(b.position.y)} m<br/>vₓ = {signed(b.velocity.x)}，vᵧ = {signed(b.velocity.y)} m/s</>}</span>;})}
     {emStatus&&<span className="body-constraint">场区状态：{emStatus}{em?.scaleMode==='normalized'?' · 归一化标度（m=q=L=v₀=1）':''}</span>}

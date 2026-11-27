@@ -13,7 +13,7 @@
 | `targetMassRatio`、`targetChargeRatio` | 乙与甲的质量比和正电荷量比，均为正。 |
 | `entryXOverLength` | 甲入磁点的 x/L，须为正；该点 y=0。 |
 | `collisionXOverLength`、`collisionYOverLength` | 甲乙弹性正碰的位置 (x/L,y/L)，须位于 y<0。正碰沿入射切线，磁力冲量按瞬时碰撞模型忽略。 |
-| `switchOffXOverLength` | 碰后乙首次严格穿过的竖线 x/L。该事件同时撤去两场。 |
+| `switchOffXOverLength` | 碰后乙首次严格穿过的竖线 x/L。该事件撤去下半区磁场，上半区电场保持存在。 |
 | `fieldDirection` | `into_page` 表示磁场垂直纸面向里，`out_of_page` 表示向外。 |
 | `gravityAndMutualForcesNegligible` | 必须确认 `true`。该事实表示忽略重力及规定碰撞以外的粒子相互作用。 |
 
