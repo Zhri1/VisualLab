@@ -3429,8 +3429,7 @@ textarea {
   .chat-input,
   .composer-text,
   .num-input,
-  .stage-select,
-  .rate-control select {
+  .stage-select {
     font-size: 16px;
   }
 
