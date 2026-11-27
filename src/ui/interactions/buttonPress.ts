@@ -20,6 +20,7 @@ export const PRESSABLE_BUTTON_SELECTOR = [
   "button.tool-toggle",
   "button.tbtn",
   "button.transport-pill",
+  "label.transport-pill",
   "button.attach-button",
   "button.send-button",
   "button.chat-send",
@@ -48,16 +49,26 @@ function isReducedMotion(): boolean {
   }
 }
 
-function findPressableButton(target: EventTarget | null): HTMLButtonElement | null {
-  if (!target || typeof (target as Element).closest !== "function") return null;
-  const el = (target as Element).closest(PRESSABLE_BUTTON_SELECTOR);
-  if (!el || el.tagName !== "BUTTON") return null;
-  const btn = el as HTMLButtonElement;
-  if (btn.disabled || btn.getAttribute("aria-disabled") === "true") return null;
-  return btn;
+function isControlDisabled(el: HTMLElement): boolean {
+  if (el.getAttribute("aria-disabled") === "true") return true;
+  if (el.tagName === "BUTTON") return Boolean((el as HTMLButtonElement).disabled);
+  if (el.tagName === "LABEL" && typeof el.querySelector === "function") {
+    const input = el.querySelector("input");
+    return Boolean(input && input.disabled);
+  }
+  return false;
 }
 
-function isPointInsideButton(btn: HTMLButtonElement, clientX: number, clientY: number): boolean {
+function findPressableButton(target: EventTarget | null): HTMLElement | null {
+  if (!target || typeof (target as Element).closest !== "function") return null;
+  const el = (target as Element).closest(PRESSABLE_BUTTON_SELECTOR);
+  if (!el || (el.tagName !== "BUTTON" && el.tagName !== "LABEL")) return null;
+  const ctrl = el as HTMLElement;
+  if (isControlDisabled(ctrl)) return null;
+  return ctrl;
+}
+
+function isPointInsideButton(btn: HTMLElement, clientX: number, clientY: number): boolean {
   const rect = btn.getBoundingClientRect();
   return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
 }
@@ -67,11 +78,11 @@ function isPointInsideButton(btn: HTMLButtonElement, clientX: number, clientY: n
  * 返回卸载函数以便测试清理。
  */
 export function installButtonPressFeel(doc: Document = document): () => void {
-  const activePointers = new Map<number, HTMLButtonElement>();
-  const activeKeyButtons = new Set<HTMLButtonElement>();
-  const runningAnimations = new WeakMap<HTMLButtonElement, Animation>();
+  const activePointers = new Map<number, HTMLElement>();
+  const activeKeyButtons = new Set<HTMLElement>();
+  const runningAnimations = new WeakMap<HTMLElement, Animation>();
 
-  const cancelRebound = (btn: HTMLButtonElement) => {
+  const cancelRebound = (btn: HTMLElement) => {
     const prev = runningAnimations.get(btn);
     if (prev) {
       prev.cancel();
@@ -79,12 +90,12 @@ export function installButtonPressFeel(doc: Document = document): () => void {
     }
   };
 
-  const pressDown = (btn: HTMLButtonElement) => {
+  const pressDown = (btn: HTMLElement) => {
     cancelRebound(btn);
     btn.setAttribute("data-press", "down");
   };
 
-  const releaseButton = (btn: HTMLButtonElement, shouldRebound: boolean) => {
+  const releaseButton = (btn: HTMLElement, shouldRebound: boolean) => {
     const wasDown = btn.getAttribute("data-press") === "down";
     if (!wasDown) return;
 
@@ -149,7 +160,7 @@ export function installButtonPressFeel(doc: Document = document): () => void {
     if (!btn) return;
     activePointers.delete(e.pointerId);
     const inside = isPointInsideButton(btn, e.clientX, e.clientY);
-    releaseButton(btn, inside && !btn.disabled);
+    releaseButton(btn, inside && !isControlDisabled(btn));
   };
 
   const onPointerCancel = (e: PointerEvent) => {
@@ -173,7 +184,7 @@ export function installButtonPressFeel(doc: Document = document): () => void {
     const btn = findPressableButton(e.target);
     if (btn && activeKeyButtons.has(btn)) {
       activeKeyButtons.delete(btn);
-      releaseButton(btn, !btn.disabled);
+      releaseButton(btn, !isControlDisabled(btn));
       return;
     }
     // 兜底释放所有处于键盘按下态的按钮
