@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { advancePlayback, computeDefaultPace, formatPace, formatSpeed, planSlowCurrentSegment, segmentAt } from "./playback";
 import { computeWorldBounds, fitViewport } from "./canvasViewport";
 import { computeRatePopoverLayout, PLAYBACK_RATES } from "./PlaybackControls";
+import { buildCurrentStageBadge } from "./WorkspaceLayout";
 import { PRESSABLE_BUTTON_SELECTOR } from "../../interactions/buttonPress";
 import type { MotionSegment } from "../../../types";
 import fixture from "../../../../fixtures/incline-spring.reading.json";
@@ -189,5 +190,45 @@ describe("播放倍率浮层定位与按压接入", () => {
     const nearRight = computeRatePopoverLayout({ left: 340, top: 520, bottom: 556, width: 74 }, 390, 844);
     expect(nearRight.placement).toBe("top");
     expect(nearRight.left).toBe(390 - 96 - 8);
+  });
+});
+
+describe("单条当前路段状态徽标 buildCurrentStageBadge", () => {
+  it("多阶段题仅输出当前段编号、名称与有值时的 μ；无摩擦段不显示 μ", () => {
+    const plan = {
+      stages: [
+        { kind: "spring_release", kineticFrictionCoefficient: 0.1 },
+        { kind: "horizontal_slide", kineticFrictionCoefficient: 0.1 },
+        { kind: "vertical_arc" },
+        { kind: "projectile" },
+        { kind: "incline_slide", kineticFrictionCoefficient: 0.2 },
+      ],
+    };
+    const seg5 = { kind: "incline", name: "斜面下滑", stageIndex: 4, startSeconds: 1.63, endSeconds: 2.12 } as MotionSegment;
+    expect(buildCurrentStageBadge(seg5, plan, null)).toEqual({
+      code: "05",
+      name: "斜面下滑",
+      frictionText: "μ = 0.20",
+      fullLabel: "05 斜面下滑 · μ = 0.20",
+    });
+
+    const seg3 = { kind: "vertical_arc", name: "竖直圆弧", stageIndex: 2, startSeconds: 0.46, endSeconds: 0.72 } as unknown as MotionSegment;
+    expect(buildCurrentStageBadge(seg3, plan, null)).toEqual({
+      code: "03",
+      name: "竖直圆弧",
+      frictionText: null,
+      fullLabel: "03 竖直圆弧",
+    });
+  });
+
+  it("旧版固定 incline_spring 模型按实际段区分斜面、水平面与弹簧，不把弹簧错标成水平面", () => {
+    const inc = { kind: "incline", name: "斜面下滑", startSeconds: 0, endSeconds: 2 } as MotionSegment;
+    const hor = { kind: "horizontal", name: "水平滑动", startSeconds: 2, endSeconds: 3 } as MotionSegment;
+    const spr = { kind: "spring", name: "弹簧压缩与反弹", startSeconds: 3, endSeconds: 4 } as MotionSegment;
+
+    expect(buildCurrentStageBadge(inc, null, 0.5)?.fullLabel).toBe("AB 斜面 · μ = 0.50");
+    expect(buildCurrentStageBadge(hor, null, 0.5)?.fullLabel).toBe("BC 水平面 · μ = 0");
+    expect(buildCurrentStageBadge(spr, null, 0.5)?.fullLabel).toBe("CD 弹簧压缩与反弹");
+    expect(buildCurrentStageBadge(undefined, null, 0.5)).toBeNull();
   });
 });

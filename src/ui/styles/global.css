@@ -2455,6 +2455,7 @@ textarea {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  flex: 1 1 auto;
   gap: 6px;
   min-width: 0;
 }
@@ -3384,14 +3385,6 @@ textarea {
     margin-bottom: 4px;
     font-size: 12px;
   }
-  /* 手机收起时路段图例随折叠区隐藏，把高度让给画布 */
-  .stage-bar:not(.is-meta-open) .scene-legend {
-    display: none;
-  }
-  .stage-bar .scene-legend {
-    flex-basis: 100%;
-    margin-left: 0;
-  }
 
   .canvas-frame {
     margin-top: 8px;
@@ -3511,11 +3504,6 @@ textarea {
     border-left: none;
     border-top: 1px solid var(--hair);
     white-space: normal;
-  }
-  .scene-legend {
-    justify-content: flex-start;
-    font-size: 11px;
-    margin-bottom: 0;
   }
 
   /* 对话页 */
@@ -3674,7 +3662,7 @@ textarea {
 /* 横屏手机：优先保画布高度 */
 @media (max-width: 900px) and (max-height: 480px) {
   .player-sub,
-  .scene-legend {
+  .current-stage-badge {
     display: none;
   }
   .canvas-frame {
