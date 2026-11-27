@@ -270,4 +270,39 @@ describe("BT-1 切入角预检一致性与 BT-3 双段 1/4 圆管回归", () => 
     expect(Math.hypot(lowest.velocityAfter.vxMps, lowest.velocityAfter.vyMps)).toBeCloseTo(Math.sqrt(24), 6);
     expect(lowest.normalForceAfterN).toBeCloseTo(8.4, 6);
   });
+
+  it("复现 A：左向细圆管 → 30° 光滑下斜面 → 左向细圆管三段均可播放且末帧 vx = -√24", () => {
+    const raw = loadFixture("arc-incline-arc-leftward.reading.json");
+    const vNode = validateStagePlan(raw);
+    const vQoder = validateQoderStagePlan(raw);
+    expect(vNode.ok).toBe(true);
+    expect(vQoder.ok).toBe(true);
+    if (!vNode.ok) return;
+    const scene = assembleStageScene(vNode.reading);
+    expect(scene.ok).toBe(true);
+    if (!scene.ok) return;
+    const built = buildStageMotion(scene.scene);
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    expect(built.motion.segments.length).toBe(3);
+    const end = built.motion.sampleAt(built.motion.durationSeconds);
+    expect(end.vxMps).toBeCloseTo(-Math.sqrt(24), 6);
+  });
+
+  it("复现 B：首段细圆管能量不足返回入口时不被未到达的后段预检误拒，正常返回 returned_to_entry", () => {
+    const raw = loadFixture("dual-rod-arc-return.reading.json");
+    const vNode = validateStagePlan(raw);
+    const vQoder = validateQoderStagePlan(raw);
+    expect(vNode.ok).toBe(true);
+    expect(vQoder.ok).toBe(true);
+    if (!vNode.ok) return;
+    const scene = assembleStageScene(vNode.reading);
+    expect(scene.ok).toBe(true);
+    if (!scene.ok) return;
+    const built = buildStageMotion(scene.scene);
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    expect(built.motion.segments.length).toBe(1);
+    expect(built.motion.endReason).toBe("returned_to_entry");
+  });
 });

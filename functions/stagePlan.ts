@@ -550,24 +550,19 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
   if(!missingKeys.length&&!fieldErrors.length)for(const [i,s]of draft.stages.entries())if(s.kind==='vertical_arc'&&s.path){
     try{circularGeometry(s as unknown as Extract<Stage,{kind:'vertical_arc'}>&{path:ExplicitArcPath},i);}
     catch(e){issue('/stages/'+i+((e as {field?:string}).field??'/path'),'RANGE',(e as Error).message);}
-    if(i>0){
-      const prev=draft.stages[i-1],p=s.path as ExplicitArcPath;
-      const phi0=p.startAngleDeg*Math.PI/180,d=p.direction==='positive'?1:-1;
-      const ax=d*Math.cos(phi0),ay=d*Math.sin(phi0);
-      let tx:number|undefined,ty:number|undefined;
-      if(prev.kind==='incline_slide'&&prev.direction!=='up'&&typeof prev.angleDeg==='number'){
-        const rad=prev.angleDeg*Math.PI/180;
-        tx=Math.cos(rad);ty=-Math.sin(rad);
-      }else if(prev.kind==='lossless_turn'){
-        tx=1;ty=0;
-      }else if(prev.kind==='vertical_arc'&&prev.path){
-        const pp=prev.path as ExplicitArcPath,dp=pp.direction==='positive'?1:-1;
-        const endRad=(pp.startAngleDeg+dp*pp.end.sweepAngleDeg)*Math.PI/180;
-        tx=dp*Math.cos(endRad);ty=dp*Math.sin(endRad);
-      }
-      if(tx!==undefined&&ty!==undefined){
-        const diff=Math.acos(Math.max(-1,Math.min(1,tx*ax+ty*ay)));
-        if(diff>0.03)issue('/stages/'+i+'/path','PRECONDITION_CONFLICT','圆轨入口位置或速度不符合声明的切线与方向。');
+    // 仅在首段下滑斜面可达且出口方向唯一确定（向右下方）时做结构切线预检；
+    // 其余前驱（反向斜面、保留左右方向的转向、依赖能量可达性的圆弧）交由实际末帧校验。
+    if(i===1){
+      const prev=draft.stages[0],p=s.path as ExplicitArcPath;
+      if(prev.kind==='incline_slide'&&prev.direction!=='up'&&typeof prev.angleDeg==='number'&&typeof prev.lengthM==='number'&&typeof prev.kineticFrictionCoefficient==='number'&&typeof draft.gravityMps2==='number'){
+        const rad=prev.angleDeg*Math.PI/180,a=draft.gravityMps2*(Math.sin(rad)-prev.kineticFrictionCoefficient*Math.cos(rad));
+        const v0=normalizedInitial.speedMps??0;
+        const reachesBottom=a>0||(v0>0&&v0*v0+2*a*prev.lengthM>0);
+        if(reachesBottom){
+          const phi0=p.startAngleDeg*Math.PI/180,d=p.direction==='positive'?1:-1;
+          const diff=Math.acos(Math.max(-1,Math.min(1,Math.cos(rad)*d*Math.cos(phi0)-Math.sin(rad)*d*Math.sin(phi0))));
+          if(diff>0.03)issue('/stages/'+i+'/path','PRECONDITION_CONFLICT','圆轨入口位置或速度不符合声明的切线与方向。');
+        }
       }
     }
   }

@@ -493,6 +493,12 @@ function buildTargetedRepairHints(errors: VisionRepairError[]): string[] {
     );
   }
 
+  if (joined.includes("圆轨入口位置或速度不符合声明的切线与方向")) {
+    hints.push(
+      '- 圆轨入口切线修正指引：显式 path 的入口切向为 (direction==="positive" ? 1 : -1) * (cos φ₀, sin φ₀)。倾角 θ 的下滑斜面直接相切进入向上弯曲圆轨（direction: "positive"）时，startAngleDeg 必须为 -θ（如 37° 斜面填 -37），严禁填 0；两段相连圆弧的后段入口切向须与前段出口切向一致，且后段省略 path.center。',
+    );
+  }
+
   return hints;
 }
 

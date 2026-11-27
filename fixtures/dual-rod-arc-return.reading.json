@@ -1,0 +1,31 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "massKg": 1,
+  "initial": { "speedMps": 1 },
+  "stages": [
+    {
+      "kind": "vertical_arc",
+      "radiusM": 1,
+      "side": "rod",
+      "frictionless": true,
+      "path": {
+        "startAngleDeg": 0,
+        "direction": "positive",
+        "end": { "kind": "physical_endpoint", "sweepAngleDeg": 90 }
+      }
+    },
+    {
+      "kind": "vertical_arc",
+      "radiusM": 1,
+      "side": "rod",
+      "frictionless": true,
+      "path": {
+        "startAngleDeg": 0,
+        "direction": "positive",
+        "end": { "kind": "physical_endpoint", "sweepAngleDeg": 90 }
+      }
+    }
+  ]
+}
