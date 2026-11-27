@@ -10,8 +10,9 @@
 | **单物体多过程**（斜面、水平面、平抛/斜抛、竖直圆弧/整圆、弹簧、分段常力；含高考多段串联） | 单物体多阶段（第 3、4、8、11、12、13 节） | 顶层 `massKg`（含弹簧/圆弧/常力必填）；`initial` 用 `{ speedMps }`，首段为抛体时用 `{ vxMps, vyMps }` | 不写 `bodies`/`primaryBodyId`；`projectile` 的 `dropHeightM`、`landingPlaneYM`、`end` 三者互斥 |
 | **轻绳摆 / 最低点正碰 / 独立水平两物体正碰** | 多体摆与正碰（第 9、10 节） | 顶层 `bodies` + `primaryBodyId`；摆用 `{ speedMps: 0 }` 或 `{ tangentialSpeedMps }`，水平正碰用 `initial.bodies` | **不写顶层 `massKg`**；独立水平正碰不套摆的 `targetApproach` |
 | **滑块-木板 / 传送带 / 轻绳定滑轮连接体** | 专用力学模型（第 14、15、16 节） | 木板/滑轮用 `bodies` + `primaryBodyId`；传送带用 `initial: { vxMps }` | 静摩擦未给填 `null`，绝不默认 `μs = μk` |
-| **可自由滑动的圆弧槽 / 不锚墙弹簧连两球** | 动量守恒专用模型（第 17、18 节） | 顶层 `massKg`（入射球/下滑球）+ `initial: { speedMps: 0 }`；槽质量写段内 `grooveMassKg`，靶球质量写段内 `targetMassKg` | 不写 `bodies`；槽/靶球不是跟踪主体；「恰好不再滑上」写 `separationSpeedMps` 反求，不代算 m₂ |
+| **可自由滑动的圆弧槽 / 可平动半圆轨道 / 不锚墙弹簧连两球** | 动量守恒专用模型（第 17、17.1、18 节） | 顶层 `massKg`（滑块/球）+ `initial: { speedMps }`；槽/轨道质量写段内 `grooveMassKg`，靶球质量写段内 `targetMassKg` | 不写 `bodies`；可平动半圆内轨（底部带速进入）用 `movable_semicircle`，四分之一槽顶静止下滑用 `movable_arc`，固定圆轨用 `vertical_arc` |
 | **匀强磁场偏转**（垂直纸面的匀强磁场，区内忽略重力；可接仅受重力的抛体） | 单物体多阶段（第 20 节） | 顶层 `massKg` 必填；磁场首段水平向右用 `{ speedMps }`，分量初态用 `{ vxMps, vyMps }`；接抛体需顶层 `gravityMps2` | 不把实际出射速度写成新初态，不把对入射地面的高度写成出射点落差 |
+| **分区电磁场 + 双粒子弹性正碰 + 撤场恢复**（y>0 向下匀强电场，y<0 垂直纸面匀强磁场，碰后按竖线撤场、两圆外切恢复） | 复合电磁模型（第 21 节） | 唯一阶段 `switchable_em_collision`，顶层 `initial: { speedMps: null }`（标度放段内）；符号题设 `scaleMode: "normalized"` | 不拆成 `magnetic_deflection` 或多体 `collision_1d`；不代算 E、B、等待时间或路程 |
 | **不支持题型**（未登记的电磁模型、天体、热光原、机械波等） | 超范围（第 6 节） | `stages: []` + 非空 `unsupportedReason` | 不硬套不匹配的阶段 |
 
 轻绳摆和最低点两物体正碰另按第9节输出，使用body表，不套旧顶层massKg。
@@ -73,7 +74,7 @@
 | `kind` | 固定 `"stage_plan"` | 总是 | — |
 | `schemaVersion` | 固定 `1` | 总是 | — |
 | `gravityMps2` | 重力加速度 g | 含斜面、含摩擦的水平段/接近阶段、初态已有绳、抛体或竖直圆弧时必需；只有光滑水平运动、光滑弹簧接触或磁场偏转时可省略 | 题面未给填 `null`，**不要默认 10** |
-| `massKg` | 运动物体质量 | 含 `spring_contact`、`vertical_arc`、`magnetic_deflection`、`movable_arc` 或 `spring_pair` 时必需且为有限正数；其余可省略 | `null` |
+| `massKg` | 运动物体质量 | 含 `spring_contact`、`vertical_arc`、`magnetic_deflection`、`movable_arc`、`movable_semicircle` 或 `spring_pair` 时必需且为有限正数；`switchable_em_collision` 放段内标度，其余可省略 | `null` |
 | `initial` | 初态速度，见 3.2 | 总是 | — |
 | `stages` | 有序阶段列表，非空 | 总是 | — |
 | `bodies`、`primaryBodyId` | 轻绳摆及正碰的稳定物体ID、各自质量与默认跟踪对象 | 第9、10节；独立摆也有一项body表 | 质量未知写null，不能猜等质量；不再提交顶层massKg |
@@ -112,7 +113,9 @@
 | `horizontal_approach` | tracks:[{bodyId,kineticFrictionCoefficient}]、end | 第10节；按两体初态计算实际接近或先停止，不猜碰撞时刻 |
 | `magnetic_deflection` | `magneticTeslaB`（T）、`chargeC`（C，带符号）、`regionWidthM`（m）、`fieldDirection`、`exitKind` | 第 20 节；单粒子在垂直纸面的匀强磁场中偏转，区内忽略重力；出射速度由物理库计算 |
 | `movable_arc` | `radiusM`、`grooveMassKg`、可选 `exitDirection`（-1 默认向左离槽 / 1 向右） | 第17节；四分之一光滑槽静置光滑地面可自由滑动；球从槽顶静止释放；离槽速度由动量+能量守恒由 B 计算 |
+| `movable_semicircle` | `radiusM`、`grooveMassKg`、`direction`（`"right"` / `"left"`）、`frictionless`、`groundFrictionless` | 第17.1节；静置光滑水平面、可自由水平平动的光滑竖直半圆内轨，滑块从底部带正速切向进入；可独立或接在水平匀速 `conveyor_belt` 之后 |
 | `spring_pair` | 可选 `springConstantNpm`（未给填 `null` 默认 100）、`targetMassKg`（可 `null`）、`separationSpeedMps`（可 `null`）、可选 `matchGrooveSpeed`、`gapM` | 第18节；弹簧不锚墙、另一端自由；`targetMassKg`、`separationSpeedMps`、`matchGrooveSpeed: true`（紧接 `movable_arc` 且题面称「恰好不能再次滑上圆弧槽」）三者至少给一个；k 未给时直接填 `null`（不影响速度、质量与最大弹性势能） |
+| `switchable_em_collision` | `scaleMode`、`massScaleKg`/`chargeScaleC`/`lengthScaleM`/`speedScaleMps`、`targetMassRatio`、`targetChargeRatio`、`entryXOverLength`、`collisionXOverLength`、`collisionYOverLength`、`switchOffXOverLength`、`fieldDirection`、`gravityAndMutualForcesNegligible` | 第21节；独立复合阶段：y>0 向下匀强电场、y<0 垂直纸面匀强磁场、定点弹性正碰、乙首次穿过竖线撤场、两回旋圆首次有效外切恢复磁场 |
 
 阶段特有的事实写在阶段内，**没有全局 `facts`**。
 
@@ -137,8 +140,8 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 4. `spring_contact` → 回弹脱离后可接 `horizontal_slide`、`lossless_turn`、`incline_slide`、`vertical_arc`、`conveyor_belt`、`projectile`（见第 12.1 节）
 5. `vertical_arc` → `projectile`（使用固定 `landingPlaneYM`）、`horizontal_slide`、`incline_slide`、`lossless_turn`、`spring_contact`、`constant_force_1d`、`conveyor_belt`、`spring_pair` 或另一段 `vertical_arc`；同一题可出现多个 `vertical_arc` 或 `horizontal_slide`。实际到端点、先脱轨或回滑由物理库判定，不由模型预先删段
 6. `projectile` → `vertical_arc`（切向入弧）或 `incline_slide`（切向落入斜面）；若为「恰好沿切线进入下一段圆弧」则用 `end: { kind: "tangent_to_next_arc" }`
-7. `conveyor_belt` 实际离带后 → `projectile`、`horizontal_slide`、`spring_contact`、`vertical_arc`、`constant_force_1d`、`incline_slide`、`lossless_turn`、`spring_pair`；用 `continuationExitEdge` 写题面明确的接续端（见第 15 节）
-8. 单段独立：`incline_slide`、`horizontal_slide`、`spring_contact`、`projectile`、`vertical_arc`、`conveyor_belt`、`constant_force_1d`、`magnetic_deflection`、`movable_arc`、`spring_pair` 都可以单独出现
+7. `conveyor_belt` 实际离带后 → `projectile`、`horizontal_slide`、`spring_contact`、`vertical_arc`、`constant_force_1d`、`incline_slide`、`lossless_turn`、`spring_pair`、`movable_semicircle`；用 `continuationExitEdge` 写题面明确的接续端（见第 15 节）。水平向右匀速且未给带长但明确「足够长」时填 `lengthSufficientForCommonSpeed: true`，可接右向 `movable_semicircle`
+8. 单段独立：`incline_slide`、`horizontal_slide`、`spring_contact`、`projectile`、`vertical_arc`、`conveyor_belt`、`constant_force_1d`、`magnetic_deflection`、`movable_arc`、`movable_semicircle`、`spring_pair`、`switchable_em_collision` 都可以单独出现（`switchable_em_collision` 只能单独出现，不与其他阶段混用）
 9. `spring_release`作为首段可独立，或接水平、弹簧接触、圆弧、抛体、传送带、斜面、转向；接续和距离/能量前提见第8节。
 10. `pendulum_swing → collision_1d → parallel_motion`（弹性）或碰后同绳`pendulum_swing`（粘连）；独立摆也合法，详细字段见第9节。
 11. `horizontal_approach → collision_1d → parallel_motion`，或只给有依据的前缀；字段见第10节，碰后可以滑动、飞行或继承已有绳。由B判定是否实际发生碰撞，不预删未发生的计划后段。
@@ -217,7 +220,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 出现下列任一情况，输出 `kind: "stage_plan"`、`stages: []`、`gravityMps2: null`、`initial: { "speedMps": null }`，并在 `unsupportedReason` 写一句中文：
 
-- 第 20 节以外的电磁模型，如电路、电磁感应、带电粒子同时受电场和磁场作用，或磁区内重力不可忽略。匀强磁场偏转及出场后仅受重力的抛体按第 20 节处理。
+- 第 20、21 节以外的电磁模型，如电路、电磁感应、带电粒子在同一区域同时受电场和磁场作用，或磁区内重力不可忽略。匀强磁场偏转及出场后仅受重力的抛体按第 20 节处理；上下分区电磁场、定点正碰与撤场恢复按第 21 节处理。
 - 未登记的圆周轨道、天体、第9、10、14、15、16、17、18节以外的碰撞/连接体/槽/弹簧系统、浮力热学、光学原子物理、机械波；轻绳摆、最低点正碰、独立水平正碰、传送带、可移动圆弧槽与自由弹簧双球已支持
 - 圆弧槽固定不动却写 `movable_arc`，或槽面/地面粗糙（本模型只支持双光滑）；弹簧另一端锚墙却写 `spring_pair`（锚墙用 `spring_contact`）
 - 不符合第8节前提的预压释放/能量题
@@ -559,6 +562,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - 定长匀速，题面未规定时长时写 `segments: [{ "accelerationMps2": 0, "durationSeconds": null }]` 或省略 `segments`，由物理库求实际离带或保持静止的时刻。题给时长按原值填写，仍在带上时只结束观察。非零带加速度需提取题给 `staticFrictionCoefficient`（未给填 `null`）。
 - **倾斜传送带**：填 `angleDeg`（`0 < θ < 90`）与 `inclineDirection`（`"up"` 表示 +s 沿斜面向上、底端放上；`"down"` 表示 +s 沿斜面向下、顶端放上）；匀速倾斜带未单列静摩擦因数时可省略 `staticFrictionCoefficient`，B 自动按 `μ ≥ tanθ`（共速后匀速）与 `μ < tanθ`（共速后摩擦力反向继续加速/减速折返）精确分叉。
 - 题面给定带长时填 `beltLengthM`；未给则省略。定长水平带的左端为 `"start"`，右端为 `"end"`；倾斜带按沿带坐标的起端和末端。明确从哪一端入带用 `entryEdge`，哪一端接斜面、平台或悬空飞出用 `continuationExitEdge`。速度沿局部正方向取正，按题意保留相向运行的符号。实际离开指定端才接后续，离开另一端即结束本次已知过程。共速和对地／相对带面位移均由 B 计算。
+- **「足够长」水平匀速传送带（`lengthSufficientForCommonSpeed: true`）**：当题面**未给出带长**、但明确说明水平向右匀速传送带「足够长」（可使滑块达到共速）时，设置 `"lengthSufficientForCommonSpeed": true`，并**省略 `beltLengthM`（或填 `null`）**、省略 `segments`（或填单段 `[{ "accelerationMps2": 0, "durationSeconds": null }]`）。**严禁把算出的加速滑动位移或猜测值当作 `beltLengthM` 填入**；若题面给出了具体物理带长，则填 `beltLengthM` 且不要设 `lengthSufficientForCommonSpeed`。物理库只计算已知滑动段，并在共速后标注略去未知匀速段。
 
 ### 15.1 上滑斜面往返与传送带多段组合（`incline_slide` `direction: "up"`）
 
@@ -652,6 +656,32 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - 离槽时球速 `√(2gRM/(M+m))`、槽速 `m·v球/M` 反向，由 B 计算；模型不代写速度答案。
 - 球离槽后冲向另一球/弹簧时接 `spring_pair`（第18节）；只在光滑地面继续滑行时接 `horizontal_slide`（μ=0）。
 
+### 17.1 可平动竖直半圆轨道（`movable_semicircle`）
+
+共享契约 `MOVABLE_SEMICIRCLE.md`。题面特征：光滑竖直半圆内轨（质量 `M`、半径 `R`）**静置于光滑水平地面上且可自由水平平动**，物块以正的切向速率从半圆底部进入（可独立出现，或接在水平匀速 `conveyor_belt` 之后）。固定半圆轨用 `vertical_arc`，四分之一槽顶静止下滑用 `movable_arc`，不得混用。
+
+- 顶层 `massKg` 填滑块质量、`gravityMps2` 填重力加速度；段内填 `radiusM`、`grooveMassKg`、`direction`（滑块从底部向右进轨并沿右侧半圆上行填 `"right"`，向左进轨填 `"left"`）、`frictionless: true`（轨道光滑）与 `groundFrictionless: true`（地面光滑）。可选 `startLabel` / `endLabel` 标注轨道端点字母。
+- 若前段是未给带长但明确「足够长」的水平向右匀速传送带，前段设 `lengthSufficientForCommonSpeed: true` 且不编造 `beltLengthM`；若有明确带长则按实填 `beltLengthM`。摩擦功、滑痕长度、最高点相对速率、绝对速度与轨道压力全部由 B 计算。
+
+示例（光滑斜面下滑经光滑过渡进入足够长水平匀速传送带，再从底部进入光滑水平面上的可动半圆内轨）：
+
+```json
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "massKg": 0.5,
+  "initial": { "speedMps": 0 },
+  "stages": [
+    { "kind": "incline_slide", "lengthM": 2, "angleDeg": 30, "kineticFrictionCoefficient": 0, "slidesAfterRelease": true, "startLabel": "P", "endLabel": "B" },
+    { "kind": "lossless_turn", "lossless": true },
+    { "kind": "conveyor_belt", "initialBeltSpeedMps": 6, "kineticFrictionCoefficient": 0.2, "lengthSufficientForCommonSpeed": true },
+    { "kind": "movable_semicircle", "radiusM": 0.4, "grooveMassKg": 2, "direction": "right", "frictionless": true, "groundFrictionless": true, "startLabel": "C" }
+  ],
+  "assumptions": []
+}
+```
+
 ## 18. 不锚墙弹簧连接两球（spring_pair）
 
 题面特征：运动球冲向静止球，静止球连一**轻质弹簧、弹簧另一端自由（不锚墙）**；或两球经自由弹簧弹性相互作用。典型高考组合（如「光滑水平面上质量 M、半径 R 的四分之一光滑圆弧槽，质量 m₁ 的小球从槽顶静止释放，滑下后与连接轻质弹簧的静止小球 m₂ 相互作用，求槽速、m₁ 恰好不能再次滑上圆弧槽时的 m₂ 及最大弹性势能」）使用 `movable_arc → spring_pair`。锚墙弹簧用 `spring_contact`，不得混用。
@@ -725,5 +755,40 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
     { "kind": "projectile", "landingPlaneYM": -0.2 }
   ],
   "assumptions": []
+}
+```
+
+## 21. 分区电磁场、弹性正碰与撤场恢复（`switchable_em_collision`）
+
+共享契约 `SWITCHABLE_EM_COLLISION.md`。题面特征：世界坐标 `y > 0` 仅有沿 `-y` 方向的匀强电场，`y < 0` 仅有垂直于 `xOy` 平面的匀强磁场；正电粒子甲从 `(0, L)` 以初速度 `v₀` 沿 `+x` 方向射入电场，经 `x` 轴某点进入磁场后，与静止在磁区内定点 `Q` 的另一正电粒子乙发生弹性正碰；碰后当乙首次穿过某题设竖直线 `x = x_off` 时撤去磁场（及电场），经一段时间恢复磁场后两粒子回旋轨迹恰好不相交（首次有效外切）。
+
+- 使用唯一复合阶段 `switchable_em_collision`，**不与其他阶段混用**，顶层 `initial` 固定写 `{ "speedMps": null }`（速度标度放段内）。
+- `scaleMode`：题面只给符号基准 `m、q、L、v₀` 时填 `"normalized"`（四个标度 `massScaleKg`、`chargeScaleC`、`lengthScaleM`、`speedScaleMps` 可省略，物理库按 1 归一化演示，并在 `assumptions` 说明）；题面给出具体数值基准时填 `"si"` 并填齐四个标度。
+- `targetMassRatio`（乙/甲质量比）、`targetChargeRatio`（乙/甲电荷量比）、`entryXOverLength`（入磁点 `x/L > 0`）、`collisionXOverLength`（碰撞点 `x/L`）、`collisionYOverLength`（碰撞点 `y/L < 0`）、`switchOffXOverLength`（撤场竖线 `x/L`）：支持直接写 JSON 数字，含根号的无理数写 `{ "coefficient": c, "radicand": r }` 表示 `c√r`（例如 `2√3` 写 `{ "coefficient": 2, "radicand": 3 }`），分数可写小数（如 `1/3` 写 `0.3333333333333333`）。
+- `fieldDirection`：垂直纸面向里填 `"into_page"`，向外填 `"out_of_page"`。`gravityAndMutualForcesNegligible`：题面明确不计重力及碰撞外相互作用时填 `true`，否则 `null`。
+- 电场强度 E、磁感应强度 B、撤场等待时间 Δt、甲漂移路程均由物理库推导，模型不要代算。
+
+示例（符号基准，入磁点 `(2L, 0)`，碰撞点 `(3L, -2L)`，乙质量为甲的 1/2、电荷相等，磁场垂直纸面向外，乙首次过 `x = 2L` 时撤场）：
+
+```json
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "initial": { "speedMps": null },
+  "stages": [
+    {
+      "kind": "switchable_em_collision",
+      "scaleMode": "normalized",
+      "targetMassRatio": 0.5,
+      "targetChargeRatio": 1,
+      "entryXOverLength": 2,
+      "collisionXOverLength": 3,
+      "collisionYOverLength": -2,
+      "switchOffXOverLength": 2,
+      "fieldDirection": "out_of_page",
+      "gravityAndMutualForcesNegligible": true
+    }
+  ],
+  "assumptions": ["题设使用符号基准 m、q、L、v₀，按归一化标度 1 演示"]
 }
 ```

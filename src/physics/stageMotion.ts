@@ -5,6 +5,7 @@ export type { StageSample, ArcConstraint, VerticalArcGeometry } from "./vertical
 import type { Point } from "./scene.ts";
 import type { ResolvedStagePlan, Stage, SingleStage, StageKind, StagePlanDraft, StagePlanFailure, PlaybackScope } from "./stagePlan.ts";
 import type { BodyGeometry, BodySnapshot, MotionStatus } from './multiBodyTypes.ts';
+import { computeSwitchableEMMotion, type SwitchableEMGeometry } from './switchableEMMotion.ts';
 import { computeMultiBodyMotion } from './multiBodyMotion.ts';
 import { validateStagePlan } from "./stagePlan.ts";
 import { landingTime, linearState, springMetrics, springState } from "./kinematics.ts";
@@ -12,6 +13,7 @@ import { solveRoughSpring, type RoughSpring, type RoughSpringConflict } from "./
 import { solveConveyorBelt, type ConveyorEdge, type ConveyorGeometry, type ConveyorReading } from "./conveyorBelt.ts";
 import { solveMagneticDeflection, type MagneticGeometry } from "./magneticDeflection.ts";
 import { solveMovableArc } from "./movableArc.ts";
+import { solveMovableSemicircle, type MovableSemicircleReading } from "./movableSemicircle.ts";
 import { solveSpringPair } from "./springPair.ts";
 
 type Velocity = { vxMps: number; vyMps: number };
@@ -23,8 +25,13 @@ export type StageGeometry = BodyGeometry & {
   linearTrack?: { minXM: number; maxXM: number; yM: number };
   conveyor?: ConveyorGeometry;
   magnetic?: MagneticGeometry;
+  switchableEM?: SwitchableEMGeometry;
   magnetics?: MagneticGeometry[];
   movableArc?: { stageIndex: number; radiusM: number; grooveMassKg: number; exitDirection: -1 | 1; entryXM: number; entryYM: number; exitTimeSeconds: number; exitGrooveXM: number; exitGrooveVX: number };
+  movableSemicircle?: {
+    stageIndex: number; entry: Point; radiusM: number; grooveMassKg: number;
+    direction: "right" | "left"; startLabel?: string; endLabel?: string;
+  };
   springPair?: { stageIndex: number; yM: number; gapM: number; mass2Kg: number; targetEntryXM: number; contactTimeSeconds: number; separateTimeSeconds: number; springConstantNpm: number; incomingDir?: -1 | 1; maxCompressionM?: number; restLengthM?: number };
   spring?: { contact: Point; anchor: Point };
   springs?: Array<{ stageIndex: number; contact: Point; anchor: Point }>;
@@ -38,7 +45,7 @@ export type StageGeometry = BodyGeometry & {
   blockSizeM: number;
   positionReference: "front_bottom" | "particle";
 };
-export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit' | 'magnetic_exit' | 'movable_arc_exit' | 'spring_pair_separate';
+export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit' | 'magnetic_exit' | 'movable_arc_exit' | 'movable_semicircle_top' | 'movable_semicircle_turn' | 'spring_pair_separate';
 export type StageEvent = {
   collision?: import('./horizontalTypes.ts').CollisionValues;
   bodyIds?: string[]; stagePath?: string;
@@ -48,10 +55,13 @@ export type StageEvent = {
   velocityBefore: Velocity; velocityAfter: Velocity; label: string; explanation: string;
   position?: Point; normalForceBeforeN?: number; normalForceAfterN?: number;
   conveyorExitEdge?: ConveyorEdge;
+  conveyorFrictionWorkJ?: number;
+  conveyorSlipDistanceM?: number;
 };
 export type StageMotion = {
   primaryBodyId?: string; motionStatus?: MotionStatus;
   timing?: PlaybackScope & { anchor: { label: string; position: Point }; absoluteStartSeconds: number | null; excludedStageIndices: number[] };
+  playbackGaps?: { timeSeconds: number; stageIndex: number; reason: string }[];
   calculations?: { quantity: string; value: number; unit: string; source: "given" | "user" | "derived"; rule?: string; inputPaths: string[] }[];
   geometry: StageGeometry;
   durationSeconds: number;
@@ -66,6 +76,7 @@ export type StageMotion = {
   conveyorAt?(timeSeconds: number): ConveyorReading | null;
   /** 与 sampleAt 同一时钟的可移动槽读数（槽位置/速度）；离槽后按匀速外推。 */
   movableArcAt?(timeSeconds: number): { grooveXM: number; grooveVX: number } | null;
+  movableSemicircleAt?(timeSeconds: number): MovableSemicircleReading | null;
   /** 与 sampleAt 同一时钟的弹簧双球读数（靶球位置/速度、压缩量）。 */
   springPairAt?(timeSeconds: number): { x2M: number; vx2Mps: number; compressionM: number } | null;
 };
@@ -80,7 +91,8 @@ export type EnergyReading = {
 };
 export type StageScene = { kind: "stage_scene"; reading: ResolvedStagePlan; geometry: StageGeometry; motion: StageMotion };
 type EventState = { kind: string; time: number; before: MotionSample; after: MotionSample; label: string; explanation: string;
-  position?: Point; normalForceBeforeN?: number; normalForceAfterN?: number; conveyorExitEdge?: ConveyorEdge };
+  position?: Point; normalForceBeforeN?: number; normalForceAfterN?: number; conveyorExitEdge?: ConveyorEdge;
+  conveyorFrictionWorkJ?: number; conveyorSlipDistanceM?: number };
 type Run = {
   duration: number; end: MotionSample; events: EventState[];
   reason?: EndReason;
@@ -489,13 +501,15 @@ function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: Motion
 }
 
 function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | StagePlanFailure {
-  if (plan.bodies) return computeMultiBodyMotion(plan);
-  const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage, i) => stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "magnetic_deflection" || stage.kind === "movable_arc" || stage.kind === "spring_pair"
-    || stage.kind === "incline_slide" && plan.stages[i + 1]?.kind === "projectile") ? "particle" : "front_bottom" };
   const first = plan.stages[0];
+  if (first?.kind === 'switchable_em_collision') return computeSwitchableEMMotion(first);
+  if (plan.bodies) return computeMultiBodyMotion(plan);
+  const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage, i) => stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "magnetic_deflection" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair"
+    || stage.kind === "incline_slide" && plan.stages[i + 1]?.kind === "projectile") ? "particle" : "front_bottom" };
   let state = "speedMps" in plan.initial ? moving(0, 0, plan.initial.speedMps) : "vxMps" in plan.initial ? moving(0, 0, plan.initial.vxMps, "vyMps" in plan.initial ? plan.initial.vyMps : 0) : moving(0,0,"tangentialSpeedMps" in plan.initial ? plan.initial.tangentialSpeedMps : 0);
   // 可移动槽的槽顶比地面高 R：初态抬到槽顶，离槽时恰好落回地面 y=0。
   if (first?.kind === "movable_arc") state = { ...state, yM: state.yM + first.radiusM };
+  if (first.kind === "movable_semicircle" && first.direction === "left") state.vxMps = -state.vxMps;
   if(first.kind==='vertical_arc'&&first.path)state=circularEntry({...first,path:first.path},Math.hypot(state.vxMps,state.vyMps),plan.gravityMps2!,plan.massKg!,0);
   if (first.kind === "spring_release" && scope?.mode === "full") state.springCompressionM = first.initialCompressionM!;
   if (scope && scope.mode !== "full") state = moving(scope.xM!, 0, scope.vxMps!);
@@ -529,6 +543,8 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   const runs: { start: number; end: number; run: Run; stageIndex: number; heatBase: number }[] = [];
   const conveyorEvals: Array<{ start: number; end: number; evalAt: (timeSeconds: number) => ConveyorReading }> = [];
   let movableArcEval: ((timeSeconds: number) => { grooveXM: number; grooveVX: number }) | null = null;
+  let movableSemicircleEval: ((timeSeconds: number) => MovableSemicircleReading) | null = null;
+  const playbackGaps: NonNullable<StageMotion["playbackGaps"]> = [];
   let springPairEval: ((timeSeconds: number) => { x2M: number; vx2Mps: number; compressionM: number }) | null = null;
   let lastMovableArcGrooveVX: number | null = null;
   let heatBase = 0;
@@ -541,6 +557,8 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       label: item.label, explanation: item.explanation,
       ...(item.position ? { position: item.position, normalForceBeforeN: item.normalForceBeforeN, normalForceAfterN: item.normalForceAfterN } : {}),
       ...(item.conveyorExitEdge ? { conveyorExitEdge: item.conveyorExitEdge } : {}),
+      ...(item.conveyorFrictionWorkJ !== undefined ? { conveyorFrictionWorkJ: item.conveyorFrictionWorkJ } : {}),
+      ...(item.conveyorSlipDistanceM !== undefined ? { conveyorSlipDistanceM: item.conveyorSlipDistanceM } : {}),
     });
     eventStates.push({ ...item.after });
   }
@@ -640,6 +658,9 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
         const vAlong = angleDeg === 0
           ? (prevKind === "incline_slide" ? (state.vxMps < -1e-9 ? -1 : 1) * Math.hypot(state.vxMps, state.vyMps) : state.vxMps)
           : index === 0 ? state.vxMps : state.vxMps * ux + state.vyMps * uy;
+        if (stage.lengthSufficientForCommonSpeed && vAlong < 0) {
+          return failure("足够长的右行水平带需要从左端正向或静止入带。", "/stages/" + index + "/lengthSufficientForCommonSpeed", "PRECONDITION_CONFLICT");
+        }
         const inferredEdge = index > 0 && angleDeg === 0 && vAlong < 0 ? "end" : "start";
         const entryEdge = stage.entryEdge ?? inferredEdge;
         const sStart = entryEdge === "end" ? stage.beltLengthM ?? 0 : 0;
@@ -664,19 +685,43 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
           },
         });
         const endSample = toWorld(solved.endX, solved.endVx);
-        const plannedExit = stage.continuationExitEdge;
-        const canContinue = hasNext && solved.exitEdge && (plannedExit == null || plannedExit === solved.exitEdge);
+        const next = plan.stages[index + 1];
+        const connectsSemicircle = next?.kind === "movable_semicircle";
+        const plannedExit = connectsSemicircle ? (next.direction === "right" ? "end" : "start") : stage.continuationExitEdge;
+        const omitted = solved.reachedCommon && connectsSemicircle;
+        const canContinue = omitted || (hasNext && solved.exitEdge && (plannedExit == null || plannedExit === solved.exitEdge));
+        const showBeltResults = connectsSemicircle || stage.lengthSufficientForCommonSpeed;
+        const slipDistanceAt = (dt: number) => Math.abs(solved.evalAt(dt).relativeDisplacementM);
+        const beltEvents = solved.events.map((ev): EventState => {
+          const st = toWorld(ev.xM, ev.vxMps);
+          const result = {
+            ...event(ev.kind, ev.time, st, st, ev.label, ev.explanation),
+            ...(ev.exitEdge ? { position: point(st), conveyorExitEdge: ev.exitEdge } : {}),
+          };
+          if (!showBeltResults || (ev.kind !== "conveyor_common_velocity" && ev.kind !== "conveyor_exit")) return result;
+          const conveyorSlipDistanceM = slipDistanceAt(ev.time);
+          const conveyorFrictionWorkJ = plan.massKg === undefined ? undefined : 0.5 * plan.massKg * (ev.vxMps ** 2 - vAlong ** 2);
+          return {
+            ...result, position: point(st), conveyorSlipDistanceM, conveyorFrictionWorkJ,
+            explanation: [ev.explanation,
+              conveyorFrictionWorkJ === undefined ? "" : '摩擦对滑块做功 ' + conveyorFrictionWorkJ.toFixed(4) + ' J。',
+              '累计滑痕长度 ' + conveyorSlipDistanceM.toFixed(4) + ' m。',
+            ].join(""),
+          };
+        });
+        if (omitted) {
+          const explanation = "带长未给出。共速后到轨道入口的匀速距离与时长未知，动画在此省略并从半圆底部继续。";
+          playbackGaps.push({ stageIndex: index, timeSeconds: time + solved.duration, reason: explanation });
+          beltEvents.push(event("conveyor_uniform_omitted", solved.duration, endSample, endSample, "省略共速后匀速段", explanation));
+        }
         run = {
           duration: solved.duration,
           end: endSample,
           reason: canContinue ? undefined : solved.exitEdge ? "conveyor_exit" : solved.stopped ? "stopped" : "prefix_end",
-          events: solved.events.map((ev) => {
-            const st = toWorld(ev.xM, ev.vxMps);
-            return {
-              ...event(ev.kind, ev.time, st, st, ev.label, ev.explanation),
-              ...(ev.exitEdge ? { position: point(st), conveyorExitEdge: ev.exitEdge } : {}),
-            };
-          }),
+          events: beltEvents,
+          ...(showBeltResults && plan.massKg !== undefined ? {
+            heatAt: (dt: number) => plan.massKg! * plan.gravityMps2! * stage.kineticFrictionCoefficient * slipDistanceAt(dt),
+          } : {}),
           sampleAt: (dt) => {
             const r = solved.evalAt(dt);
             return toWorld(r.xM, r.vxMps);
@@ -702,6 +747,44 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
             const r = solved.at(dt);
             return moving(r.xM, r.yM, r.vxMps, r.vyMps);
           },
+        };
+        break;
+      }
+      case "movable_semicircle": {
+        const direction = stage.direction === "right" ? 1 : -1;
+        if (state.vxMps * direction <= 0 || state.vyMps !== 0) {
+          return failure("从半圆底部进入需要沿轨道朝向的非零水平切向速度。", "/stages/" + index + "/direction", "PRECONDITION_CONFLICT");
+        }
+        const solved = solveMovableSemicircle(stage, point(state), incomingSpeed, plan.massKg!, plan.gravityMps2!, index);
+        const startTime = time;
+        geometry.movableSemicircle = {
+          stageIndex: index, entry: point(state), radiusM: stage.radiusM, grooveMassKg: stage.grooveMassKg,
+          direction: stage.direction, startLabel: stage.startLabel, endLabel: stage.endLabel,
+        };
+        movableSemicircleEval = (q) => solved.at(q - startTime).groove;
+        const startSample = solved.start.sample;
+        const endSample = solved.end.sample;
+        const endNormal = endSample.constraint!.normalForceN;
+        const reachesTop = solved.outcome === "top";
+        const losesContact = solved.outcome === "contact_lost";
+        const endEvent = reachesTop
+          ? event("movable_semicircle_top", solved.duration, endSample, endSample, "到达可动轨道顶端",
+            '滑块相对轨道速率 ' + solved.end.groove.relativeSpeedMps.toFixed(4) + ' m/s，地面参考系下滑块水平速度 ' + endSample.vxMps.toFixed(4) +
+            ' m/s、轨道水平速度 ' + solved.end.groove.grooveVX.toFixed(4) + ' m/s。滑块对轨道的压力为 ' + endNormal.toFixed(4) + ' N。')
+          : losesContact
+            ? event("movable_semicircle_detach", solved.duration, endSample, endSample, "到顶前失去接触", "支持力降至零，记录脱离瞬间的绝对速度。")
+            : event("movable_semicircle_turn", solved.duration, endSample, endSample, "相对轨道停止", "滑块相对轨道的切向速率第一次降为零，画面截至此处。");
+        run = {
+          duration: solved.duration, end: endSample,
+          reason: reachesTop ? "movable_semicircle_top" : losesContact ? "arc_detached" : "movable_semicircle_turn",
+          events: [
+            { ...event("movable_semicircle_enter", 0, state, startSample, "进入可动半圆轨道",
+              '滑块由底部以 ' + incomingSpeed.toFixed(4) + ' m/s 切向进入静止轨道。此后系统水平动量和机械能守恒。'
+              + (playbackGaps.length ? "入口绝对时刻和距入带点的距离未知。" : "")),
+              position: point(startSample), normalForceAfterN: startSample.constraint!.normalForceN },
+            { ...endEvent, position: point(endSample), normalForceBeforeN: endNormal, normalForceAfterN: endNormal },
+          ],
+          sampleAt: (dt) => solved.at(dt).sample,
         };
         break;
       }
@@ -807,13 +890,13 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       if (list.some((item) => item.label === label)) return;
       list.push({ label, position: point(pos) });
     };
-    addLandmark(labeled.startLabel, state);
+    if (stage.kind !== "movable_semicircle") addLandmark(labeled.startLabel, state);
     const sameEndAsStart = Math.hypot(run.end.xM - state.xM, run.end.yM - state.yM) < 1e-6;
     const isFullLoop = stage.kind === "vertical_arc" && stage.path?.end.sweepAngleDeg === 360;
     const endLandmarkPos = isFullLoop && sameEndAsStart && geometry.verticalArc
       ? (run.events.find((item) => item.kind === "arc_top")?.position ?? { xM: geometry.verticalArc.center.xM, yM: geometry.verticalArc.center.yM + geometry.verticalArc.radiusM })
       : run.end;
-    addLandmark(labeled.endLabel, endLandmarkPos);
+    if (stage.kind !== "movable_semicircle") addLandmark(labeled.endLabel, endLandmarkPos);
     heatBase += run.heatAt?.(run.duration) ?? 0;
     for (const item of run.events) append(item, index, time);
     state = run.end;
@@ -848,6 +931,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     ...(arcObservation||plan.stages.some(s=>s.kind==='vertical_arc'&&s.path)?{motionStatus:{state:['stopped','stop_at_target','stop_before_target'].includes(reason)?'complete' as const:'range_end' as const,reason,bodyIds:[],message:arcObservation??(reason==='prefix_end'?'观察范围结束，仍保持真实速度与支持力。':reason==='returned_to_entry'?'返回入口的已求范围结束，保留反向速度和约束。':reason==='landed'?'首次接地，保留入射速度。':reason==='arc_detached'?'实际离轨，保留切向速度。':'物体真实静止。')}}:{}),
     ...(scope ? { timing: { ...scope, anchor: { label: scope.mode === "full" ? "A" : scope.mode === "suffix" || scope.stopReason === "prefix_end" ? "B" : "静止点", position: scope.mode === "full" ? { xM: 0, yM: 0 } : { xM: scope.xM!, yM: 0 } }, absoluteStartSeconds: scope.mode === "full" ? 0 : null, excludedStageIndices: scope.mode === "full" ? [] : scope.mode === "suffix" ? Array.from({ length: from }, (_, i) => i) : plan.stages.map((_, i) => i) } } : {}),
     ...(calculations.length ? { calculations } : {}),
+    ...(playbackGaps.length ? { playbackGaps } : {}),
     geometry, durationSeconds: time, segments, events, termination,
     get endReason() { return termination.reason; },
     conveyorAt(timeSeconds) {
@@ -862,6 +946,11 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       const t = Number.isNaN(timeSeconds) ? 0 : Math.min(time, Math.max(0, timeSeconds));
       return movableArcEval(t);
     },
+    movableSemicircleAt(timeSeconds) {
+      if (!movableSemicircleEval) return null;
+      const t = Number.isNaN(timeSeconds) ? 0 : Math.min(time, Math.max(0, timeSeconds));
+      return { ...movableSemicircleEval(t) };
+    },
     springPairAt(timeSeconds) {
       if (!springPairEval) return null;
       const t = Number.isNaN(timeSeconds) ? 0 : Math.min(time, Math.max(0, timeSeconds));
@@ -872,7 +961,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       if (mass === undefined) return null;
       // 多体系统（可移动槽/弹簧双球）的单体质点能量读数会漏掉另一物体，宁缺勿假。
       if (plan.stages.some((s) => s.kind === "movable_arc" || s.kind === "spring_pair")) return null;
-      const needsGravity = plan.stages.some((s) => s.kind === "incline_slide" || s.kind === "vertical_arc" || s.kind === "projectile");
+      const needsGravity = plan.stages.some((s) => s.kind === "incline_slide" || s.kind === "vertical_arc" || s.kind === "movable_semicircle" || s.kind === "projectile");
       if (needsGravity && g === undefined) return null;
       const t = Number.isNaN(timeSeconds) ? 0 : Math.min(time, Math.max(0, timeSeconds));
       const s = (this as unknown as StageMotion).sampleAt(t);
@@ -881,8 +970,10 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       const heat = active ? active.heatBase + (active.run.heatAt?.(t - active.start) ?? 0) : heatBase;
       const stage = last ? plan.stages[last.stageIndex] : plan.stages[0];
       const springK = stage.kind === "spring_contact" || stage.kind === "spring_release" ? stage.springConstantNpm : null;
+      const groove = movableSemicircleEval?.(t);
+      const grooveKineticJ = groove && geometry.movableSemicircle ? 0.5 * geometry.movableSemicircle.grooveMassKg * groove.grooveVX ** 2 : 0;
       return {
-        kineticJ: 0.5 * mass * (s.vxMps ** 2 + s.vyMps ** 2),
+        kineticJ: 0.5 * mass * (s.vxMps ** 2 + s.vyMps ** 2) + grooveKineticJ,
         elasticPotentialJ: typeof springK === "number" ? 0.5 * springK * s.springCompressionM ** 2 : null,
         gravitationalPotentialJ: needsGravity ? mass * g! * s.yM : null,
         frictionHeatJ: heat,

@@ -14,7 +14,9 @@ const STAGE_LABELS: Record<StageKind, string> = {
   spring_contact: "弹簧接触",
   projectile: "抛体运动",
   magnetic_deflection: "匀强磁场偏转",
+  switchable_em_collision: "分区电磁场与正碰",
   movable_arc: "可移动圆弧槽",
+  movable_semicircle: "可平动半圆轨道",
   spring_pair: "自由弹簧双球",
 };
 
@@ -59,6 +61,16 @@ const NUMBER_FIELDS: Partial<Record<StageKind, NumberMeta[]>> = {
   movable_arc: [
     { key: "radiusM", label: "圆弧槽半径 R", unit: "m", step: 0.05 },
     { key: "grooveMassKg", label: "槽质量 M", unit: "kg", step: 0.5, hint: "地面光滑，槽可自由滑动" },
+  ],
+  movable_semicircle: [
+    { key: "radiusM", label: "半圆轨道半径 R", unit: "m", step: 0.02 },
+    { key: "grooveMassKg", label: "轨道质量 M", unit: "kg", step: 0.1, hint: "置光滑水平面，可自由水平平动" },
+  ],
+  switchable_em_collision: [
+    { key: "massScaleKg", label: "基准质量 m", unit: "kg", step: 0.1, hint: "归一化模式下默认 1" },
+    { key: "chargeScaleC", label: "基准电荷 q", unit: "C", step: 0.1, hint: "归一化模式下默认 1" },
+    { key: "lengthScaleM", label: "基准长度 L", unit: "m", step: 0.1, hint: "归一化模式下默认 1" },
+    { key: "speedScaleMps", label: "基准初速 v₀", unit: "m/s", step: 0.1, hint: "归一化模式下默认 1" },
   ],
   spring_pair: [
     { key: "springConstantNpm", label: "弹簧劲度系数 k（可选）", unit: "N/m", step: 10, hint: "题未给默认 100，仅影响过程时长" },
@@ -118,6 +130,8 @@ function blankStage(kind: StageKind): Record<string, unknown> {
     return { kind, initialBeltSpeedMps: null, segments: [{ accelerationMps2: 0, durationSeconds: null }], kineticFrictionCoefficient: null, staticFrictionCoefficient: null, angleDeg: null, inclineDirection: "up" };
   }
   if (kind === "movable_arc") return { kind, radiusM: null, grooveMassKg: null, exitDirection: -1 };
+  if (kind === "movable_semicircle") return { kind, radiusM: null, grooveMassKg: null, direction: "right", frictionless: true, groundFrictionless: true };
+  if (kind === "switchable_em_collision") return { kind, scaleMode: "normalized", targetMassRatio: null, targetChargeRatio: null, entryXOverLength: null, collisionXOverLength: null, collisionYOverLength: null, switchOffXOverLength: null, fieldDirection: "out_of_page", gravityAndMutualForcesNegligible: true };
   if (kind === "spring_pair") return { kind, springConstantNpm: 100, targetMassKg: null, separationSpeedMps: null, gapM: 0.5 };
   if (kind === "spring_contact") return { kind, springConstantNpm: null, frictionless: null, unattached: null };
   if (kind === "vertical_arc") return { kind, radiusM: null, endAngleDeg: null, side: null, frictionless: null };
@@ -252,30 +266,35 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
 
   const initial = draft.initial ?? { speedMps: null };
   const firstKind = draft.stages[0]?.kind;
+  const isSwitchableEM = firstKind === "switchable_em_collision";
   const components = firstKind === "projectile" || "vxMps" in initial || "vyMps" in initial;
   const conveyorInit = firstKind === "conveyor_belt";
-  const showMass = "massKg" in draft || flagged("/massKg") || draft.stages.some((stage) => stage.kind === "spring_release" || stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "constant_force_1d" || stage.kind === "movable_arc" || stage.kind === "spring_pair");
+  const showMass = !isSwitchableEM && ("massKg" in draft || flagged("/massKg") || draft.stages.some((stage) => stage.kind === "spring_release" || stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "constant_force_1d" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair"));
 
   return (
     <div className="stage-plan-editor" data-testid="stage-plan-editor">
-      <p className="section-label">共享条件</p>
-      <table className="cond-table">
-        <tbody>
-          {numberRow({ key: "gravityMps2", label: "重力加速度 g", unit: "m/s²", step: 0.1,
-            path: "/gravityMps2", value: draft.gravityMps2, onChange: (raw) => setTopNumber("gravityMps2", raw) })}
-          {showMass && numberRow({ key: "massKg", label: "滑块质量 m", unit: "kg", step: 0.1,
-            path: "/massKg", value: draft.massKg, onChange: (raw) => setTopNumber("massKg", raw) })}
-          {components || conveyorInit ? (
-            <>
-              {numberRow({ key: "vxMps", label: conveyorInit ? "滑块对地初速 v₀" : "水平初速度 vₓ", unit: "m/s", step: 0.1,
-                path: "/initial/vxMps", value: "vxMps" in initial ? initial.vxMps : null, onChange: (raw) => setInitialNumber("vxMps", raw) })}
-              {!conveyorInit && numberRow({ key: "vyMps", label: "竖直初速度 vᵧ", unit: "m/s", step: 0.1,
-                path: "/initial/vyMps", value: "vyMps" in initial ? initial.vyMps : null, onChange: (raw) => setInitialNumber("vyMps", raw) })}
-            </>
-          ) : numberRow({ key: "speedMps", label: "初始速率 v₀", unit: "m/s", step: 0.1,
-            path: "/initial/speedMps", value: "speedMps" in initial ? initial.speedMps : null, onChange: (raw) => setInitialNumber("speedMps", raw) })}
-        </tbody>
-      </table>
+      {!isSwitchableEM && (
+        <>
+          <p className="section-label">共享条件</p>
+          <table className="cond-table">
+            <tbody>
+              {numberRow({ key: "gravityMps2", label: "重力加速度 g", unit: "m/s²", step: 0.1,
+                path: "/gravityMps2", value: draft.gravityMps2, onChange: (raw) => setTopNumber("gravityMps2", raw) })}
+              {showMass && numberRow({ key: "massKg", label: "滑块质量 m", unit: "kg", step: 0.1,
+                path: "/massKg", value: draft.massKg, onChange: (raw) => setTopNumber("massKg", raw) })}
+              {components || conveyorInit ? (
+                <>
+                  {numberRow({ key: "vxMps", label: conveyorInit ? "滑块对地初速 v₀" : "水平初速度 vₓ", unit: "m/s", step: 0.1,
+                    path: "/initial/vxMps", value: "vxMps" in initial ? initial.vxMps : null, onChange: (raw) => setInitialNumber("vxMps", raw) })}
+                  {!conveyorInit && numberRow({ key: "vyMps", label: "竖直初速度 vᵧ", unit: "m/s", step: 0.1,
+                    path: "/initial/vyMps", value: "vyMps" in initial ? initial.vyMps : null, onChange: (raw) => setInitialNumber("vyMps", raw) })}
+                </>
+              ) : numberRow({ key: "speedMps", label: "初始速率 v₀", unit: "m/s", step: 0.1,
+                path: "/initial/speedMps", value: "speedMps" in initial ? initial.speedMps : null, onChange: (raw) => setInitialNumber("speedMps", raw) })}
+            </tbody>
+          </table>
+        </>
+      )}
 
       <p className="section-label">有序运动阶段</p>
       {draft.stages.length === 0 && <p className="placeholder">未识别出运动阶段，请重新上传或补充题面。</p>}
@@ -410,22 +429,105 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                     </>
                   )}
                   {kind === "conveyor_belt" && (
-                    <tr data-field-path={`/stages/${index}/inclineDirection`}>
-                      <td className="name">倾斜正方向 +s</td>
-                      <td className="val">
-                        <select
-                          className={"stage-select" + (flagged(`/stages/${index}/inclineDirection`) ? " invalid" : "")}
-                          aria-label={`阶段 ${index + 1} 倾斜正方向`}
-                          value={typeof stage.inclineDirection === "string" ? stage.inclineDirection : "up"}
-                          onChange={(event) => setStage(index, { ...stage, inclineDirection: event.target.value })}
-                        >
-                          <option value="up">沿斜面向上（从底到顶）</option>
-                          <option value="down">沿斜面向下（从顶到底）</option>
-                        </select>
-                      </td>
-                      <td />
-                    </tr>
+                    <>
+                      {factRow(index, "lengthSufficientForCommonSpeed", "带足够长（未给带长，仅计至共速）")}
+                      <tr data-field-path={`/stages/${index}/inclineDirection`}>
+                        <td className="name">倾斜正方向 +s</td>
+                        <td className="val">
+                          <select
+                            className={"stage-select" + (flagged(`/stages/${index}/inclineDirection`) ? " invalid" : "")}
+                            aria-label={`阶段 ${index + 1} 倾斜正方向`}
+                            value={typeof stage.inclineDirection === "string" ? stage.inclineDirection : "up"}
+                            onChange={(event) => setStage(index, { ...stage, inclineDirection: event.target.value })}
+                          >
+                            <option value="up">沿斜面向上（从底到顶）</option>
+                            <option value="down">沿斜面向下（从顶到底）</option>
+                          </select>
+                        </td>
+                        <td />
+                      </tr>
+                    </>
                   )}
+                  {kind === "movable_semicircle" && (
+                    <>
+                      <tr data-field-path={`/stages/${index}/direction`}>
+                        <td className="name">轨道朝向</td>
+                        <td className="val">
+                          <select
+                            className={"stage-select" + (flagged(`/stages/${index}/direction`) ? " invalid" : "")}
+                            aria-label={`阶段 ${index + 1} 轨道朝向`}
+                            aria-invalid={flagged(`/stages/${index}/direction`)}
+                            value={typeof stage.direction === "string" ? stage.direction : ""}
+                            onChange={(event) => setStage(index, { ...stage, direction: event.target.value || null })}
+                          >
+                            <option value="">待确认</option>
+                            <option value="right">向右（从底部向右入轨）</option>
+                            <option value="left">向左（从底部向左入轨）</option>
+                          </select>
+                        </td>
+                        <td />
+                      </tr>
+                      {factRow(index, "frictionless", "半圆轨道内壁光滑")}
+                      {factRow(index, "groundFrictionless", "水平地面光滑（轨道可自由平动）")}
+                    </>
+                  )}
+                  {kind === "switchable_em_collision" && (() => {
+                    const ratioNum = (v: unknown) => typeof v === "number" ? v : v && typeof v === "object" && "coefficient" in v && "radicand" in v ? Number((v as { coefficient: number }).coefficient) * Math.sqrt(Number((v as { radicand: number }).radicand)) : null;
+                    const ratioRows = [
+                      { key: "targetMassRatio", label: "乙/甲质量比 m₂/m₁" },
+                      { key: "targetChargeRatio", label: "乙/甲电荷比 q₂/q₁" },
+                      { key: "entryXOverLength", label: "入磁点 x/L" },
+                      { key: "collisionXOverLength", label: "碰撞点 x/L" },
+                      { key: "collisionYOverLength", label: "碰撞点 y/L（< 0）" },
+                      { key: "switchOffXOverLength", label: "撤场竖线 x/L" },
+                    ];
+                    return (
+                      <>
+                        <tr data-field-path={`/stages/${index}/scaleMode`}>
+                          <td className="name">标度模式</td>
+                          <td className="val">
+                            <select
+                              className={"stage-select" + (flagged(`/stages/${index}/scaleMode`) ? " invalid" : "")}
+                              aria-label={`阶段 ${index + 1} 标度模式`}
+                              value={typeof stage.scaleMode === "string" ? stage.scaleMode : ""}
+                              onChange={(event) => setStage(index, { ...stage, scaleMode: event.target.value || null })}
+                            >
+                              <option value="">待确认</option>
+                              <option value="normalized">归一化标度（m=q=L=v₀=1）</option>
+                              <option value="si">国际单位数值（SI）</option>
+                            </select>
+                          </td>
+                          <td />
+                        </tr>
+                        {stage.scaleMode === "normalized" && (
+                          <tr><td colSpan={3} className="hint">符号题设：未输入数值时默认取 m = q = L = v₀ = 1 演示，可改上方基准值重算。</td></tr>
+                        )}
+                        {ratioRows.map((meta) => numberRow({
+                          key: meta.key, label: meta.label, unit: "", step: 0.1,
+                          path: `/stages/${index}/${meta.key}`,
+                          value: ratioNum(stage[meta.key]),
+                          onChange: (raw) => setStageNumber(index, meta.key, raw),
+                        }))}
+                        <tr data-field-path={`/stages/${index}/fieldDirection`}>
+                          <td className="name">磁场方向（y &lt; 0）</td>
+                          <td className="val">
+                            <select
+                              className={"stage-select" + (flagged(`/stages/${index}/fieldDirection`) ? " invalid" : "")}
+                              aria-label={`阶段 ${index + 1} 磁场方向`}
+                              value={typeof stage.fieldDirection === "string" ? stage.fieldDirection : ""}
+                              onChange={(event) => setStage(index, { ...stage, fieldDirection: event.target.value || null })}
+                            >
+                              <option value="">待确认</option>
+                              <option value="into_page">垂直纸面向里（⊗）</option>
+                              <option value="out_of_page">垂直纸面向外（⊙）</option>
+                            </select>
+                          </td>
+                          <td />
+                        </tr>
+                        {factRow(index, "gravityAndMutualForcesNegligible", "忽略重力与碰撞外粒子相互作用")}
+                      </>
+                    );
+                  })()}
                   {kind === "conveyor_belt" && (
                     [
                       { key: "entryEdge", label: "入带端" },

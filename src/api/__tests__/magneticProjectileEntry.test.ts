@@ -84,7 +84,7 @@ describe.each([
     expect(skill).toContain("## 20. 匀强磁场偏转及出射后抛体");
     expect(skill).toContain("magnetic_deflection → projectile");
     expect(skill).toContain("平台在这块地面下方 h 米，填 `landingPlaneYM: -h`");
-    expect(skill).toContain("第 20 节以外的电磁模型");
+    expect(skill).toContain("第 20、21 节以外的电磁模型");
     expect(skill).not.toContain("- 电磁学、");
     expect(messageText(input.content)).toContain(stem);
 

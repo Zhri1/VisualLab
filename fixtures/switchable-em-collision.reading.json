@@ -1,0 +1,19 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "initial": { "speedMps": null },
+  "stages": [
+    {
+      "kind": "switchable_em_collision",
+      "scaleMode": "normalized",
+      "targetMassRatio": 0.3333333333333333,
+      "targetChargeRatio": 1,
+      "entryXOverLength": { "coefficient": 2, "radicand": 3 },
+      "collisionXOverLength": { "coefficient": 3, "radicand": 3 },
+      "collisionYOverLength": -3,
+      "switchOffXOverLength": { "coefficient": 2, "radicand": 3 },
+      "fieldDirection": "out_of_page",
+      "gravityAndMutualForcesNegligible": true
+    }
+  ]
+}

@@ -113,7 +113,7 @@ export interface ResolvedConditions {
   springConstantNpm: number;
 }
 
-export type SegmentKind = "incline" | "horizontal" | "spring" | "projectile" | "vertical_arc" | 'pendulum' | 'movable_arc' | 'spring_pair';
+export type SegmentKind = "incline" | "horizontal" | "spring" | "projectile" | "vertical_arc" | 'pendulum' | 'movable_arc' | 'movable_semicircle' | 'spring_pair' | 'switchable_em';
 export type BodyMotionSample = Omit<BodyState,'xM'|'yM'|'vxMps'|'vyMps'> & {position:Vec2;velocity:Vec2};
 
 export interface MotionSegment {
@@ -145,6 +145,8 @@ export interface MotionEvent {
   /** 新计划保留原事件 kind 与执行顺序，避免同刻事件靠数组猜测。 */
   eventKind?: string;
   conveyorExitEdge?: import("../physics/conveyorBelt").ConveyorEdge;
+  conveyorFrictionWorkJ?: number;
+  conveyorSlipDistanceM?: number;
   stageIndex?: number;
   order?: number;
   timeSeconds: number;
@@ -173,6 +175,7 @@ export interface MotionSample {
 export interface Motion {
   primaryBodyId?:string; motionStatus?:MotionStatus;
   timing?: import("../physics").StageMotion["timing"];
+  playbackGaps?: import("../physics").StageMotion["playbackGaps"];
   calculations?: import("../physics").StageMotion["calculations"];
   /** 旧模板几何继续保留；新计划另带完整 StageGeometry 供专用画布使用。 */
   geometry: SceneGeometry;
@@ -190,6 +193,7 @@ export interface Motion {
   /** 与 sampleAt 同钟的传送带读数（带速、相对带面位移等）。 */
   conveyorAt?(timeSeconds: number): import("../physics").ConveyorReading | null;
   movableArcAt?(timeSeconds: number): { grooveXM: number; grooveVX: number } | null;
+  movableSemicircleAt?(timeSeconds: number): import("../physics/movableSemicircle").MovableSemicircleReading | null;
   springPairAt?(timeSeconds: number): { x2M: number; vx2Mps: number; compressionM: number } | null;
 }
 

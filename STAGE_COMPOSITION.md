@@ -97,6 +97,7 @@ Node 服务与 Qoder 云函数识别新题时使用同一张映射表。
 | `pendulum_swing` / `collision_1d` / `parallel_motion`（待实现扩展） | 具体字段、张力/松绳、两质量、带符号速度和碰后约束见 [摆与碰撞契约第2至4节](PENDULUM_COLLISION.md#2-有序阶段与受控并行)。 | 一根轻绳的非线性摆动、最低点瞬时正碰及碰后同钟轨道；不新增整题模板或任意规则求解器。 |
 | `magnetic_deflection` | `magneticTeslaB`（T，正值）、`chargeC`（C，非零带符号）、`regionWidthM`（m，正值）、`fieldDirection`（`into_page` / `out_of_page`，默认向里）、`exitKind`（`region_edge` / `half_circle`，默认按竖直边界出射）。 | 单粒子在垂直纸面的匀强磁场中忽略重力，按洛伦兹力求半径、实际出射位置和切向速度，记录 `magnetic_enter` 与 `magnetic_exit`。 |
 | `movable_arc` | `radiusM`、`grooveMassKg`、可选 `exitDirection`（-1/1）；球质量读顶层 `massKg`，`initial.speedMps: 0`。 | 四分之一光滑槽静置光滑地面可自由滑动：水平动量守恒 + 机械能守恒，RK4 积分槽内过程；离槽球速 `√(2gRM/(M+m))`、槽速反向 `m·v/M`，离槽后槽匀速外推。 |
+| `movable_semicircle` | `radiusM`、`grooveMassKg`、`direction`、`frictionless`、`groundFrictionless`，详情见 [可平动半圆轨道契约](MOVABLE_SEMICIRCLE.md)。 | 正速从底部切向进入初静止的可平动半圆内轨，取样同时包含滑块与轨道运动，记录实际到顶、提前失去接触或首个转折点。 |
 | `spring_pair` | `springConstantNpm`、`targetMassKg`（可 null）、`separationSpeedMps`（可 null）、可选 `gapM`；入射球质量读顶层 `massKg`。 | 弹簧不锚墙的弹性双球作用：匀速走完 gap → 压缩 → 共速（Ep 最大）→ 恢复原长分离。`targetMassKg` 缺而给 `separationSpeedMps` 时反求 m₂ = m₁(u+s)/(u−s)。末段。 |
 
 `horizontal_slide.end` 原有 `distance/stop` 两种互斥分支保持兼容。指定距离时，库比较到达目标与因摩擦停止两个事件。停止更早时返回 `stop_before_target`，恰好同时发生时停止优先，返回 `stop_at_target`。只指定 `stop` 时，以停止为目标。光滑面上有正初速且要求因摩擦停止，返回可定位的前提冲突。
@@ -106,6 +107,8 @@ Node 服务与 Qoder 云函数识别新题时使用同一张映射表。
 V1 支持斜面到坡底接无损转向，转向接水平滑动或弹簧，水平正速到达指定距离后接弹簧或抛体。按 [圆弧扩展契约](VERTICAL_ARC.md#1-输入单位与范围)，无损转向和水平定距段还都可以接竖直圆弧，圆弧实际离弧后可以接固定 `landingPlaneYM` 的抛体。单段可以独立运行。水平段直接接抛体时，距离目标就是题设桌沿，只有正速到达才产生离桌事件；接圆弧时目标是圆弧入口，水平提前停或恰停均不执行圆弧及其抛体后缀。弹簧脱离及落地为原有终止事件，圆弧的脱离和返回入口等终止口径见 [扩展分支约定](VERTICAL_ARC.md#3-物理状态分支与时间)。
 
 [斜面斜抛扩展](INCLINE_PROJECTILE.md)另允许 `incline_slide → projectile`，不要求转向或水平过渡。斜面正速到末端才离檐；提前停和恰停均不执行抛体。已有 `reach_bottom` 后同刻依序输出 `projectile_launch`，保留两个带符号速度分量，不输出 `leave_table`；完整范围见扩展第3、4节。
+
+[分区电磁场复合阶段](SWITCHABLE_EM_COLLISION.md) 统一处理先电后磁、定点正碰、乙穿越竖线撤场与按回旋圆外切恢复磁场。
 
 `magnetic_deflection` 可独立成题、接在水平定距段之后，也可接 `projectile`。抛体从 `magnetic_exit` 的同一时间、位置和两个速度分量起算，此后仅受重力。接收平台若相对入射地面给出高度，识别填世界坐标 `landingPlaneYM`。首段水平贴地入射时入口为 (0,0)，地面下 h 米的平台填 `-h`。若题面明确给的是从实际出射点向下的落差，可用互斥的 `dropHeightM`。只登记当前单粒子磁场模型，交叠的电场、不可忽略的区内重力和会改变出射的未登记边界不在此模型范围。
 

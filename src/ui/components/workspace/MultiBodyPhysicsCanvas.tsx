@@ -17,6 +17,7 @@ function drawingData(motion:Motion){
     if(motion.stageGeometry?.plank?.plankBodyId===id)points.push({x:b.position.x+motion.stageGeometry.plank.plankLengthM,y:b.position.y});}
   for(const p of motion.stageGeometry?.pendulums??[])points.push({x:p.pivot.xM,y:p.pivot.yM},{x:p.lowestPoint.xM,y:p.lowestPoint.yM});
   if(motion.stageGeometry?.pulley){const pl=motion.stageGeometry.pulley;points.push({x:pl.pulley.xM,y:pl.pulley.yM},{x:pl.body1Start.xM,y:pl.body1Start.yM},{x:pl.body2Start.xM,y:pl.body2Start.yM});if(pl.groundYM!=null)points.push({x:pl.body2Start.xM,y:pl.groundYM});}
+  if(motion.stageGeometry?.switchableEM){const em=motion.stageGeometry.switchableEM;for(const c of em.circles){points.push({x:c.center.xM-c.radiusM,y:c.center.yM-c.radiusM},{x:c.center.xM+c.radiusM,y:c.center.yM+c.radiusM});}points.push({x:em.tangency.xM,y:em.tangency.yM},{x:em.switchOffX,y:0});for(const lm of motion.stageGeometry.landmarks??[])points.push({x:lm.position.xM,y:lm.position.yM});}
   for(const tr of motion.stageGeometry?.bodyTracks??[]){if(tr.horizontal){points.push({x:tr.horizontal.start.xM,y:tr.horizontal.start.yM});if(tr.horizontal.plannedEnd)points.push({x:tr.horizontal.plannedEnd.xM,y:tr.horizontal.plannedEnd.yM});}if(tr.projectile?.landingPlane)points.push({x:tr.projectile.launch.xM,y:tr.projectile.landingPlane.yM});}
   return{curves,ids:Object.keys(curves).sort(),bounds:computeWorldBounds(points)};
 }
@@ -29,7 +30,89 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
   const b={x1:data.bounds.minX,x2:data.bounds.maxX,y1:data.bounds.minY,y2:data.bounds.maxY};
   const color=(id:string)=>data.ids.indexOf(id)===0?INK:TARGET;
   ctx.clearRect(0,0,W,H);ctx.fillStyle=PAPER;ctx.fillRect(0,0,W,H);ctx.lineWidth=1.3;ctx.font=`12px ${FONT}`;ctx.textBaseline='alphabetic';
-  for(const[id,points]of Object.entries(data.curves)){ctx.save();ctx.setLineDash([3,5]);ctx.strokeStyle=HAIR;ctx.beginPath();points.forEach((p,i)=>i===0?ctx.moveTo(X(p.x),Y(p.y)):ctx.lineTo(X(p.x),Y(p.y)));ctx.stroke();ctx.restore();
+  if(motion.stageGeometry?.switchableEM){
+    const em=motion.stageGeometry.switchableEM;
+    const eOn=time<em.offSeconds-1e-9;
+    const bOn=time<em.offSeconds-1e-9||time>=em.restoreSeconds-1e-9;
+    const restored=time>=em.restoreSeconds-1e-9;
+    const axisY=Y(0);
+    const xL=Math.max(8,X(b.x1)-10),xR=Math.min(W-8,X(b.x2)+10);
+    const yTop=Math.max(8,Y(b.y2)-10),yBot=Math.min(H-8,Y(b.y1)+10);
+    // 上半区 y > 0 匀强电场
+    if(axisY>yTop+4){
+      ctx.save();
+      ctx.fillStyle=eOn?'rgba(180,120,40,0.06)':'rgba(150,150,145,0.03)';
+      ctx.fillRect(xL,yTop,Math.max(0,xR-xL),Math.max(0,axisY-yTop));
+      ctx.strokeStyle=eOn?'rgba(160,105,30,0.45)':'rgba(150,150,145,0.28)';
+      ctx.lineWidth=1;
+      if(!eOn)ctx.setLineDash([3,4]);
+      const stepX=Math.max(44,(xR-xL)/7);
+      for(let px=xL+stepX*0.5;px<xR-16;px+=stepX){
+        const ay1=yTop+12,ay2=axisY-10;
+        if(ay2>ay1+12){
+          ctx.beginPath();ctx.moveTo(px,ay1);ctx.lineTo(px,ay2);
+          ctx.moveTo(px-3.5,ay2-5);ctx.lineTo(px,ay2);ctx.lineTo(px+3.5,ay2-5);ctx.stroke();
+        }
+      }
+      ctx.fillStyle=eOn?'#8a5a18':SOFT;ctx.textAlign='left';ctx.fillText(eOn?'E ↓（电场开启）':'E（已撤去）',xL+6,yTop+15);
+      ctx.restore();
+    }
+    // 下半区 y < 0 匀强磁场
+    if(yBot>axisY+4){
+      ctx.save();
+      ctx.fillStyle=bOn?'rgba(56,110,138,0.06)':'rgba(150,150,145,0.025)';
+      ctx.fillRect(xL,axisY,Math.max(0,xR-xL),Math.max(0,yBot-axisY));
+      ctx.fillStyle=bOn?'rgba(56,110,138,0.55)':'rgba(150,150,145,0.22)';
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      const glyph=em.fieldDirection==='into_page'?'×':'·';
+      const step=Math.max(32,Math.min(48,(xR-xL)/9));
+      for(let px=xL+step*0.5;px<xR-8;px+=step){
+        for(let py=axisY+step*0.5;py<yBot-8;py+=step)ctx.fillText(glyph,px,py);
+      }
+      ctx.textAlign='left';ctx.textBaseline='alphabetic';
+      ctx.fillStyle=bOn?TARGET:SOFT;
+      const bLabel=em.fieldDirection==='into_page'?'B ⊗':'B ⊙';
+      ctx.fillText(bOn?(restored?`${bLabel}（磁场已恢复）`:`${bLabel}（磁场开启）`):`${bLabel}（磁场已撤 · 匀速漂移）`,xL+6,Math.min(yBot-6,axisY+18));
+      ctx.restore();
+    }
+    // 分界线 y = 0 与撤场竖线 x = switchOffX
+    ctx.save();
+    ctx.strokeStyle=INK;ctx.lineWidth=1.4;
+    ctx.beginPath();ctx.moveTo(xL,axisY);ctx.lineTo(xR,axisY);ctx.stroke();
+    ctx.setLineDash([5,4]);ctx.strokeStyle='#8a5a18';ctx.lineWidth=1.2;
+    const offX=X(em.switchOffX);
+    ctx.beginPath();ctx.moveTo(offX,yTop);ctx.lineTo(offX,yBot);ctx.stroke();
+    ctx.fillStyle='#8a5a18';ctx.textAlign='left';ctx.fillText('撤场竖线',Math.min(W-60,offX+5),yTop+28);
+    // 恢复磁场后的两回旋圆及外切点（非碰撞）
+    em.circles.forEach((circle,idx)=>{
+      ctx.save();
+      ctx.strokeStyle=idx===0?INK:TARGET;
+      ctx.globalAlpha=restored?0.78:0.28;
+      ctx.lineWidth=restored?1.5:1.1;
+      ctx.setLineDash(restored?[]:[4,4]);
+      ctx.beginPath();ctx.arc(X(circle.center.xM),Y(circle.center.yM),circle.radiusM*S,0,2*Math.PI);ctx.stroke();
+      ctx.restore();
+    });
+    const tx=X(em.tangency.xM),ty=Y(em.tangency.yM);
+    ctx.save();ctx.strokeStyle='#b42318';ctx.fillStyle=PAPER;ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.arc(tx,ty,4,0,2*Math.PI);ctx.fill();ctx.stroke();
+    ctx.fillStyle='#b42318';ctx.textAlign='left';ctx.fillText('外切点（非碰撞）',Math.min(W-108,tx+7),Math.max(16,ty-4));
+    ctx.restore();
+    // 地标 S, P, Q
+    for(const lm of motion.stageGeometry.landmarks??[]){
+      const lx=X(lm.position.xM),ly=Y(lm.position.yM);
+      ctx.fillStyle=SOFT;ctx.beginPath();ctx.arc(lx,ly,2.5,0,2*Math.PI);ctx.fill();
+      ctx.textAlign='left';ctx.fillText(lm.label,lx+6,ly-5);
+    }
+    if(em.scaleMode==='normalized'){
+      const badge='归一化标度：m = q = L = v₀ = 1';
+      const bw=ctx.measureText(badge).width+14;
+      ctx.fillStyle='rgba(251,251,249,0.88)';ctx.fillRect(W-bw-10,8,bw,20);
+      ctx.fillStyle=SOFT;ctx.textAlign='right';ctx.fillText(badge,W-17,22);
+    }
+    ctx.restore();
+  }
+  for(const[id,points]of Object.entries(data.curves)){ctx.save();ctx.setLineDash([3,5]);ctx.strokeStyle=motion.stageGeometry?.switchableEM?color(id):HAIR;ctx.globalAlpha=motion.stageGeometry?.switchableEM?0.45:1;ctx.beginPath();points.forEach((p,i)=>i===0?ctx.moveTo(X(p.x),Y(p.y)):ctx.lineTo(X(p.x),Y(p.y)));ctx.stroke();ctx.restore();
     const initial=points[0],now=snapshot.bodies?.[id];if(now&&Math.hypot(now.position.x-initial.x,now.position.y-initial.y)*S>18){ctx.save();ctx.setLineDash([3,3]);ctx.strokeStyle=color(id);ctx.beginPath();ctx.arc(X(initial.x),Y(initial.y),5,0,2*Math.PI);ctx.stroke();ctx.restore();}}
   // 标签防重叠：先画几何与物体，把物体/支点占位记入 occupied，
   // 再为所有文字（速度、张力、接触点、地面、P/O）按优先级挑选不冲突的行。
@@ -206,8 +289,11 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
  *  让画布卡片与单物体版保持同一布局（画布独占整块 frame）。 */
 export function MultiBodyReadouts({motion,time,isPlaying=false}:{motion:Motion;time:number;isPlaying?:boolean}){
   const sample=motion.sampleAt(time),ids=Object.keys(sample.bodies??{}).sort(),firstKind=motion.stagePlan?.stages[0]?.kind,horizontal=firstKind==='horizontal_approach'||firstKind==='block_plank';
+  const em=motion.stageGeometry?.switchableEM;
+  const emStatus=em?(time<em.offSeconds-1e-9?'电场开 · 磁场开':time<em.restoreSeconds-1e-9?'两场撤去 · 匀速直线漂移':'磁场已恢复 · 两轨迹外切（非碰撞）'):null;
   return <figcaption id="multi-body-readouts" className={'multi-body-readouts'+(ids.some(id=>id.length>16)?' has-long-ids':'')+(horizontal?' has-horizontal-states':'')} aria-live={isPlaying?'off':'polite'}>
-    {ids.map((id,i)=>{const b=sample.bodies![id];return <span className="body-body-value" key={id} data-body-id={id}><i className="body-swatch" style={{background:i===0?INK:TARGET}}/>{id}：v = {formatSpeed(Math.hypot(b.velocity.x,b.velocity.y))} m/s；{bodyStatusText[b.status]}{b.groupId?' · 粘连':''}{horizontal&&<><br/>x = {signed(b.position.x)}，y = {signed(b.position.y)} m<br/>vₓ = {signed(b.velocity.x)}，vᵧ = {signed(b.velocity.y)} m/s</>}</span>;})}
+    {ids.map((id,i)=>{const b=sample.bodies![id];return <span className="body-body-value" key={id} data-body-id={id}><i className="body-swatch" style={{background:i===0?INK:TARGET}}/>{id}：v = {formatSpeed(Math.hypot(b.velocity.x,b.velocity.y))} m/s；{bodyStatusText[b.status]}{b.groupId?' · 粘连':''}{(horizontal||!!em)&&<><br/>x = {signed(b.position.x)}，y = {signed(b.position.y)} m<br/>vₓ = {signed(b.velocity.x)}，vᵧ = {signed(b.velocity.y)} m/s</>}</span>;})}
+    {emStatus&&<span className="body-constraint">场区状态：{emStatus}{em?.scaleMode==='normalized'?' · 归一化标度（m=q=L=v₀=1）':''}</span>}
     {Object.values(sample.constraints??{}).map(c=><span className="body-constraint" key={c.constraintId}>{c.bodyIds.join(' + ')}：{c.state==='taut'?'绳张紧':'绳松弛'}，总张力 T = {c.tensionN.toFixed(2)} N</span>)}
   </figcaption>;
 }
@@ -217,5 +303,5 @@ export function MultiBodyPhysicsCanvas({motion,time,isPlaying=false,trackedBodyI
   const paint=useCallback(()=>{const canvas=ref.current,ctx=canvas?.getContext('2d');if(ctx&&size.current.w){const p=current.current;drawMultiBodyScene(ctx,size.current.w,size.current.h,p.motion,p.time,p.trackedBodyId,p.data,p.forces?forcesAt(p.motion,p.time,p.decompose):undefined);}},[]);
   useEffect(()=>{const canvas=ref.current;if(!canvas)return;const resize=()=>{const box=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;size.current={w:box.width,h:box.height};canvas.width=Math.round(box.width*dpr);canvas.height=Math.round(box.height*dpr);canvas.getContext('2d')?.setTransform(dpr,0,0,dpr,0,0);paint();};resize();const observer=new ResizeObserver(resize);observer.observe(canvas);return()=>observer.disconnect();},[paint]);
   useEffect(()=>{frame.current=requestAnimationFrame(paint);return()=>{if(frame.current!==null)cancelAnimationFrame(frame.current);};},[time,motion,trackedBodyId,forces,decompose,paint]);
-  return <figure className="multi-body-figure" data-renderer="multi-body"><canvas ref={ref} role="img" aria-label={motion.stageGeometry?.pulley?'轻绳与理想定滑轮连接体同步动画':motion.stageGeometry?.plank?'滑块与可移动木板同步动画':motion.stageGeometry?.pendulums?.length?'轻绳摆与物体同步动画，P为支点，O为最低点':'两物体水平正碰与碰后同步运动'} aria-describedby="multi-body-readouts"/>{readouts&&<MultiBodyReadouts motion={motion} time={time} isPlaying={isPlaying}/>}</figure>;
+  return <figure className="multi-body-figure" data-renderer="multi-body"><canvas ref={ref} role="img" aria-label={motion.stageGeometry?.switchableEM?'分区电磁场双粒子偏转、弹性正碰与撤场恢复同步动画':motion.stageGeometry?.pulley?'轻绳与理想定滑轮连接体同步动画':motion.stageGeometry?.plank?'滑块与可移动木板同步动画':motion.stageGeometry?.pendulums?.length?'轻绳摆与物体同步动画，P为支点，O为最低点':'两物体水平正碰与碰后同步运动'} aria-describedby="multi-body-readouts"/>{readouts&&<MultiBodyReadouts motion={motion} time={time} isPlaying={isPlaying}/>}</figure>;
 }

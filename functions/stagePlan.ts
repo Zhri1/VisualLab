@@ -6,11 +6,12 @@ import { resolveGaokaoImplicitParams, type DerivedCalculation } from "./gaokaoCo
 import { solveRoughSpring } from "./roughSpring.ts";
 import { circularEntry, circularGeometry, type ExplicitArcPath } from './circularArc.ts';
 import { validateMultiBodyPlan } from './multiBodyPlan.ts';
+import { validateSwitchableEMPlan, type SwitchableEMStage } from './switchableEMCollision.ts';
 import type { BodyDefinition, BodyStage } from './multiBodyTypes.ts';
 export type Energy = { stageIndex: number; elasticEnergyJ: number; origin: "given" | "user" | "spring_parameters" | "critical_arc_top"; basis?: Record<string, number> };
 export type PlaybackScope = { mode: "full" | "suffix" | "state_only"; startStageIndex: number; unresolvedKeys: string[]; reason: string; xM?: number; vxMps?: number; stopReason?: "stop_at_target" | "stop_before_target" | "prefix_end" };
-export type SingleStageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release" | "constant_force_1d" | "conveyor_belt" | "magnetic_deflection" | "movable_arc" | "spring_pair";
-export type StageKind = SingleStageKind | BodyStage['kind'];
+export type SingleStageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release" | "constant_force_1d" | "conveyor_belt" | "magnetic_deflection" | "movable_arc" | "movable_semicircle" | "spring_pair";
+export type StageKind = SingleStageKind | BodyStage['kind'] | SwitchableEMStage['kind'];
 export type SingleStage =
   | { kind: "incline_slide"; direction?: "down" | "up"; lengthM?: number | null; angleDeg: number; kineticFrictionCoefficient: number; staticFrictionCoefficient?: number | null; slidesAfterRelease?: boolean | null }
   | { kind: "lossless_turn"; lossless: true }
@@ -19,13 +20,14 @@ export type SingleStage =
   | import("./conveyorBelt.ts").ConveyorBeltStage
   | import("./magneticDeflection.ts").MagneticDeflectionStage
   | import("./movableArc.ts").MovableArcStage
+  | import("./movableSemicircle.ts").MovableSemicircleStage
   | import("./springPair.ts").SpringPairStage
   | { kind: "spring_release"; springConstantNpm: number | null; initialCompressionM: number | null; kineticFrictionCoefficient: number; unattached: true; slidesAfterRelease: boolean; releaseCompleteByM?: number | null }
   | { kind: "spring_contact"; springConstantNpm: number; frictionless: true; unattached: true; kineticFrictionCoefficient?: never; staticFrictionCoefficient?: never; reboundAtMaxCompression?: never }
   | { kind: "spring_contact"; springConstantNpm: number; kineticFrictionCoefficient: number; staticFrictionCoefficient?: number | null; reboundAtMaxCompression?: boolean | null; unattached: true; frictionless?: never }
   | { kind: "vertical_arc"; radiusM: number; verticalDropM?: number; endAngleDeg?: number; path?: ExplicitArcPath; side: "inside" | "rod"; frictionless: true; startLabel?: string; endLabel?: string }
   | ({ kind: "projectile"; startLabel?: string; endLabel?: string } & ({ dropHeightM: number; landingPlaneYM?: never; end?: never } | { landingPlaneYM: number; dropHeightM?: never; end?: never } | { end: { kind: "tangent_to_next_arc" }; dropHeightM?: number; landingPlaneYM?: never }));
-export type Stage = SingleStage | BodyStage;
+export type Stage = SingleStage | BodyStage | SwitchableEMStage;
 
 export type ResolvedStagePlan = {
   kind: "stage_plan";
@@ -62,12 +64,12 @@ export type StagePlanFailure = {
 };
 export type StagePlanValidation = { ok: true; reading: ResolvedStagePlan; playback?: PlaybackScope } | StagePlanFailure;
 
-const stageKinds: readonly string[] = ["incline_slide", "lossless_turn", "horizontal_slide", "spring_contact", "projectile", "vertical_arc", "spring_release", "constant_force_1d", "conveyor_belt", "magnetic_deflection", "movable_arc", "spring_pair"];
+const stageKinds: readonly string[] = ["incline_slide", "lossless_turn", "horizontal_slide", "spring_contact", "projectile", "vertical_arc", "spring_release", "constant_force_1d", "conveyor_belt", "magnetic_deflection", "movable_arc", "movable_semicircle", "spring_pair"];
 const positive = (value: number) => value > 0;
 const nonnegative = (value: number) => value >= 0;
 const finite = (_value: number) => true;
 const numericRules: Record<StageKind, Record<string, (value: number) => boolean>> = {
-  horizontal_approach: {}, pendulum_swing: {}, collision_1d: {}, parallel_motion: {}, block_plank: {}, pulley_system: {},
+  switchable_em_collision: {}, horizontal_approach: {}, pendulum_swing: {}, collision_1d: {}, parallel_motion: {}, block_plank: {}, pulley_system: {},
   incline_slide: { lengthM: positive, angleDeg: (value) => value > 0 && value < 90, kineticFrictionCoefficient: nonnegative },
   lossless_turn: {},
   horizontal_slide: { kineticFrictionCoefficient: nonnegative },
@@ -75,6 +77,7 @@ const numericRules: Record<StageKind, Record<string, (value: number) => boolean>
   conveyor_belt: { initialBeltSpeedMps: finite, kineticFrictionCoefficient: nonnegative },
   magnetic_deflection: { magneticTeslaB: positive, chargeC: (value) => value !== 0, regionWidthM: positive },
   movable_arc: { radiusM: positive, grooveMassKg: positive },
+  movable_semicircle: { radiusM: positive, grooveMassKg: positive },
   spring_pair: {},
   spring_contact: { springConstantNpm: positive },
   spring_release: { kineticFrictionCoefficient: nonnegative },
@@ -87,6 +90,9 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 export function validateStagePlan(input: unknown): StagePlanValidation {
+  if (record(input) && Array.isArray(input.stages) && input.stages.some(stage => record(stage) && stage.kind === 'switchable_em_collision')) {
+    return validateSwitchableEMPlan(input);
+  }
   if (record(input) && ('bodies' in input || (Array.isArray(input.stages) && input.stages.some(s => record(s) && ['pendulum_swing','collision_1d','parallel_motion','horizontal_approach','block_plank','pulley_system'].includes(String(s.kind)))))) return validateMultiBodyPlan(input, (track) => validateSingleBodyPlan(track, true));
   return validateSingleBodyPlan(input);
 }
@@ -189,9 +195,9 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
   for (const key of ["speedMps", "vxMps", "vyMps"]) {
     if (!initialKeys.includes(key) && key in initial) numberField(initial, normalizedInitial, key, "/initial/" + key, key === "speedMps" ? nonnegative : finite, false);
   }
-  const needsGravity = stages.some((stage) => stage.kind === "incline_slide" || stage.kind === "projectile" || stage.kind === "vertical_arc" || stage.kind === "conveyor_belt" || stage.kind === "movable_arc" || (stage.kind === "spring_contact" && Object.prototype.hasOwnProperty.call(stage, "kineticFrictionCoefficient"))
+  const needsGravity = stages.some((stage) => stage.kind === "incline_slide" || stage.kind === "projectile" || stage.kind === "vertical_arc" || stage.kind === "conveyor_belt" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || (stage.kind === "spring_contact" && Object.prototype.hasOwnProperty.call(stage, "kineticFrictionCoefficient"))
     || ((stage.kind === "horizontal_slide" || stage.kind === "spring_release") && typeof stage.kineticFrictionCoefficient === "number" && stage.kineticFrictionCoefficient > 0));
-  const needsMass = stages.some((stage) => stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "constant_force_1d" || stage.kind === "magnetic_deflection" || stage.kind === "movable_arc" || stage.kind === "spring_pair");
+  const needsMass = stages.some((stage) => stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "constant_force_1d" || stage.kind === "magnetic_deflection" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair");
   numberField(input, draft, "gravityMps2", "/gravityMps2", positive, needsGravity);
   numberField(input, draft, "massKg", "/massKg", positive, needsMass);
   const nonSpringConstraints = stages[0]?.kind !== "spring_release" && input.constraints != null;
@@ -367,10 +373,30 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
         issue(path + "/staticFrictionCoefficient", "RANGE", "静摩擦因数不应小于动摩擦因数。");
       }
       const hasBeltLength = typeof stage.beltLengthM === "number" && stage.beltLengthM > 0;
+      const sufficientLength = source.lengthSufficientForCommonSpeed === true;
+      if (source.lengthSufficientForCommonSpeed != null && typeof source.lengthSufficientForCommonSpeed !== "boolean") {
+        issue(path + "/lengthSufficientForCommonSpeed", "TYPE", "带长是否足以共速应为布尔值。");
+      }
+      if (sufficientLength) {
+        if (hasBeltLength || source.entryEdge != null || source.continuationExitEdge != null) {
+          issue(path + "/lengthSufficientForCommonSpeed", "PRECONDITION_CONFLICT", "足够长模式仅在实际带长与两端字段均未给出时使用。");
+        }
+        if (typeof stage.angleDeg === "number" && stage.angleDeg > 0) issue(path + "/angleDeg", "PRECONDITION_CONFLICT", "足够长模式需要水平带。");
+        if (typeof source.initialBeltSpeedMps === "number" && source.initialBeltSpeedMps <= 0) issue(path + "/initialBeltSpeedMps", "RANGE", "足够长模式需要向右运动的带面。");
+        const next = stages[i + 1];
+        if (next?.kind != null && next.kind !== "movable_semicircle") issue(path + "/lengthSufficientForCommonSpeed", "UNSUPPORTED", "共速后省略匀速带段仅支持接可平动半圆轨道。");
+      }
+      if (stages[i + 1]?.kind === "movable_semicircle") {
+        if (!hasBeltLength && source.beltLengthM == null && !sufficientLength) {
+          stage.beltLengthM = null;
+          missingKeys.push(path + "/beltLengthM");
+        }
+        if (typeof stage.angleDeg === "number" && stage.angleDeg > 0) issue(path + "/angleDeg", "PRECONDITION_CONFLICT", "接可平动半圆轨需要水平带。");
+      }
       let hasAccel = false;
       if (source.segments == null || (Array.isArray(source.segments) && source.segments.length === 0)) {
-        if (hasBeltLength) {
-          // 定长匀速且未给时长，按实际离带或停下结束。
+        if (hasBeltLength || sufficientLength || stages[i + 1]?.kind === "movable_semicircle") {
+          // 匀速带的结束由实际离带或明确的共速前缀决定。
           stage.segments = [{ accelerationMps2: 0, durationSeconds: null }];
         } else {
           stage.segments = null;
@@ -385,7 +411,7 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
           if (!record(rawSeg)) { issue(sp, "TYPE", "传送带分段须为对象。"); return; }
           const copy: Record<string, unknown> = { ...rawSeg };
           numberField(rawSeg, copy, "accelerationMps2", sp + "/accelerationMps2", finite);
-          if (hasBeltLength && rawSegs.length === 1 && copy.accelerationMps2 === 0 && rawSeg.durationSeconds == null) {
+          if ((hasBeltLength || sufficientLength || stages[i + 1]?.kind === "movable_semicircle") && rawSegs.length === 1 && copy.accelerationMps2 === 0 && rawSeg.durationSeconds == null) {
             copy.durationSeconds = null;
           } else {
             numberField(rawSeg, copy, "durationSeconds", sp + "/durationSeconds", positive);
@@ -394,6 +420,12 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
           segs.push(copy);
         });
         stage.segments = segs;
+        if (sufficientLength && (rawSegs.length !== 1 || (segs[0]?.durationSeconds != null))) {
+          issue(path + "/segments", "PRECONDITION_CONFLICT", "足够长模式只接受单段匀速且时长未知的传送带。");
+        }
+      }
+      if (hasAccel && (sufficientLength || stages[i + 1]?.kind === "movable_semicircle")) {
+        issue(path + "/segments", "PRECONDITION_CONFLICT", "足够长模式及可平动半圆轨入口都要求匀速带。");
       }
       if (hasAccel && source.staticFrictionCoefficient == null) {
         missingKeys.push(path + "/staticFrictionCoefficient");
@@ -411,6 +443,28 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
       if (source.exitDirection == null) stage.exitDirection = -1;
       else if (source.exitDirection !== -1 && source.exitDirection !== 1) issue(path + "/exitDirection", "UNSUPPORTED", "离槽方向仅支持 -1（向左）或 1（向右）。");
       else stage.exitDirection = source.exitDirection;
+    }
+    if (source.kind === "movable_semicircle") {
+      fact(stage, "frictionless", path + "/frictionless");
+      fact(stage, "groundFrictionless", path + "/groundFrictionless");
+      if (source.direction == null) {
+        stage.direction = null;
+        missingKeys.push(path + "/direction");
+      } else if (source.direction !== "right" && source.direction !== "left") {
+        issue(path + "/direction", "RANGE", "轨道朝向须为向右或向左。");
+      }
+      const before = stages[i - 1];
+      if (before?.kind === "conveyor_belt") {
+        if (before.lengthSufficientForCommonSpeed === true && source.direction === "left") {
+          issue(path + "/direction", "PRECONDITION_CONFLICT", "向右运行的足够长传送带需要连接右向半圆轨道。");
+        }
+        const edge = source.direction === "left" ? "start" : "end";
+        if ((source.direction === "left" || source.direction === "right") && before.continuationExitEdge != null && before.continuationExitEdge !== edge) {
+          issue("/stages/" + (i - 1) + "/continuationExitEdge", "PRECONDITION_CONFLICT", "传送带连接端与半圆底部切向不一致。");
+        }
+      }
+      if (i === 0 && normalizedInitial.speedMps === 0) issue("/initial/speedMps", "RANGE", "进入半圆轨道的切向速率须大于零。");
+      if (bodyTrack) issue(path + "/kind", "UNSUPPORTED", "可平动半圆轨道作为独立阶段计划使用。");
     }
     if (source.kind === "spring_pair") {
       if (source.springConstantNpm == null) stage.springConstantNpm = 100;
@@ -450,7 +504,7 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
       : previous === "projectile" ? source.kind === "vertical_arc" || source.kind === "incline_slide"
       : previous === "spring_release" ? ["horizontal_slide", "spring_contact", "vertical_arc", "projectile", "constant_force_1d", "conveyor_belt", "spring_pair", "lossless_turn", "incline_slide"].includes(source.kind)
       : previous === "spring_contact" ? ["horizontal_slide", "lossless_turn", "incline_slide", "vertical_arc", "conveyor_belt", "projectile"].includes(source.kind)
-      : previous === "conveyor_belt" ? ["projectile", "horizontal_slide", "spring_contact", "vertical_arc", "constant_force_1d", "incline_slide", "spring_pair", "lossless_turn"].includes(source.kind)
+      : previous === "conveyor_belt" ? ["projectile", "horizontal_slide", "spring_contact", "vertical_arc", "constant_force_1d", "incline_slide", "spring_pair", "lossless_turn", "movable_semicircle"].includes(source.kind)
       : previous === "magnetic_deflection" ? ["projectile", "horizontal_slide", "constant_force_1d", "conveyor_belt"].includes(source.kind)
       : previous === "movable_arc" ? ["spring_pair", "horizontal_slide", "spring_contact", "vertical_arc", "projectile", "conveyor_belt"].includes(source.kind)
       : previous === "spring_pair" ? ["horizontal_slide", "projectile", "vertical_arc"].includes(source.kind)

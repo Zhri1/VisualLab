@@ -14,6 +14,7 @@ export type ConveyorBeltStage = {
   kineticFrictionCoefficient: number;
   staticFrictionCoefficient?: number | null;
   beltLengthM?: number | null;
+  lengthSufficientForCommonSpeed?: boolean | null;
   entryEdge?: ConveyorEdge | null;
   continuationExitEdge?: ConveyorEdge | null;
   /** 传送带倾角 θ（度），0 ≤ θ < 90；默认 0（水平传送带）。 */
@@ -38,6 +39,7 @@ export type ConveyorGeometry = {
   inclineDirection?: "up" | "down";
   originXM?: number;
   originYM?: number;
+  endOmitted?: boolean;
 };
 
 type Piece = {
@@ -100,6 +102,7 @@ export function solveConveyorBelt(stage: ConveyorBeltStage, startXM: number, sta
   let minX = x, maxX = x;
   let exitEdge: ConveyorEdge | undefined;
   let stopped = false;
+  let reachedCommon = false;
   const pieces: Piece[] = [];
   const events: ConveyorEvent[] = [];
 
@@ -115,6 +118,14 @@ export function solveConveyorBelt(stage: ConveyorBeltStage, startXM: number, sta
       let dt = rem;
       let reachesCommon = false;
 
+      if (stage.lengthSufficientForCommonSpeed && Math.abs(vRel) <= vTol) {
+        v = vb;
+        reachedCommon = true;
+        break;
+      }
+      if (stage.lengthSufficientForCommonSpeed && ak === 0) {
+        throw new RangeError("带面与滑块速度不同，动摩擦为零时无法达到共速。");
+      }
       if (Math.abs(vRel) <= vTol) {
         // 保持与带共速所需的静摩擦加速度：a_g + a_f_req = a_b ⇒ a_f_req = a_b - a_g
         const aReq = ab - ag;
@@ -229,10 +240,20 @@ export function solveConveyorBelt(stage: ConveyorBeltStage, startXM: number, sta
           explanation: `经过 ${t.toFixed(4)} s 达到共速 v = ${v.toFixed(4)} m/s；对地位移 ${(x - startXM).toFixed(4)} m，相对带面位移 ${(x - startXM - xb).toFixed(4)} m。`,
         });
       }
+      if (stage.lengthSufficientForCommonSpeed && reachesCommon) {
+        reachedCommon = true;
+        break;
+      }
     }
   }
 
-  if (!exitEdge) {
+  if (reachedCommon && !events.length) {
+    events.push({
+      kind: "conveyor_common_velocity", time: t, xM: x, vxMps: v,
+      label: "与传送带初始共速", explanation: "滑块入带时与带面同速，此后无相对滑动。",
+    });
+  }
+  if (!exitEdge && !reachedCommon) {
     events.push({
       kind: stopped ? "stop" : "force_segment_end",
       time: t,
@@ -260,6 +281,7 @@ export function solveConveyorBelt(stage: ConveyorBeltStage, startXM: number, sta
   return {
     duration: t,
     exitEdge,
+    reachedCommon,
     stopped,
     endX: x,
     endVx: v,
@@ -268,6 +290,7 @@ export function solveConveyorBelt(stage: ConveyorBeltStage, startXM: number, sta
       maxXM: L !== null ? Math.max(L, maxX) : maxX,
       beltLengthM: L,
       initialBeltSpeedMps: stage.initialBeltSpeedMps,
+      ...(reachedCommon ? { endOmitted: true } : {}),
       ...(angleDeg > 0 ? { angleDeg, inclineDirection } : {}),
     } as ConveyorGeometry,
     events,
