@@ -11,7 +11,7 @@ export type DerivedCalculation = {
   value: number;
   unit: "m";
   source: "derived";
-  rule: "tangent_to_next_arc" | "arc_radius_from_drop" | "critical_arc_top";
+  rule: "tangent_to_next_arc" | "arc_radius_from_drop" | "critical_arc_top" | "bounce_apex_height";
   inputPaths: string[];
 };
 

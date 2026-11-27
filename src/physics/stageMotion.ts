@@ -42,10 +42,11 @@ export type StageGeometry = BodyGeometry & {
   springRelease?: { stageIndex: number; start: Point; naturalContact: Point; initialCompressionM: number; anchor: Point | null };
   landmarks?: { label: string; position: Point }[];
   schematic?: { stageIndices: number[]; horizontal?: { start: Point; plannedEnd: Point }; springIconAt?: Point; verticalArc?: Omit<VerticalArcGeometry, "stageIndex" | "actualExit" | "startAngleDeg"> & {startAngleDeg?:number}; reason: string };
+  scaleMode?: "normalized" | "si";
   blockSizeM: number;
   positionReference: "front_bottom" | "particle";
 };
-export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit' | 'magnetic_exit' | 'movable_arc_exit' | 'movable_semicircle_top' | 'movable_semicircle_turn' | 'spring_pair_separate';
+export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "bounce_apex" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit' | 'magnetic_exit' | 'movable_arc_exit' | 'movable_semicircle_top' | 'movable_semicircle_turn' | 'spring_pair_separate';
 export type StageEvent = {
   collision?: import('./horizontalTypes.ts').CollisionValues;
   bodyIds?: string[]; stagePath?: string;
@@ -475,29 +476,56 @@ function arc(stage: Extract<Stage, { kind: "vertical_arc" }>, start: MotionSampl
 
 function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: MotionSample, gravity: number, geometry: StageGeometry, from: StageKind | undefined, hasNext: boolean, stageIndex: number): Run {
   const planeYM = stage.landingPlaneYM ?? start.yM - stage.dropHeightM!;
-  const duration = landingTime(start.yM - planeYM, start.vyMps, gravity);
+  const t1 = landingTime(start.yM - planeYM, start.vyMps, gravity);
   const projectileGeo = { launch: point(start), landingPlane: { yM: planeYM } };
   geometry.projectile = projectileGeo;
   (geometry.projectiles ??= []).push({ stageIndex, ...projectileGeo });
-  const sampleAt = (time: number) => linearState(start.xM, start.yM, start.vxMps, start.vyMps, 0, -gravity, time);
-  const end = { ...sampleAt(duration), yM: planeYM };
+  const flight1 = (time: number) => linearState(start.xM, start.yM, start.vxMps, start.vyMps, 0, -gravity, time);
+  const impact = { ...flight1(t1), yM: planeYM };
   const events: EventState[] = [];
   if (from === "horizontal_slide" || from === "constant_force_1d") events.push(event("leave_table", 0, start, start, "离开桌沿", "以当前水平速度离开平台，开始平抛。"));
+  if (from === "spring_release") events.push(event("leave_table", 0, start, start, "离开桌沿", "小球在光滑桌面与弹簧脱离后以能量确定的水平速度离开桌沿，开始平抛。"));
   if (from === "vertical_arc") events.push(event("projectile_launch", 0, start, start, "沿切线飞出", "以实际离弧位置和切向速度开始抛体运动，落地平面保持固定。"));
   if (from === "incline_slide") events.push(event("projectile_launch", 0, start, start,
     start.vyMps > 0 ? "离开坡顶" : "离开檐口",
     start.vyMps > 0 ? "离开斜面顶端，沿坡切向斜抛；速度连续，此后只受重力。" : "离开斜面末端，沿坡切向斜抛；水平与向下的竖直速度连续，此后只受重力。"));
   const apexTime = start.vyMps / gravity;
-  if (apexTime > 0 && apexTime < duration) {
-    const maximum = { ...sampleAt(apexTime), vyMps: 0 };
+  if (apexTime > 0 && apexTime < t1) {
+    const maximum = { ...flight1(apexTime), vyMps: 0 };
     events.push(event("apex", apexTime, maximum, maximum, "最高点", "竖直速度降为零，水平速度保持。"));
   }
   if (hasNext) {
-    events.push(event("reach_target", duration, end, end, "到达接续点", "抛体到达目标高度并沿当前速度切向进入下一阶段。"));
-    return { duration, end, reason: undefined, events, sampleAt };
+    events.push(event("reach_target", t1, impact, impact, "到达接续点", "抛体到达目标高度并沿当前速度切向进入下一阶段。"));
+    return { duration: t1, end: impact, reason: undefined, events, sampleAt: flight1 };
   }
-  events.push(event("land", duration, end, end, "落地", "首次到达落地平面，末帧保留接地瞬间的入射速度。"));
-  return { duration, end, reason: "landed", events, sampleAt };
+  if (stage.bounce) {
+    const e = stage.bounce.normalRestitution;
+    if (e === 0 || impact.vyMps >= 0) {
+      const stoppedVert = { ...impact, vyMps: 0 };
+      events.push({ ...event("land", t1, impact, stoppedVert, "落地（无竖直反弹）", "恢复系数为 0，触地后竖直速度归零，不再竖直反弹。"), position: point(impact) });
+      return { duration: t1, end: stoppedVert, reason: "landed", events, sampleAt: flight1 };
+    }
+    const postImpact: MotionSample = { ...impact, vyMps: -e * impact.vyMps };
+    const tUp = postImpact.vyMps / gravity;
+    const totalDuration = t1 + tUp;
+    const sampleWithBounce = (time: number) => time < t1 ? flight1(time) : linearState(impact.xM, planeYM, postImpact.vxMps, postImpact.vyMps, 0, -gravity, time - t1);
+    const bounceApex: MotionSample = { ...sampleWithBounce(totalDuration), vyMps: 0 };
+    const dxFirst = impact.xM - start.xM;
+    const bounceH = bounceApex.yM - planeYM;
+    events.push({
+      ...event("ground_bounce", t1, impact, postImpact, "首次触地反弹",
+        `首次落点距桌缘水平距离 ${dxFirst.toFixed(4)} m，触地位置连续；vₓ 保持 ${postImpact.vxMps.toFixed(4)} m/s，vᵧ 由 ${impact.vyMps.toFixed(4)} m/s 反弹为 +${postImpact.vyMps.toFixed(4)} m/s（e = ${e}）。`),
+      position: point(impact),
+    });
+    events.push({
+      ...event("bounce_apex", totalDuration, bounceApex, bounceApex, "首次反弹最高点",
+        `竖直速度降为零，首个反弹顶点距地面高度 h = ${bounceH.toFixed(4)} m，水平位置 x = ${bounceApex.xM.toFixed(4)} m。`),
+      position: point(bounceApex),
+    });
+    return { duration: totalDuration, end: bounceApex, reason: "bounce_apex", events, sampleAt: sampleWithBounce };
+  }
+  events.push(event("land", t1, impact, impact, "落地", "首次到达落地平面，末帧保留接地瞬间的入射速度。"));
+  return { duration: t1, end: impact, reason: "landed", events, sampleAt: flight1 };
 }
 
 function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | StagePlanFailure {
@@ -505,7 +533,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   if (first?.kind === 'switchable_em_collision') return computeSwitchableEMMotion(first);
   if (plan.bodies) return computeMultiBodyMotion(plan);
   const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage, i) => stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "magnetic_deflection" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair"
-    || stage.kind === "incline_slide" && plan.stages[i + 1]?.kind === "projectile") ? "particle" : "front_bottom" };
+    || stage.kind === "incline_slide" && plan.stages[i + 1]?.kind === "projectile") ? "particle" : "front_bottom", ...(plan.scaleMode ? { scaleMode: plan.scaleMode } : {}) };
   let state = "speedMps" in plan.initial ? moving(0, 0, plan.initial.speedMps) : "vxMps" in plan.initial ? moving(0, 0, plan.initial.vxMps, "vyMps" in plan.initial ? plan.initial.vyMps : 0) : moving(0,0,"tangentialSpeedMps" in plan.initial ? plan.initial.tangentialSpeedMps : 0);
   // 可移动槽的槽顶比地面高 R：初态抬到槽顶，离槽时恰好落回地面 y=0。
   if (first?.kind === "movable_arc") state = { ...state, yM: state.yM + first.radiusM };
@@ -516,7 +544,9 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   const ref = plan.stages[1];
   const target = ref?.kind === "horizontal_slide" && ref.end.kind === "distance_from_stage_start" ? ref.end.distanceM : undefined;
   if (scope) {
-    geometry.landmarks = [{ label: "A", position: { xM: 0, yM: 0 } }, ...(target === undefined ? [] : [{ label: "B", position: { xM: target, yM: 0 } }])];
+    geometry.landmarks = target === undefined && scope.mode === "suffix"
+      ? [{ label: "桌缘", position: { xM: scope.xM ?? 0, yM: 0 } }]
+      : [{ label: "A", position: { xM: 0, yM: 0 } }, ...(target === undefined ? [] : [{ label: "B", position: { xM: target, yM: 0 } }])];
     const arcStage = plan.stages[2];
     if (target !== undefined && arcStage?.kind === "vertical_arc" && !arcStage.path) {
       const phi = arcStage.endAngleDeg! * Math.PI / 180;
@@ -524,7 +554,15 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       geometry.landmarks.push({ label: arcStage.endAngleDeg === 180 ? "C" : "端点", position: plannedEnd });
       if (scope.mode === "state_only") geometry.schematic = { stageIndices: plan.stages.map((_, i) => i), reason: scope.reason, verticalArc: { entry: { xM: target, yM: 0 }, center: { xM: target, yM: arcStage.radiusM }, radiusM: arcStage.radiusM, endAngleDeg: arcStage.endAngleDeg!, plannedEnd } };
     }
-    if (scope.mode !== "full") geometry.schematic = { ...geometry.schematic, stageIndices: scope.mode === "suffix" ? [0, 1] : plan.stages.map((_, i) => i), horizontal: { start: { xM: 0, yM: 0 }, plannedEnd: { xM: target!, yM: 0 } }, springIconAt: { xM: 0, yM: 0 }, reason: scope.reason };
+    if (scope.mode !== "full") {
+      geometry.schematic = {
+        ...geometry.schematic,
+        stageIndices: scope.mode === "suffix" ? Array.from({ length: scope.startStageIndex }, (_, i) => i) : plan.stages.map((_, i) => i),
+        ...(target !== undefined ? { horizontal: { start: { xM: 0, yM: 0 }, plannedEnd: { xM: target, yM: 0 } } } : {}),
+        springIconAt: { xM: 0, yM: 0 },
+        reason: scope.reason,
+      };
+    }
   }
   if (first.kind === "incline_slide") {
     const angle = first.angleDeg * Math.PI / 180;
@@ -563,7 +601,8 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     eventStates.push({ ...item.after });
   }
   const from = scope?.mode === "suffix" ? scope.startStageIndex : 0;
-  append(event(scope?.mode === "state_only" ? "state_anchor" : scope?.mode === "suffix" ? "playback_start" : "release", 0, state, state, scope?.mode === "state_only" ? "已知状态" : scope?.mode === "suffix" ? "从B开始计时" : "释放", scope?.reason ?? "从题设初态开始运动。"), scope?.mode === "state_only" ? scope.startStageIndex : from, 0);
+  const suffixAnchorLabel = target === undefined ? "桌缘" : "B";
+  append(event(scope?.mode === "state_only" ? "state_anchor" : scope?.mode === "suffix" ? "playback_start" : "release", 0, state, state, scope?.mode === "state_only" ? "已知状态" : scope?.mode === "suffix" ? `从${suffixAnchorLabel}开始计时` : "释放", scope?.reason ?? "从题设初态开始运动。"), scope?.mode === "state_only" ? scope.startStageIndex : from, 0);
   if (scope?.mode === "state_only") reason = scope.stopReason ?? "prefix_end";
   for (const [index, stage] of (plan.stages as SingleStage[]).entries()) {
     if (scope?.mode === "state_only") break;
@@ -929,7 +968,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   }
   return {
     ...(arcObservation||plan.stages.some(s=>s.kind==='vertical_arc'&&s.path)?{motionStatus:{state:['stopped','stop_at_target','stop_before_target'].includes(reason)?'complete' as const:'range_end' as const,reason,bodyIds:[],message:arcObservation??(reason==='prefix_end'?'观察范围结束，仍保持真实速度与支持力。':reason==='returned_to_entry'?'返回入口的已求范围结束，保留反向速度和约束。':reason==='landed'?'首次接地，保留入射速度。':reason==='arc_detached'?'实际离轨，保留切向速度。':'物体真实静止。')}}:{}),
-    ...(scope ? { timing: { ...scope, anchor: { label: scope.mode === "full" ? "A" : scope.mode === "suffix" || scope.stopReason === "prefix_end" ? "B" : "静止点", position: scope.mode === "full" ? { xM: 0, yM: 0 } : { xM: scope.xM!, yM: 0 } }, absoluteStartSeconds: scope.mode === "full" ? 0 : null, excludedStageIndices: scope.mode === "full" ? [] : scope.mode === "suffix" ? Array.from({ length: from }, (_, i) => i) : plan.stages.map((_, i) => i) } } : {}),
+    ...(scope ? { timing: { ...scope, anchor: { label: scope.mode === "full" ? "A" : scope.mode === "suffix" || scope.stopReason === "prefix_end" ? suffixAnchorLabel : "静止点", position: scope.mode === "full" ? { xM: 0, yM: 0 } : { xM: scope.xM!, yM: 0 } }, absoluteStartSeconds: scope.mode === "full" ? 0 : null, excludedStageIndices: scope.mode === "full" ? [] : scope.mode === "suffix" ? Array.from({ length: from }, (_, i) => i) : plan.stages.map((_, i) => i) } } : {}),
     ...(calculations.length ? { calculations } : {}),
     ...(playbackGaps.length ? { playbackGaps } : {}),
     geometry, durationSeconds: time, segments, events, termination,

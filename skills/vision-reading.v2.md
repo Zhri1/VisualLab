@@ -466,6 +466,11 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
   1. 第一段 `D→E`（水平向右从顶端向下弯 90° 至竖直向下）：`path: { center: { xM: 0, yM: -R }, startAngleDeg: 180, direction: "negative", end: { kind: "physical_endpoint", sweepAngleDeg: 90 } }`（入口切向 `(+1, 0)`，出口切向 `(0, -1)`）；
   2. 第二段 `E→F`（竖直向下再弯 90° 至最低点水平向右）：`path: { startAngleDeg: -90, direction: "positive", end: { kind: "physical_endpoint", sweepAngleDeg: 90 } }`（省略 `center` 自动与前段 `E` 点相切衔接，入口切向 `(0, -1)`，出口切向 `(+1, 0)`）。
 
+- **光滑桌面预压弹簧能量发射直连平抛 + 可选首次落地反弹**（`spring_release → projectile`，详见 `PRECOMPRESSED_SPRING.md` 第 8 节）：
+  - 当光滑水平桌面上固定轻质弹簧，已知弹性势能 `Eₚ`（未给 `k`、压缩量 `c` 与桌面水平距离），小球与弹簧脱离后水平飞出，直接拆为 `spring_release`（`kineticFrictionCoefficient: 0, unattached: true, slidesAfterRelease: true, springConstantNpm: null, initialCompressionM: null`，**不要编造 `releaseCompleteByM`、`k`、`c` 或水平段**）→ `projectile`，并在顶层写 `energy: { stageIndex: 0, elasticEnergyJ: <数值或null>, origin: "given" }`。
+  - 若题面全程仅给符号（如 `m、Eₚ、h、g`），顶层加 `"scaleMode": "normalized"`，并在 `assumptions` 注明归一化演示；具体数值按实填写、不设 `"normalized"`。
+  - 若题面包含**首次水平地面反弹**（触地瞬间水平分速度不变、竖直分速度反向且变为原来的 `e` 倍，`e ∈ [0, 1]`）且关注首次反弹至最高点，在 `projectile` 段内加 `"bounce": { "normalRestitution": e, "stopAt": "first_apex", "apexHeightM": <若题面给的是反弹后最大高度h则填数值或归一化时填null，否则省略> }`。注意区分题面给的是**桌高 H**（填 `dropHeightM`）还是**反弹后的最高高度 h**（填 `bounce.apexHeightM`，由物理库按 `H = h / e²` 反求桌高，**不要把反弹高度 h 误填成 `dropHeightM`**）。
+
 ## 12. 粗糙弹簧接触与能量显示
 
 共享契约 `ROUGH_SPRING_CONTACT.md`。滑块以水平正速入射压缩粗糙面上的弹簧时，沿用 `spring_contact`，使用互斥字段 `kineticFrictionCoefficient`（不得同时输出 `frictionless`），顶层必填 `massKg` 与 `gravityMps2`：

@@ -12,6 +12,11 @@ export type Energy = { stageIndex: number; elasticEnergyJ: number; origin: "give
 export type PlaybackScope = { mode: "full" | "suffix" | "state_only"; startStageIndex: number; unresolvedKeys: string[]; reason: string; xM?: number; vxMps?: number; stopReason?: "stop_at_target" | "stop_before_target" | "prefix_end" };
 export type SingleStageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release" | "constant_force_1d" | "conveyor_belt" | "magnetic_deflection" | "movable_arc" | "movable_semicircle" | "spring_pair";
 export type StageKind = SingleStageKind | BodyStage['kind'] | SwitchableEMStage['kind'];
+export type ProjectileBounce = {
+  normalRestitution: number;
+  stopAt: "first_apex";
+  apexHeightM?: number | null;
+};
 export type SingleStage =
   | { kind: "incline_slide"; direction?: "down" | "up"; lengthM?: number | null; angleDeg: number; kineticFrictionCoefficient: number; staticFrictionCoefficient?: number | null; slidesAfterRelease?: boolean | null }
   | { kind: "lossless_turn"; lossless: true }
@@ -26,12 +31,13 @@ export type SingleStage =
   | { kind: "spring_contact"; springConstantNpm: number; frictionless: true; unattached: true; kineticFrictionCoefficient?: never; staticFrictionCoefficient?: never; reboundAtMaxCompression?: never }
   | { kind: "spring_contact"; springConstantNpm: number; kineticFrictionCoefficient: number; staticFrictionCoefficient?: number | null; reboundAtMaxCompression?: boolean | null; unattached: true; frictionless?: never }
   | { kind: "vertical_arc"; radiusM: number; verticalDropM?: number; endAngleDeg?: number; path?: ExplicitArcPath; side: "inside" | "rod"; frictionless: true; startLabel?: string; endLabel?: string }
-  | ({ kind: "projectile"; startLabel?: string; endLabel?: string } & ({ dropHeightM: number; landingPlaneYM?: never; end?: never } | { landingPlaneYM: number; dropHeightM?: never; end?: never } | { end: { kind: "tangent_to_next_arc" }; dropHeightM?: number; landingPlaneYM?: never }));
+  | ({ kind: "projectile"; startLabel?: string; endLabel?: string; bounce?: ProjectileBounce } & ({ dropHeightM: number; landingPlaneYM?: never; end?: never } | { landingPlaneYM: number; dropHeightM?: never; end?: never } | { end: { kind: "tangent_to_next_arc" }; dropHeightM?: number; landingPlaneYM?: never }));
 export type Stage = SingleStage | BodyStage | SwitchableEMStage;
 
 export type ResolvedStagePlan = {
   kind: "stage_plan";
   schemaVersion: 1;
+  scaleMode?: "normalized" | "si";
   gravityMps2?: number;
   massKg?: number;
   initial: { speedMps: number } | { vxMps: number; vyMps: number } | { vxMps: number } | { tangentialSpeedMps: number } | HorizontalInitial;
@@ -44,6 +50,7 @@ export type ResolvedStagePlan = {
 export type StagePlanDraft = {
   kind: "stage_plan";
   schemaVersion: 1;
+  scaleMode?: "normalized" | "si";
   gravityMps2?: number | null;
   massKg?: number | null;
   initial: { speedMps: number | null } | { vxMps: number | null; vyMps: number | null } | { vxMps: number | null } | { tangentialSpeedMps: number | null } | { bodies: Array<Record<string, unknown>> };
@@ -162,11 +169,19 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
     issue("/initial", "PRECONDITION_CONFLICT", "初态标量与分量互斥，请按第一段选择速度形式。");
   }
   const normalizedInitial: Record<string, number | null> = {};
+  let scaleMode: "normalized" | "si" | undefined;
+  if (input.scaleMode != null) {
+    if (typeof input.scaleMode !== "string") issue("/scaleMode", "TYPE", "标度模式须为字符串。");
+    else if (input.scaleMode !== "normalized" && input.scaleMode !== "si") issue("/scaleMode", "UNSUPPORTED", "标度模式仅支持 normalized 或 si。");
+    else scaleMode = input.scaleMode;
+  }
   draft = {
     kind: "stage_plan", schemaVersion: 1,
+    ...(scaleMode ? { scaleMode } : {}),
     initial: normalizedInitial as StagePlanDraft["initial"],
     stages: stages.map((stage) => ({ ...stage, kind: stage.kind ?? null, ...(record(stage.end) ? { end: { ...stage.end } } : {}) })),
   };
+  const bounceDerived: DerivedCalculation[] = [];
   function numberField(source: Record<string, unknown>, target: Record<string, unknown>, key: string, path: string, rule: (value: number) => boolean, required = true) {
     const value = source[key];
     if (value == null) {
@@ -198,8 +213,10 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
   const needsGravity = stages.some((stage) => stage.kind === "incline_slide" || stage.kind === "projectile" || stage.kind === "vertical_arc" || stage.kind === "conveyor_belt" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || (stage.kind === "spring_contact" && Object.prototype.hasOwnProperty.call(stage, "kineticFrictionCoefficient"))
     || ((stage.kind === "horizontal_slide" || stage.kind === "spring_release") && typeof stage.kineticFrictionCoefficient === "number" && stage.kineticFrictionCoefficient > 0));
   const needsMass = stages.some((stage) => stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "constant_force_1d" || stage.kind === "magnetic_deflection" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair");
-  numberField(input, draft, "gravityMps2", "/gravityMps2", positive, needsGravity);
-  numberField(input, draft, "massKg", "/massKg", positive, needsMass);
+  if (scaleMode === "normalized" && needsGravity && input.gravityMps2 == null) draft.gravityMps2 = 1;
+  else numberField(input, draft, "gravityMps2", "/gravityMps2", positive, needsGravity);
+  if (scaleMode === "normalized" && needsMass && input.massKg == null) draft.massKg = 1;
+  else numberField(input, draft, "massKg", "/massKg", positive, needsMass);
   const nonSpringConstraints = stages[0]?.kind !== "spring_release" && input.constraints != null;
   const criticalTopIndices = new Set<number>();
   if (nonSpringConstraints && Array.isArray(input.constraints)) {
@@ -300,6 +317,26 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
       const hasPlane = Object.prototype.hasOwnProperty.call(source, "landingPlaneYM") && source.landingPlaneYM !== undefined;
       const hasEnd = Object.prototype.hasOwnProperty.call(source, "end") && source.end !== undefined;
       const fromArc = stages[i - 1]?.kind === "vertical_arc";
+      const hasDropValue = hasDrop && source.dropHeightM !== null;
+      const hasPlaneValue = hasPlane && source.landingPlaneYM !== null;
+      let bounce: Record<string, unknown> | undefined;
+      if (source.bounce != null) {
+        if (!record(source.bounce)) {
+          issue(path + "/bounce", "TYPE", "反弹配置须为对象。");
+        } else {
+          bounce = { ...source.bounce };
+          stage.bounce = bounce;
+          numberField(source.bounce, bounce, "normalRestitution", path + "/bounce/normalRestitution", (v) => v >= 0 && v <= 1);
+          if (source.bounce.stopAt == null) bounce.stopAt = "first_apex";
+          else if (typeof source.bounce.stopAt !== "string") issue(path + "/bounce/stopAt", "TYPE", "反弹终止模式须为字符串。");
+          else if (source.bounce.stopAt !== "first_apex") issue(path + "/bounce/stopAt", "UNSUPPORTED", "当前仅支持追踪首次反弹至最高点（first_apex）。");
+          if (source.bounce.apexHeightM !== undefined && source.bounce.apexHeightM !== null) {
+            numberField(source.bounce, bounce, "apexHeightM", path + "/bounce/apexHeightM", positive);
+          } else if (scaleMode === "normalized" && !hasDropValue && !hasPlaneValue && !fromArc && !hasEnd) {
+            bounce.apexHeightM = 1;
+          }
+        }
+      }
       if (hasEnd) {
         if (hasDrop || hasPlane) {
           // 互斥错误交由 gaokaoConstraints 统一给出精确路径提示
@@ -307,8 +344,35 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
       } else {
         if (hasDrop && hasPlane) issue(path, "PRECONDITION_CONFLICT", "相对落差与固定落地平面互斥，请保留一种。");
         else if (fromArc && hasDrop) issue(path, "PRECONDITION_CONFLICT", "圆弧后抛体需固定 landingPlaneYM，不能使用相对落差。");
-        if (hasDrop || (!hasPlane && !fromArc)) numberField(source, stage, "dropHeightM", path + "/dropHeightM", nonnegative);
-        if (hasPlane || (fromArc && !hasDrop)) numberField(source, stage, "landingPlaneYM", path + "/landingPlaneYM", finite);
+        const apexH = typeof bounce?.apexHeightM === "number" && Number.isFinite(bounce.apexHeightM) && bounce.apexHeightM > 0 ? bounce.apexHeightM : null;
+        const eVal = typeof bounce?.normalRestitution === "number" && Number.isFinite(bounce.normalRestitution) ? bounce.normalRestitution : null;
+        if (apexH !== null && eVal === 0) {
+          issue(path + "/bounce/apexHeightM", "PRECONDITION_CONFLICT", "恢复系数为 0 时竖直方向不反弹，无法反推或达到非零反弹高度。");
+        }
+        if (!hasDropValue && !hasPlaneValue && !fromArc && apexH !== null && eVal !== null && eVal > 0 && !(hasDrop && hasPlane)) {
+          const derivedH = apexH / (eVal * eVal);
+          stage.dropHeightM = derivedH;
+          bounceDerived.push({
+            stageIndex: i,
+            targetPath: path + "/dropHeightM",
+            quantity: "projectile_drop_height",
+            value: derivedH,
+            unit: "m",
+            source: "derived",
+            rule: "bounce_apex_height",
+            inputPaths: [path + "/bounce/apexHeightM", path + "/bounce/normalRestitution"],
+          });
+        } else if (!hasDropValue && !hasPlaneValue && !fromArc && scaleMode === "normalized" && !bounce && !(hasDrop && hasPlane)) {
+          stage.dropHeightM = 1;
+        } else {
+          if (hasDrop || (!hasPlane && !fromArc)) numberField(source, stage, "dropHeightM", path + "/dropHeightM", nonnegative);
+          if (hasPlane || (fromArc && !hasDrop)) numberField(source, stage, "landingPlaneYM", path + "/landingPlaneYM", finite);
+          if (hasDropValue && apexH !== null && eVal !== null && eVal > 0 && typeof stage.dropHeightM === "number") {
+            if (Math.abs(eVal * eVal * stage.dropHeightM - apexH) > 1e-6 * Math.max(1, apexH)) {
+              issue(path + "/bounce/apexHeightM", "PRECONDITION_CONFLICT", "反弹最大高度与落差和恢复系数不自洽（应满足 h = e²H）。");
+            }
+          }
+        }
       }
     }
     if (source.kind === "spring_contact") {
@@ -530,7 +594,7 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
       issue("/stages/0/kineticFrictionCoefficient", "PRECONDITION_CONFLICT", "当前倾角与摩擦无法支持从静止开始下滑。");
     }
   }
-  let derivedCalculations: DerivedCalculation[] = [];
+  let derivedCalculations: DerivedCalculation[] = [...bounceDerived];
   if (hasGaokaoImplicit) {
     const solved = resolveGaokaoImplicitParams({
       gravityMps2: draft.gravityMps2,
@@ -541,7 +605,7 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
     });
     if (solved.ok) {
       draft.stages = solved.stages;
-      derivedCalculations = solved.calculations;
+      derivedCalculations = [...bounceDerived, ...solved.calculations];
     } else {
       for (const mk of solved.missingKeys) missingKeys.push(mk);
       for (const fe of solved.fieldErrors) issue(fe.path, fe.code, fe.message);
@@ -608,6 +672,7 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
     initial: normalizedInitial as ResolvedStagePlan["initial"],
     stages: draft.stages as Stage[],
   };
+  if (draft.scaleMode) resolved.scaleMode = draft.scaleMode;
   if (typeof draft.gravityMps2 === "number") resolved.gravityMps2 = draft.gravityMps2;
   if (typeof draft.massKg === "number") resolved.massKg = draft.massKg;
   if (draft.energy) resolved.energy = draft.energy;

@@ -276,6 +276,9 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
       {!isSwitchableEM && (
         <>
           <p className="section-label">共享条件</p>
+          {draft.scaleMode === "normalized" && (
+            <p className="hint" style={{ marginBottom: 6 }}>符号归一化演示模式：未给数值的符号基准默认按 1 演示，可填入具体 SI 数值重算。</p>
+          )}
           <table className="cond-table">
             <tbody>
               {numberRow({ key: "gravityMps2", label: "重力加速度 g", unit: "m/s²", step: 0.1,
@@ -385,6 +388,10 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                     const fromIncline = draft.stages[index - 1]?.kind === "incline_slide";
                     const fixed = "landingPlaneYM" in stage || (!("dropHeightM" in stage) && draft.stages[index - 1]?.kind === "vertical_arc");
                     const key = fixed ? "landingPlaneYM" : "dropHeightM";
+                    const bounce = stage.bounce && typeof stage.bounce === "object" ? stage.bounce as Record<string, unknown> : null;
+                    const setBounceNumber = (bKey: string, raw: string) => {
+                      setStage(index, { ...stage, bounce: { ...(bounce ?? { stopAt: "first_apex" }), [bKey]: asNumber(raw) } });
+                    };
                     return <>
                       <tr data-field-path={`/stages/${index}`}><td className="name">落地基准</td><td className="val">
                         <select className="stage-select" aria-label={`阶段 ${index + 1} 落地基准`} value={fixed ? "plane" : "drop"}
@@ -397,6 +404,14 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                       {numberRow({ key, label: fixed ? "落地平面高度 y" : fromIncline ? "檐口到地面高度 h" : "落地平面落差 h", unit: "m", step: .05,
                         hint: fromIncline ? fixed ? "以檐口为(0,0)，地面y≤0" : "从檐口量到地面，不从坡顶量高度" : fixed ? "与场景共用坐标原点；圆弧后必须固定地面" : "非负落差，圆弧后请切换为固定高度",
                         path: `/stages/${index}/${key}`, value: stage[key], onChange: raw => setStageNumber(index, key, raw) })}
+                      {bounce && (
+                        <>
+                          {numberRow({ key: "normalRestitution", label: "竖直恢复系数 e", unit: "", step: 0.05, hint: "0 ≤ e ≤ 1，vy+ = −e·vy−",
+                            path: `/stages/${index}/bounce/normalRestitution`, value: bounce.normalRestitution, onChange: (raw) => setBounceNumber("normalRestitution", raw) })}
+                          {"apexHeightM" in bounce && numberRow({ key: "apexHeightM", label: "首次反弹最高高度 h", unit: "m", step: 0.1, hint: "未给落差时由 H = h/e² 反求",
+                            path: `/stages/${index}/bounce/apexHeightM`, value: bounce.apexHeightM, onChange: (raw) => setBounceNumber("apexHeightM", raw) })}
+                        </>
+                      )}
                     </>;
                   })()}
                   {kind === "horizontal_slide" && (

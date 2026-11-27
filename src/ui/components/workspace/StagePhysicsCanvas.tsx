@@ -477,7 +477,7 @@ export function drawStageScene(
   const last = motion.sampleAt(motion.durationSeconds);
   const worldBounds = precomputedBounds ?? stageWorldBounds(motion);
   const narrow = W < 420;
-  const hasTopHud = inclineLaunch || explicitArc || !!g.conveyor || !!g.linearTrack || !!g.movableArc || !!g.movableSemicircle || !!g.springPair;
+  const hasTopHud = inclineLaunch || explicitArc || !!g.conveyor || !!g.linearTrack || !!g.movableArc || !!g.movableSemicircle || !!g.springPair || g.scaleMode === "normalized" || motion.timing?.mode === "suffix";
   const vp = fitViewport(W, H, worldBounds, {
     top: hasTopHud ? 48 : 34,
     right: narrow ? 30 : 48,
@@ -951,6 +951,24 @@ export function drawStageScene(
     }
     ctx.stroke();
     ctx.restore();
+    const bounceEv = motion.events.find((e) => e.eventKind === "ground_bounce" && (proj.stageIndex < 0 || e.stageIndex === proj.stageIndex));
+    const bounceApexEv = motion.events.find((e) => e.eventKind === "bounce_apex" && (proj.stageIndex < 0 || e.stageIndex === proj.stageIndex));
+    if (bounceEv?.position) {
+      ctx.save();
+      ctx.fillStyle = "#b42318";
+      ctx.beginPath(); ctx.arc(X(bounceEv.position.x), Y(bounceEv.position.y), 3.5, 0, 2 * Math.PI); ctx.fill();
+      ctx.font = `11px ${SANS}`; ctx.textAlign = "center"; ctx.textBaseline = "top";
+      ctx.fillText(`首次落点 x=${(bounceEv.position.x - proj.launch.xM).toFixed(2)}`, X(bounceEv.position.x), Y(bounceEv.position.y) + 6);
+      ctx.restore();
+    }
+    if (bounceApexEv?.position) {
+      ctx.save();
+      ctx.fillStyle = "#386e8a";
+      ctx.beginPath(); ctx.arc(X(bounceApexEv.position.x), Y(bounceApexEv.position.y), 3.5, 0, 2 * Math.PI); ctx.fill();
+      ctx.font = `11px ${SANS}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+      ctx.fillText(`反弹最高点 h=${(bounceApexEv.position.y - floorY).toFixed(2)}`, X(bounceApexEv.position.x), Y(bounceApexEv.position.y) - 6);
+      ctx.restore();
+    }
   }
 
   // 弹簧与原长接触端，支持多段弹簧。
@@ -1251,6 +1269,12 @@ export function drawStageScene(
     hudLines.push(`v₁ = ${componentText(sample.velocity.x)} m/s${gs ? `，V槽 = ${componentText(gs.grooveVX)} m/s` : ""}`);
     if (ps) hudLines.push(`v₂ = ${componentText(ps.vx2Mps)} m/s，弹簧压缩 = ${componentText(ps.compressionM)} m`);
     hudTemplate = ps ? "v₂ = -00.00 m/s，弹簧压缩 = 00.00 m" : "v₁ = -00.00 m/s，V槽 = -00.00 m/s";
+  }
+  if (g.scaleMode === "normalized") {
+    hudLines.push("归一化标度（未给数值的符号基准取 1）");
+  }
+  if (motion.timing?.mode === "suffix" && !g.schematic?.horizontal) {
+    hudLines.push(`仅从${motion.timing.anchor.label}起算 · 前段未计时`);
   }
   let placedHudRect: HudRect | null = null;
   if (hudLines.length > 0) {
