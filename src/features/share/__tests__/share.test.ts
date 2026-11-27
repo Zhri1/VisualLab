@@ -7,7 +7,20 @@ import {
   readShareFromLocation,
 } from '../shareLink';
 import type { FavoriteEntry } from '../favorites';
-import { isFavorite, loadFavorites, removeFavorite, saveFavorite } from '../favorites';
+import {
+  filterFavorites,
+  isFavorite,
+  loadFavorites,
+  removeFavorite,
+  resolveFavoriteMeta,
+  saveFavorite,
+  saveFavoriteWithResult,
+  updateFavorite,
+} from '../favorites';
+import { classifyFavorite } from '../classifyFavorite';
+import switchableEmFixture from '../../../../fixtures/switchable-em-collision.reading.json';
+import conveyorPegFixture from '../../../../fixtures/conveyor-collision-peg-critical.reading.json';
+import gaokaoProjLoopFixture from '../../../../fixtures/gaokao-proj-arc-horiz-loop.reading.json';
 
 const KEY = 'visuallab.favorites.v1';
 
@@ -236,5 +249,136 @@ describe('favorites 错题本', () => {
     expect(encodeShareState({ sampleId: restored.sampleId, reading: restored.reading })).toBe(
       encodeShareState({ sampleId: state.sampleId, reading: state.reading }),
     );
+  });
+});
+
+describe('错题本自动分类、筛选、手动覆盖与旧收藏兼容', () => {
+  it('内置综合题与非内置结构化力学/电磁题自动生成准确多标签与难度估计', () => {
+    // 1. 内置压轴力学综合题
+    const builtInMech = classifyFavorite({
+      sampleId: 'gaokao-proj-arc-horiz-loop',
+      reading: gaokaoProjLoopFixture,
+    });
+    expect(builtInMech.categories).toEqual(['斜面与滑动', '抛体', '圆周与摆']);
+    expect(builtInMech.difficulty).toBe('拔高');
+    expect(builtInMech.difficultyOrigin).toBe('built_in');
+
+    // 2. 非内置力学综合题（传送带 + 正碰 + 轻绳碰钉）
+    const customMech = classifyFavorite({ reading: conveyorPegFixture });
+    expect(customMech.categories).toEqual(['圆周与摆', '碰撞与动量', '传送带与连接体']);
+    expect(customMech.difficulty).toBe('拔高');
+    expect(customMech.difficultyOrigin).toBe('estimated');
+
+    // 3. 非内置分区电磁场题
+    const customEm = classifyFavorite({ reading: switchableEmFixture });
+    expect(customEm.categories).toEqual(['碰撞与动量', '电磁场']);
+    expect(customEm.difficulty).toBe('拔高');
+    expect(customEm.difficultyOrigin).toBe('estimated');
+
+    // 4. 单纯接缝转向 lossless_turn 不增加难度：单斜面 + 转向仍为基础
+    const simpleInclineWithTurn = classifyFavorite({
+      reading: {
+        kind: 'stage_plan',
+        schemaVersion: 1,
+        gravityMps2: 10,
+        initial: { speedMps: 0 },
+        stages: [
+          { kind: 'incline_slide', lengthM: 2, angleDeg: 30, kineticFrictionCoefficient: 0, slidesAfterRelease: true },
+          { kind: 'lossless_turn', lossless: true },
+        ],
+      },
+    });
+    expect(simpleInclineWithTurn.categories).toEqual(['斜面与滑动']);
+    expect(simpleInclineWithTurn.difficulty).toBe('基础');
+
+    // 5. 信息不足 → 未分类 / 未定级
+    const unknown = classifyFavorite({ reading: { foo: 'bar' } });
+    expect(unknown.categories).toEqual([]);
+    expect(unknown.difficulty).toBe('未定级');
+    expect(unknown.difficultyOrigin).toBe('none');
+  });
+
+  it('兼容旧 localStorage 收藏：读时自动补齐分类且保留原有 note / sampleId / reading', () => {
+    const legacy = [
+      { id: 'old-1', title: '旧电磁收藏', savedAt: 10, reading: switchableEmFixture, note: '易错点：只撤磁场' },
+      { id: 'old-2', title: '旧样例缺reading', savedAt: 9, sampleId: 'magnetic-deflection' },
+      { id: 'old-3', title: '无信息旧项', savedAt: 8, note: '仅备注' },
+    ];
+    const storage = createFakeStorage({ [KEY]: JSON.stringify(legacy) });
+    const loaded = loadFavorites(storage);
+    expect(loaded).toHaveLength(3);
+    expect(loaded[0].note).toBe('易错点：只撤磁场');
+
+    const m0 = resolveFavoriteMeta(loaded[0]);
+    expect(m0.categories).toEqual(['碰撞与动量', '电磁场']);
+    expect(m0.difficulty).toBe('拔高');
+    expect(m0.isEstimatedDifficulty).toBe(true);
+
+    const m1 = resolveFavoriteMeta(loaded[1]);
+    expect(m1.categories).toContain('电磁场');
+    expect(m1.difficulty).toBe('拔高');
+
+    const m2 = resolveFavoriteMeta(loaded[2]);
+    expect(m2.categories).toEqual([]);
+    expect(m2.difficulty).toBe('未定级');
+  });
+
+  it('按题型、难度组合筛选及标题搜索（含多标签匹配、未分类、未定级）', () => {
+    const storage = createFakeStorage();
+    saveFavorite({ id: 'em', title: '分区电磁场压轴题', savedAt: 3, reading: switchableEmFixture }, storage);
+    saveFavorite({ id: 'mech', title: '湖北传送带碰钉题', savedAt: 2, reading: conveyorPegFixture }, storage);
+    saveFavorite({ id: 'raw', title: '随手记的一道题', savedAt: 1 }, storage);
+    const all = loadFavorites(storage);
+
+    expect(filterFavorites(all, { category: '碰撞与动量' }).map((e) => e.id)).toEqual(['mech', 'em']);
+    expect(filterFavorites(all, { category: '电磁场', difficulty: '拔高' }).map((e) => e.id)).toEqual(['em']);
+    expect(filterFavorites(all, { category: '未分类', difficulty: '未定级' }).map((e) => e.id)).toEqual(['raw']);
+    expect(filterFavorites(all, { category: '传送带与连接体', query: '湖北' }).map((e) => e.id)).toEqual(['mech']);
+    expect(filterFavorites(all, { category: '弹簧', query: '不存在' })).toEqual([]);
+  });
+
+  it('updateFavorite 去掉首尾空白、拦截空标题、保留原字段并持久化手动覆盖', () => {
+    const storage = createFakeStorage();
+    saveFavorite(
+      { id: 'em', title: '原标题', savedAt: 12345, sampleId: 'custom-s', reading: switchableEmFixture, note: '原备注' },
+      storage,
+    );
+
+    // 拦截空白标题
+    const bad = updateFavorite('em', { title: '   ' }, storage);
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toContain('标题不能为空');
+
+    // 手动改名 + 覆盖分类和难度
+    const ok = updateFavorite(
+      'em',
+      { title: '  二刷：分区电磁场  ', categories: ['电磁场'], difficulty: '中档' },
+      storage,
+    );
+    expect(ok.ok).toBe(true);
+    const reloaded = loadFavorites(storage)[0];
+    expect(reloaded.id).toBe('em');
+    expect(reloaded.savedAt).toBe(12345);
+    expect(reloaded.sampleId).toBe('custom-s');
+    expect(reloaded.note).toBe('原备注');
+    expect(reloaded.reading).toEqual(switchableEmFixture);
+    expect(reloaded.title).toBe('二刷：分区电磁场');
+    expect(reloaded.categoriesManual).toBe(true);
+    expect(reloaded.difficultyManual).toBe(true);
+
+    const meta = resolveFavoriteMeta(reloaded);
+    expect(meta.categories).toEqual(['电磁场']);
+    expect(meta.difficulty).toBe('中档');
+    expect(meta.isEstimatedDifficulty).toBe(false);
+  });
+
+  it('存储写入失败时 saveFavoriteWithResult 与 updateFavorite 返回 ok: false 且不提示成功', () => {
+    const seed = [{ id: 'a', title: '甲', savedAt: 1 }];
+    const broken: Storage = {
+      ...createFakeStorage({ [KEY]: JSON.stringify(seed) }),
+      setItem: () => { throw new Error('QuotaExceededError'); },
+    };
+    expect(saveFavoriteWithResult({ id: 'b', title: '乙', savedAt: 2 }, broken).ok).toBe(false);
+    expect(updateFavorite('a', { title: '改名' }, broken).ok).toBe(false);
   });
 });

@@ -33,7 +33,7 @@ import { downloadBlob } from "../../../features/export/capture";
 import { captureRegionPng, copyPngToClipboard, type RegionRect } from "../../../features/export/regionCapture";
 import { RegionScreenshotOverlay } from "../../../features/export/RegionScreenshotOverlay";
 import { PracticePanel } from "../../../features/practice/PracticePanel";
-import { isFavorite, removeFavorite, saveFavorite } from "../../../features/share/favorites";
+import { isFavorite, removeFavorite, saveFavoriteWithResult } from "../../../features/share/favorites";
 import { buildShareUrl } from "../../../features/share/shareLink";
 import "./player.css";
 
@@ -152,16 +152,20 @@ export function WorkspaceLayout({ ws }: Props) {
   const toggleFavorite = () => {
     if (favorited) {
       removeFavorite(favoriteId);
-      setFavorited(false);
+      setFavorited(isFavorite(favoriteId));
     } else {
-      saveFavorite({
+      const res = saveFavoriteWithResult({
         id: favoriteId,
         title: sampleTitle,
         savedAt: Date.now(),
         sampleId: ws.sampleId ?? undefined,
         reading: activeReading,
       });
-      setFavorited(true);
+      if (res.ok) {
+        setFavorited(true);
+      } else {
+        setShotToast({ kind: "error", text: res.error ?? "收藏保存失败，请检查浏览器本地存储权限或空间" });
+      }
     }
   };
 

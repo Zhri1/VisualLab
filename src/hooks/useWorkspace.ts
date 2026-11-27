@@ -8,9 +8,10 @@ import { mockChatService } from "../services/chatService";
 import { isAbortError, requestPlan, requestStageCommand } from "../services/imageRecognition";
 import type { StagePlanDraft } from "../physics/stagePlan";
 import { truncateStagePlan } from '../physics/truncateStagePlan';
-import { getSample } from "../data/samples";
+import { getSample, SAMPLES } from "../data/samples";
 import { segmentAt } from "../ui/components/workspace/playback";
 import { decodeShareState, readShareFromLocation } from "../features/share/shareLink";
+import type { FavoriteEntry } from "../features/share/favorites";
 import { isStageReading } from "../types";
 import type {
   ChatMessage,
@@ -422,6 +423,40 @@ export function useWorkspace() {
       applyReading(next);
     },
     [applyReading]
+  );
+
+  /**
+   * 从错题本恢复收藏：
+   * - 有已存 reading 时优先按快照恢复（内置示例同时保留原样例身份、原图与题面，不用默认值覆盖已改条件）；
+   * - 缺 reading 的旧内置示例收藏回退按 sampleId 加载样例。
+   */
+  const loadFavorite = useCallback(
+    (entry: FavoriteEntry) => {
+      const matchedSample = entry.sampleId ? SAMPLES.find((s) => s.id === entry.sampleId) : undefined;
+      if (entry.reading && typeof entry.reading === "object") {
+        const res = applyReading(entry.reading as WorkspaceReading);
+        if (!res.ok) return;
+        setSampleId(matchedSample ? matchedSample.id : null);
+        setCompareOn(false);
+        setImageFile(null);
+        setImageUrl(matchedSample ? matchedSample.imageUrl : null);
+        setProblemText(matchedSample ? matchedSample.problemText : entry.title);
+        setTutorStyle("tutor");
+        setPhase("workspace");
+        setMessages([
+          {
+            id: uid(),
+            role: "assistant",
+            text: `已从错题本恢复「${entry.title}」的题目条件。`,
+          },
+        ]);
+        return;
+      }
+      if (entry.sampleId) {
+        loadSample(entry.sampleId);
+      }
+    },
+    [applyReading, loadSample]
   );
 
   /** 题内对照：在示例的两组条件之间切换，保持同一道题的题面与上下文。 */
@@ -889,6 +924,7 @@ export function useWorkspace() {
       recognize,
       cancelRecognize,
       loadSample,
+      loadFavorite,
       applyReadingOverride,
       toggleSampleCompare,
       restartHome,
@@ -914,7 +950,7 @@ export function useWorkspace() {
     [
       phase, reading, appliedReading, motion, currentTime, isPlaying, playbackRate, autoPauseEvents, segmentPlayback, messages,
       isRecognizing, generatingSimilarId, isChatLoading, tutorStyle, imageUrl, imageFile, problemText, notice, missingKeys, sampleId, sampleCompare, compareOn,
-      recognize, cancelRecognize, loadSample, applyReadingOverride, toggleSampleCompare, restartHome, seek, seekEvent, nextEvent, togglePlay,
+      recognize, cancelRecognize, loadSample, loadFavorite, applyReadingOverride, toggleSampleCompare, restartHome, seek, seekEvent, nextEvent, togglePlay,
       replay, sendChat, pushAssistantMessage, recommendSimilar, undoChange, applyConditions, slowCurrentSegment, exitSegmentPlayback,
     ]
   );
