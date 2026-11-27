@@ -136,12 +136,15 @@ const CASES: {
     ],
   },
   {
-    label: "电磁场超范围",
+    // 磁场偏转已纳入支持范围：纯字母题不再判 unsupported，而是要求补齐具体数值。
+    label: "电磁场纯字母题缺数值",
     text: ELECTROMAGNETISM_TEXT,
     expect: (body) => [
-      ["status=unsupported", body.status === "unsupported"],
-      ["message 非空", typeof body.message === "string" && body.message.trim().length > 0],
-      ["不带 reading", body.reading === undefined || body.reading === null],
+      ["status=needs_input", body.status === "needs_input"],
+      ["首段是 magnetic_deflection", body.reading?.stages?.[0]?.kind === "magnetic_deflection"],
+      ["缺项含磁感应强度", (body.missingKeys ?? []).includes("/stages/0/magneticTeslaB")],
+      ["缺项含电荷量", (body.missingKeys ?? []).includes("/stages/0/chargeC")],
+      ["缺项含磁场宽度", (body.missingKeys ?? []).includes("/stages/0/regionWidthM")],
     ],
   },
 ];
