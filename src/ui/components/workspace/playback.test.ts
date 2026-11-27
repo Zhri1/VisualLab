@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { advancePlayback, computeDefaultPace, formatPace, formatSpeed, segmentAt } from "./playback";
 import { computeWorldBounds, fitViewport } from "./canvasViewport";
+import { computeRatePopoverLayout, PLAYBACK_RATES } from "./PlaybackControls";
+import { PRESSABLE_BUTTON_SELECTOR } from "../../interactions/buttonPress";
 import type { MotionSegment } from "../../../types";
 import fixture from "../../../../fixtures/incline-spring.reading.json";
 import { motionLibrary } from "../../../adapters";
@@ -125,5 +127,37 @@ describe("默认观看节奏与统一取景", () => {
     expect(box2d.S).toBeCloseTo(320 / 2, 6);
     expect(box2d.Y(2)).toBeCloseTo(40, 6);
     expect(box2d.Y(0)).toBeCloseTo(360, 6);
+  });
+});
+
+describe("播放倍率浮层定位与按压接入", () => {
+  it("保留 0.25× / 0.5× / 1× / 2× 四档且倍率胶囊命中统一按压选择器", () => {
+    expect(PLAYBACK_RATES).toEqual([0.25, 0.5, 1, 2]);
+    expect(PRESSABLE_BUTTON_SELECTOR).toContain("button.transport-pill");
+  });
+
+  it("桌面底部空间不足时自动向上展开，空间充足时向下展开", () => {
+    const nearBottom = computeRatePopoverLayout({ left: 140, top: 690, bottom: 718, width: 68 }, 1280, 800);
+    expect(nearBottom.placement).toBe("top");
+    expect(nearBottom.bottom).toBe(800 - 690 + 6);
+    expect(nearBottom.top).toBeUndefined();
+    expect(nearBottom.left).toBe(140);
+    expect(nearBottom.minWidth).toBe(96);
+
+    const midScreen = computeRatePopoverLayout({ left: 140, top: 320, bottom: 348, width: 68 }, 1280, 800);
+    expect(midScreen.placement).toBe("bottom");
+    expect(midScreen.top).toBe(348 + 6);
+    expect(midScreen.bottom).toBeUndefined();
+  });
+
+  it("移动端优先向上展开并做视口左右夹紧，避免贴边裁切", () => {
+    const mobile = computeRatePopoverLayout({ left: 2, top: 520, bottom: 556, width: 74 }, 390, 844);
+    expect(mobile.placement).toBe("top");
+    expect(mobile.left).toBe(8);
+    expect(mobile.bottom).toBe(844 - 520 + 6);
+
+    const nearRight = computeRatePopoverLayout({ left: 340, top: 520, bottom: 556, width: 74 }, 390, 844);
+    expect(nearRight.placement).toBe("top");
+    expect(nearRight.left).toBe(390 - 96 - 8);
   });
 });

@@ -3058,6 +3058,7 @@ textarea {
   button.tool-toggle,
   button.tbtn,
   button.transport-pill,
+  label.transport-pill,
   button.attach-button,
   button.send-button,
   button.chat-send,
@@ -3081,6 +3082,7 @@ textarea {
   button.tool-toggle,
   button.tbtn,
   button.transport-pill,
+  label.transport-pill,
   button.attach-button,
   button.send-button,
   button.chat-send,
@@ -3110,7 +3112,9 @@ textarea {
   button.favorites-cat-chip.is-selected,
   button.ghost-button.is-primary,
   button.mobile-tab.is-active,
-  button.tool-toggle[aria-pressed="true"]
+  button.tool-toggle[aria-pressed="true"],
+  button.transport-pill[aria-pressed="true"],
+  label.transport-pill.is-active
 )::after {
   box-shadow:
     inset 0 2px 8px rgba(0, 0, 0, 0.56),
@@ -3124,6 +3128,7 @@ textarea {
   button.tool-toggle,
   button.tbtn,
   button.transport-pill,
+  label.transport-pill,
   button.attach-button,
   button.send-button,
   button.chat-send,
@@ -3144,6 +3149,7 @@ textarea {
   button.tool-toggle,
   button.tbtn,
   button.transport-pill,
+  label.transport-pill,
   button.attach-button,
   button.send-button,
   button.chat-send,
@@ -3165,6 +3171,7 @@ textarea {
     button.tool-toggle,
     button.tbtn,
     button.transport-pill,
+    label.transport-pill,
     button.attach-button,
     button.send-button,
     button.chat-send,
@@ -3429,8 +3436,7 @@ textarea {
   .chat-input,
   .composer-text,
   .num-input,
-  .stage-select,
-  .rate-control select {
+  .stage-select {
     font-size: 16px;
   }
 

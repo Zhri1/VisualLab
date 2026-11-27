@@ -157,4 +157,30 @@ describe("统一按钮按压手感 buttonPress", () => {
     expect(animateMock).not.toHaveBeenCalled();
     uninstall();
   });
+
+  it("label.transport-pill（如关键点暂停 / 自动慢放）同样支持按压与松手回弹", () => {
+    expect(PRESSABLE_BUTTON_SELECTOR).toContain("label.transport-pill");
+    const { doc } = createMockDoc(false);
+    const uninstall = installButtonPressFeel(doc as unknown as Document);
+    const attrs = new Map<string, string>();
+    const animateMock = vi.fn(() => ({ cancel: vi.fn(), onfinish: null, oncancel: null }));
+    const labelEl = {
+      tagName: "LABEL",
+      _computedScale: "0.96",
+      closest: (sel: string) => (sel === PRESSABLE_BUTTON_SELECTOR ? labelEl : null),
+      querySelector: () => ({ disabled: false }),
+      getAttribute: (k: string) => attrs.get(k) ?? null,
+      setAttribute: (k: string, v: string) => { attrs.set(k, v); },
+      removeAttribute: (k: string) => { attrs.delete(k); },
+      getBoundingClientRect: () => ({ left: 100, top: 100, right: 200, bottom: 136 }),
+      animate: animateMock,
+    };
+
+    doc.dispatch("pointerdown", { pointerType: "mouse", button: 0, pointerId: 7, target: labelEl });
+    expect(labelEl.getAttribute("data-press")).toBe("down");
+    doc.dispatch("pointerup", { pointerType: "mouse", pointerId: 7, clientX: 150, clientY: 118, target: labelEl });
+    expect(labelEl.getAttribute("data-press")).toBeNull();
+    expect(animateMock).toHaveBeenCalledTimes(1);
+    uninstall();
+  });
 });
