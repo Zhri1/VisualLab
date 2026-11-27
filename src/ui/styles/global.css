@@ -2564,6 +2564,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex: none;
 }
 .export-chev {
   transition: transform 160ms ease;
@@ -2776,12 +2777,6 @@ textarea {
   gap: 10px;
   justify-content: center;
   flex-wrap: wrap;
-}
-.export-menu {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  align-items: center;
 }
 .export-error {
   font-size: 11px;
@@ -3247,6 +3242,14 @@ textarea {
     gap: 8px;
     padding-bottom: 8px;
   }
+  .player-head > div:first-child {
+    flex: 1 1 120px;
+  }
+  .player-head-actions {
+    gap: 6px;
+    flex-wrap: nowrap;
+    max-width: 100%;
+  }
   .player-title {
     font-size: 15px;
     line-height: 1.25;
@@ -3261,8 +3264,15 @@ textarea {
     justify-content: center;
     flex: none;
   }
+  .player-head .export-trigger {
+    gap: 3px;
+  }
   .player-head .btn-label {
     display: none;
+  }
+  .player-head .export-popover {
+    left: 0;
+    right: auto;
   }
 
   .stage-bar {
@@ -3566,18 +3576,6 @@ textarea {
   }
   .player-head {
     flex-wrap: wrap;
-  }
-  .export-menu {
-    flex-basis: 100%;
-    order: 9;
-    display: flex;
-    gap: 6px;
-  }
-  .player-head .export-menu .ghost-button {
-    width: auto;
-    height: 30px;
-    padding: 0 10px;
-    font-size: 12px;
   }
   .workspace {
     flex: 0 0 auto;

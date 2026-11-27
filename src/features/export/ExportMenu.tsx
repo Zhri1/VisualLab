@@ -125,6 +125,7 @@ export function ExportMenu({ getCanvas, motion, title, problemText, wallMs, onSe
         type="button"
         className="ghost-button export-trigger"
         disabled={busy !== null}
+        aria-label={busyLabel}
         aria-expanded={open}
         aria-haspopup="menu"
         onClick={() => setOpen((v) => !v)}
