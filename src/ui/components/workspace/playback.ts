@@ -25,6 +25,16 @@ export function segmentAt(segments: readonly MotionSegment[], time: number): Mot
   return segments.find((segment) => time < segment.endSeconds - 1e-9) ?? segments[segments.length - 1];
 }
 
+/** 从当前帧就地进入本段慢放：不回跳到段首；若已在段末/终帧则保持原地暂停。 */
+export function planSlowCurrentSegment(
+  segments: readonly MotionSegment[],
+  currentTime: number,
+): { segment: MotionSegment; shouldPlay: boolean } | null {
+  const segment = segmentAt(segments, currentTime);
+  if (!segment) return null;
+  return { segment, shouldPlay: currentTime < segment.endSeconds - 1e-9 };
+}
+
 export function formatSpeed(speed: number): string {
   return speed === 0 ? "0" : speed < 0.005 ? "<0.01" : speed.toFixed(2);
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { advancePlayback, computeDefaultPace, formatPace, formatSpeed, segmentAt } from "./playback";
+import { advancePlayback, computeDefaultPace, formatPace, formatSpeed, planSlowCurrentSegment, segmentAt } from "./playback";
 import { computeWorldBounds, fitViewport } from "./canvasViewport";
 import { computeRatePopoverLayout, PLAYBACK_RATES } from "./PlaybackControls";
 import { PRESSABLE_BUTTON_SELECTOR } from "../../interactions/buttonPress";
@@ -66,6 +66,36 @@ describe("速度和阶段边界", () => {
     ] as MotionSegment[];
     expect(segmentAt(segments, 2)?.kind).toBe("horizontal");
     expect(segmentAt(segments, 4)?.kind).toBe("spring");
+  });
+
+  it("慢放本段从当前帧就地继续，不回跳段首；首帧/交界正常推进，末帧保持原地暂停", () => {
+    const segments = [
+      { kind: "incline", startSeconds: 0, endSeconds: 2 },
+      { kind: "horizontal", startSeconds: 2, endSeconds: 3 },
+      { kind: "spring", startSeconds: 3, endSeconds: 4 },
+    ] as MotionSegment[];
+
+    // 首帧
+    const atStart = planSlowCurrentSegment(segments, 0);
+    expect(atStart).toEqual({ segment: segments[0], shouldPlay: true });
+
+    // 段中就地继续，不回跳至 startSeconds=3，并以 0.25× 推进至段末 4 暂停
+    const midTime = 3.5;
+    const atMid = planSlowCurrentSegment(segments, midTime);
+    expect(atMid).toEqual({ segment: segments[2], shouldPlay: true });
+    const nextStep = advancePlayback(midTime, 0.2, 0.25, atMid!.segment.endSeconds, []);
+    expect(nextStep.time).toBeCloseTo(3.55, 6);
+    expect(nextStep.pause).toBe(false);
+    const toEnd = advancePlayback(3.95, 0.5, 0.25, atMid!.segment.endSeconds, []);
+    expect(toEnd).toEqual({ time: 4, pause: true });
+
+    // 阶段精确交界：进入下一段就地慢放
+    const atBoundary = planSlowCurrentSegment(segments, 2);
+    expect(atBoundary).toEqual({ segment: segments[1], shouldPlay: true });
+
+    // 已结束末帧：保持末帧不回跳且不继续播放
+    const atEnd = planSlowCurrentSegment(segments, 4);
+    expect(atEnd).toEqual({ segment: segments[2], shouldPlay: false });
   });
 });
 
