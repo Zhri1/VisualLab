@@ -26,7 +26,11 @@ import { PlaybackControls } from "./PlaybackControls";
 import { OriginalProblemViewer } from "./OriginalProblemViewer";
 import { advancePlayback, computeDefaultPace, segmentAt } from "./playback";
 import { getSample } from "../../../data/samples";
-import { AnnotationLayer } from "../../../features/annotate/AnnotationLayer";
+import {
+  ANNOTATION_COLOR_OPTIONS,
+  AnnotationLayer,
+  AnnotationPalette,
+} from "../../../features/annotate/AnnotationLayer";
 import type { AnnotationMode, AnnotationStroke } from "../../../features/annotate/types";
 import { ExportMenu } from "../../../features/export/ExportMenu";
 import { downloadBlob } from "../../../features/export/capture";
@@ -73,6 +77,7 @@ export function WorkspaceLayout({ ws }: Props) {
   const [forcesOn, setForcesOn] = useState(false);
   const [decomposeOn, setDecomposeOn] = useState(false);
   const [annotationMode, setAnnotationMode] = useState<AnnotationMode>("off");
+  const [annotationColor, setAnnotationColor] = useState<string>(ANNOTATION_COLOR_OPTIONS[0].value);
   const [strokes, setStrokes] = useState<AnnotationStroke[]>([]);
   const [screenshotMode, setScreenshotMode] = useState(false);
   const [shotToast, setShotToast] = useState<{ kind: "busy" | "ok" | "error"; text: string; blob?: Blob } | null>(null);
@@ -456,7 +461,14 @@ export function WorkspaceLayout({ ws }: Props) {
                     <Pencil size={13} strokeWidth={2} />
                     <span>标注{strokes.length > 0 ? ` (${strokes.length})` : ""}</span>
                   </button>
-                  {strokes.length > 0 && (
+                  <AnnotationPalette
+                    mode={annotationMode}
+                    color={annotationColor}
+                    onColorChange={setAnnotationColor}
+                    onClear={() => setStrokes([])}
+                    canClear={strokes.length > 0}
+                  />
+                  {strokes.length > 0 && annotationMode !== "draw" && (
                     <button
                       type="button"
                       className="tool-toggle tool-clear"
@@ -572,7 +584,6 @@ export function WorkspaceLayout({ ws }: Props) {
                   readouts={false}
                   forces={forcesOn}
                   decompose={decomposeOn}
-                  annotationPaletteOpen={annotationMode === "draw"}
                 />
               </div>
             ) : (
@@ -596,6 +607,7 @@ export function WorkspaceLayout({ ws }: Props) {
                 mode={annotationMode}
                 strokes={strokes}
                 onChange={setStrokes}
+                color={annotationColor}
               />
             )}
             {masked && (

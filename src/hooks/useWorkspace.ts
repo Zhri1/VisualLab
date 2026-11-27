@@ -9,7 +9,7 @@ import { isAbortError, requestPlan, requestStageCommand } from "../services/imag
 import type { StagePlanDraft } from "../physics/stagePlan";
 import { truncateStagePlan } from '../physics/truncateStagePlan';
 import { getSample, SAMPLES } from "../data/samples";
-import { segmentAt } from "../ui/components/workspace/playback";
+import { planSlowCurrentSegment } from "../ui/components/workspace/playback";
 import { decodeShareState, readShareFromLocation } from "../features/share/shareLink";
 import type { FavoriteEntry } from "../features/share/favorites";
 import { isStageReading } from "../types";
@@ -578,12 +578,11 @@ export function useWorkspace() {
 
   const slowCurrentSegment = useCallback(() => {
     if (!motion) return;
-    const segment = segmentAt(motion.segments, currentTime);
-    if (!segment) return;
-    setSegmentPlayback(segment);
+    const plan = planSlowCurrentSegment(motion.segments, currentTime);
+    if (!plan) return;
+    setSegmentPlayback(plan.segment);
     setPlaybackRate(0.25);
-    setCurrentTime(segment.startSeconds);
-    setIsPlaying(true);
+    setIsPlaying(plan.shouldPlay);
   }, [motion, currentTime]);
 
   const exitSegmentPlayback = useCallback(() => {

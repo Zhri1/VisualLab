@@ -337,7 +337,7 @@ export function PlaybackControls({
               className="transport-pill segment-control"
               aria-pressed={Boolean(segmentName)}
               onClick={segmentName ? onExitSegment : onSlowSegment}
-              title={segmentName ? `退出本段慢放（${segmentName}）` : "慢放当前阶段，到段末自动暂停"}
+              title={segmentName ? `退出本段慢放（${segmentName}）` : "从当前位置慢放本段，到段末自动暂停"}
             >
               <span className="segment-label">{segmentName ? `退出 · ${segmentName}` : "慢放本段"}</span>
             </button>
