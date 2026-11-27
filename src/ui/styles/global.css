@@ -2544,6 +2544,59 @@ textarea {
   border-color: rgba(138, 75, 75, 0.45);
   background: rgba(138, 75, 75, 0.06);
 }
+.annotation-palette {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 4px 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--hair);
+  background: var(--surface-secondary);
+}
+.annotation-color {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  flex: none;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.annotation-color[aria-pressed="true"] {
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1.5px var(--ink);
+  transform: scale(1.06);
+}
+.annotation-color:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.annotation-clear {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.annotation-clear:hover:not(:disabled) {
+  color: #8a4b4b;
+  border-color: rgba(138, 75, 75, 0.45);
+  background: rgba(138, 75, 75, 0.06);
+}
+.annotation-clear:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .favorite-btn[aria-pressed="true"] {
   background: #fffbeb;
   border-color: #f59e0b;

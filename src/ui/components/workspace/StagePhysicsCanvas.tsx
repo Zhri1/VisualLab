@@ -1210,45 +1210,7 @@ export function drawStageScene(
     placedLandmarks.push({ x: chosen[0], y: chosen[1], w: measuredW });
     ctx.fillText(landmark.label, chosen[0], chosen[1]);
   }
-  ctx.fillStyle = INK;
-  ctx.font = `500 13px ${SANS}`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "bottom";
-  const label = `v = ${speedText} m/s`;
-  const labelWidth = ctx.measureText(label).width;
-  const preferredX = g.positionReference === "particle" ? X(center.x) + labelWidth / 2 + 16 : X(center.x);
-  const labelX = explicitArc?W-labelWidth/2-12:Math.min(W - labelWidth / 2 - 8, Math.max(labelWidth / 2 + 8, preferredX));
-  const labelY = explicitArc?20:Math.min(H - 28, Math.max(20, Y(center.y) - (g.positionReference === "particle" ? 18 : halfPx + 9)));
-  // 去掉实色底块，改为纸色细描边光晕，既不遮挡下方轨道/磁场又保持清晰可读。
-  const haloText = (text: string, x: number, y: number, color: string) => {
-    ctx.save();
-    ctx.lineJoin = "round";
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(251,251,249,0.9)";
-    ctx.strokeText(text, x, y);
-    ctx.fillStyle = color;
-    ctx.fillText(text, x, y);
-    ctx.restore();
-  };
-  haloText(label, labelX, labelY, velTextColor);
-  let velBoxW = labelWidth;
-  if (sample.constraint) {
-    const isRodCurrent = currentArc && "side" in currentArc && currentArc.side === "rod";
-    const nVal = sample.constraint.normalForceN;
-    const forceLabel = isRodCurrent
-      ? (nVal < -1e-9 ? `支持力 ${normalText(Math.abs(nVal), explicitArc)} N` : nVal > 1e-9 ? `拉力 ${normalText(nVal, explicitArc)} N` : "杆力 0.00 N")
-      : `N = ${normalText(nVal, explicitArc)} N`;
-    velBoxW = Math.max(velBoxW, ctx.measureText(forceLabel).width || forceLabel.length * 7);
-    haloText(forceLabel, labelX, labelY + 18, SOFT);
-  }
-  const velLabelRect = {
-    x: labelX - velBoxW / 2 - 4,
-    y: labelY - 16,
-    w: velBoxW + 8,
-    h: (sample.constraint ? 35 : 18) + 2,
-  };
-
-  // 画布实时数据 HUD：基于整段运动与静态几何的四角智能避让，默认右上角。
+  // 画布实时数据 HUD：基于整段运动与静态几何的四角智能避让，默认右上角（explicitArc 避开右上角）。
   const hudLines: string[] = [];
   let hudTemplate = "";
   if (inclineLaunch || explicitArc) {
@@ -1335,6 +1297,129 @@ export function drawStageScene(
     });
     ctx.restore();
   }
+
+  ctx.fillStyle = INK;
+  ctx.font = `500 13px ${SANS}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  const label = `v = ${speedText} m/s`;
+  const labelWidth = ctx.measureText(label).width || label.length * 7;
+  let forceLabel: string | null = null;
+  let velBoxW = labelWidth;
+  if (sample.constraint) {
+    const isRodCurrent = currentArc && "side" in currentArc && currentArc.side === "rod";
+    const nVal = sample.constraint.normalForceN;
+    forceLabel = isRodCurrent
+      ? (nVal < -1e-9 ? `支持力 ${normalText(Math.abs(nVal), explicitArc)} N` : nVal > 1e-9 ? `拉力 ${normalText(nVal, explicitArc)} N` : "杆力 0.00 N")
+      : `N = ${normalText(nVal, explicitArc)} N`;
+    velBoxW = Math.max(velBoxW, ctx.measureText(forceLabel).width || forceLabel.length * 7);
+  }
+  const velBoxH = (forceLabel ? 35 : 18) + 2;
+  const bottomSafe = showsEnergy(motion) ? 40 : 12;
+  const minLabelX = velBoxW / 2 + 8;
+  const maxLabelX = Math.max(minLabelX, W - velBoxW / 2 - 8);
+  const minLabelY = 20;
+  const maxLabelY = Math.max(minLabelY, H - bottomSafe - (forceLabel ? 20 : 6));
+  const bodyCenterX = X(center.x);
+  const bodyCenterY = Y(center.y);
+  const bodyRadius = g.positionReference === "particle" ? 12 : halfPx + 5;
+  const preferredX = g.positionReference === "particle" ? bodyCenterX + labelWidth / 2 + 16 : bodyCenterX;
+  // 为两行标签（速度 + 法向力/杆力）预留足够净空，避免与物体本身、速度箭头或法向力箭头重叠。
+  const aboveY = bodyCenterY - bodyRadius - (forceLabel ? 24 : 6);
+  const belowY = bodyCenterY + bodyRadius + 20;
+  const belowClearY = bodyCenterY + bodyRadius + 36;
+  const rightX = bodyCenterX + bodyRadius + velBoxW / 2 + 10;
+  const leftX = bodyCenterX - bodyRadius - velBoxW / 2 - 10;
+  const candidates: Array<[number, number]> = [
+    [preferredX, aboveY],
+    [bodyCenterX, aboveY],
+    [bodyCenterX, belowY],
+    [rightX, belowY],
+    [leftX, aboveY],
+    [bodyCenterX, belowClearY],
+    [rightX, bodyCenterY + 5],
+    [leftX, bodyCenterY + 5],
+  ];
+  const bodyAvoidRect: HudRect = {
+    x: bodyCenterX - bodyRadius,
+    y: bodyCenterY - bodyRadius,
+    w: bodyRadius * 2,
+    h: bodyRadius * 2,
+  };
+  const labelObstacles: HudRect[] = [bodyAvoidRect];
+  if (placedHudRect) labelObstacles.push(placedHudRect);
+  if (speed > 1e-4) {
+    const vLen = Math.min(54, Math.max(20, speed * 5.2));
+    const ux = sample.velocity.x / speed;
+    const uy = -sample.velocity.y / speed;
+    const x2 = bodyCenterX + ux * vLen;
+    const y2 = bodyCenterY + uy * vLen;
+    labelObstacles.push({
+      x: Math.min(bodyCenterX, x2) - 6,
+      y: Math.min(bodyCenterY, y2) - 6,
+      w: Math.abs(x2 - bodyCenterX) + 12,
+      h: Math.abs(y2 - bodyCenterY) + 12,
+    });
+  }
+  if (sample.constraint) {
+    // 避让圆弧上随物体绘制的法向力/杆力箭头
+    const nLen = 36;
+    labelObstacles.push({
+      x: bodyCenterX - 10,
+      y: bodyCenterY - nLen - 8,
+      w: 20,
+      h: nLen + 8,
+    });
+  }
+  let labelX = Math.min(maxLabelX, Math.max(minLabelX, preferredX));
+  let labelY = Math.min(maxLabelY, Math.max(minLabelY, aboveY));
+  let bestScore = Infinity;
+  for (const [cx, cy] of candidates) {
+    const clampedX = Math.min(maxLabelX, Math.max(minLabelX, cx));
+    const clampedY = Math.min(maxLabelY, Math.max(minLabelY, cy));
+    const candRect: HudRect = {
+      x: clampedX - velBoxW / 2 - 4,
+      y: clampedY - 16,
+      w: velBoxW + 8,
+      h: velBoxH,
+    };
+    let score = 0;
+    for (const obs of labelObstacles) {
+      score += hudOverlapArea(candRect, obs) * 4;
+    }
+    if (explicitArc) {
+      for (const lm of placedLandmarks) {
+        score += hudOverlapArea(candRect, { x: lm.x - lm.w / 2 - 2, y: lm.y - 12, w: lm.w + 4, h: 16 });
+      }
+    }
+    if (score < bestScore) {
+      bestScore = score;
+      labelX = clampedX;
+      labelY = clampedY;
+      if (score === 0) break;
+    }
+  }
+  // 去掉实色底块，改为纸色细描边光晕，既不遮挡下方轨道/磁场又保持清晰可读。
+  const haloText = (text: string, x: number, y: number, color: string) => {
+    ctx.save();
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(251,251,249,0.9)";
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+    ctx.restore();
+  };
+  haloText(label, labelX, labelY, velTextColor);
+  if (forceLabel) {
+    haloText(forceLabel, labelX, labelY + 18, SOFT);
+  }
+  const velLabelRect = {
+    x: labelX - velBoxW / 2 - 4,
+    y: labelY - 16,
+    w: velBoxW + 8,
+    h: velBoxH,
+  };
 
   if (forceArrows?.length) {
     const bodyPad = g.positionReference === "particle" ? 10 : halfPx + 4;
