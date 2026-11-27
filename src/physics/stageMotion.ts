@@ -512,6 +512,9 @@ function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: Motion
     const bounceApex: MotionSample = { ...sampleWithBounce(totalDuration), vyMps: 0 };
     const dxFirst = impact.xM - start.xM;
     const bounceH = bounceApex.yM - planeYM;
+    if (typeof stage.bounce.apexHeightM === "number" && Math.abs(bounceH - stage.bounce.apexHeightM) > 1e-5 * Math.max(1, stage.bounce.apexHeightM)) {
+      throw Object.assign(new RangeError("反弹最大高度与实际入射初速、落差和恢复系数不自洽。"), { field: "/bounce/apexHeightM" });
+    }
     events.push({
       ...event("ground_bounce", t1, impact, postImpact, "首次触地反弹",
         `首次落点距桌缘水平距离 ${dxFirst.toFixed(4)} m，触地位置连续；vₓ 保持 ${postImpact.vxMps.toFixed(4)} m/s，vᵧ 由 ${impact.vyMps.toFixed(4)} m/s 反弹为 +${postImpact.vyMps.toFixed(4)} m/s（e = ${e}）。`),

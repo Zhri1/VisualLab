@@ -146,4 +146,118 @@ describe("弹性势能发射 → 平抛 → 首次落地反弹", () => {
     expect(b.motion.events.map((e) => e.kind)).toEqual(["release", "land"]);
     expect(b.motion.sampleAt(b.motion.durationSeconds).vyMps).toBeCloseTo(-5, 10);
   });
+
+  it("复现 A：斜抛 vy=√5、dropHeightM=1、e=0.8、apexHeightM=0.8 按 h=e²(H+vy0²/(2g)) 合法通过且反弹高=0.8", () => {
+    const plan = {
+      kind: "stage_plan",
+      schemaVersion: 1,
+      gravityMps2: 10,
+      initial: { vxMps: 4, vyMps: Math.sqrt(5) },
+      stages: [{ kind: "projectile", dropHeightM: 1, bounce: { normalRestitution: 0.8, stopAt: "first_apex", apexHeightM: 0.8 } }],
+    };
+    const vNode = validateStagePlan(plan);
+    const vQoder = validateQoderStagePlan(plan);
+    expect(vNode.ok).toBe(true);
+    expect(vQoder.ok).toBe(true);
+    if (!vNode.ok) return;
+    const s = assembleStageScene(vNode.reading);
+    expect(s.ok).toBe(true);
+    if (!s.ok) return;
+    const b = buildStageMotion(s.scene);
+    expect(b.ok).toBe(true);
+    if (!b.ok) return;
+    const apex = b.motion.events.find((e) => e.kind === "bounce_apex")!;
+    expect(apex.position!.yM - (-1)).toBeCloseTo(0.8, 10);
+  });
+
+  it("复现 B：斜抛 vy=√5 仅给 apexHeightM=0.8 时按 H=h/e²−vy0²/(2g) 反求 H=1 且实际反弹高=0.8", () => {
+    const plan = {
+      kind: "stage_plan",
+      schemaVersion: 1,
+      gravityMps2: 10,
+      initial: { vxMps: 4, vyMps: Math.sqrt(5) },
+      stages: [{ kind: "projectile", bounce: { normalRestitution: 0.8, stopAt: "first_apex", apexHeightM: 0.8 } }],
+    };
+    const vNode = validateStagePlan(plan);
+    const vQoder = validateQoderStagePlan(plan);
+    expect(vNode.ok).toBe(true);
+    expect(vQoder.ok).toBe(true);
+    if (!vNode.ok) return;
+    expect((vNode.reading.stages[0] as { dropHeightM?: number }).dropHeightM).toBeCloseTo(1, 10);
+    const s = assembleStageScene(vNode.reading);
+    expect(s.ok).toBe(true);
+    if (!s.ok) return;
+    const b = buildStageMotion(s.scene);
+    expect(b.ok).toBe(true);
+    if (!b.ok) return;
+    const apex = b.motion.events.find((e) => e.kind === "bounce_apex")!;
+    expect(b.motion.geometry.projectile?.landingPlane.yM).toBeCloseTo(-1, 10);
+    expect(apex.position!.yM - (-1)).toBeCloseTo(0.8, 10);
+  });
+
+  it("复现 C：vy=0、landingPlaneYM:null 仅给 apexHeightM=0.8 时归一化只保留一项高度，二次校验与装配均通过", () => {
+    const plan = {
+      kind: "stage_plan",
+      schemaVersion: 1,
+      gravityMps2: 10,
+      initial: { vxMps: 4, vyMps: 0 },
+      stages: [{ kind: "projectile", landingPlaneYM: null, bounce: { normalRestitution: 0.8, stopAt: "first_apex", apexHeightM: 0.8 } }],
+    };
+    const vNode = validateStagePlan(plan);
+    const vQoder = validateQoderStagePlan(plan);
+    expect(vNode.ok).toBe(true);
+    expect(vQoder.ok).toBe(true);
+    if (!vNode.ok) return;
+    expect("landingPlaneYM" in vNode.reading.stages[0]).toBe(false);
+    expect((vNode.reading.stages[0] as { dropHeightM?: number }).dropHeightM).toBeCloseTo(1.25, 10);
+    // 二次校验（assembleStageScene 内部复验）不得因残留 null 字段冲突
+    const s = assembleStageScene(vNode.reading);
+    expect(s.ok).toBe(true);
+    if (!s.ok) return;
+    const b = buildStageMotion(s.scene);
+    expect(b.ok).toBe(true);
+    if (!b.ok) return;
+    const apex = b.motion.events.find((e) => e.kind === "bounce_apex")!;
+    expect(apex.position!.yM - (-1.25)).toBeCloseTo(0.8, 10);
+  });
+
+  it("复现 D：vy=0、landingPlaneYM=-2 与 apexHeightM=0.8 矛盾（实际 1.28）时两端均拒绝", () => {
+    const plan = {
+      kind: "stage_plan",
+      schemaVersion: 1,
+      gravityMps2: 10,
+      initial: { vxMps: 4, vyMps: 0 },
+      stages: [{ kind: "projectile", landingPlaneYM: -2, bounce: { normalRestitution: 0.8, stopAt: "first_apex", apexHeightM: 0.8 } }],
+    };
+    const vNode = validateStagePlan(plan);
+    const vQoder = validateQoderStagePlan(plan);
+    expect(vNode.ok).toBe(false);
+    expect(vQoder.ok).toBe(false);
+    if (!vNode.ok) {
+      expect(vNode.code).toBe("INCONSISTENT_CONDITIONS");
+      expect(vNode.fieldErrors.some((e) => e.path === "/stages/0/bounce/apexHeightM")).toBe(true);
+    }
+  });
+
+  it("终段冲突：含 bounce 的抛体接后续阶段或切向入弧时两端返回清晰配置冲突，不静默忽略", () => {
+    const withNext = {
+      kind: "stage_plan",
+      schemaVersion: 1,
+      gravityMps2: 10,
+      massKg: 1,
+      initial: { vxMps: 4, vyMps: 0 },
+      stages: [
+        { kind: "projectile", end: { kind: "tangent_to_next_arc" }, bounce: { normalRestitution: 0.8, stopAt: "first_apex" } },
+        { kind: "vertical_arc", radiusM: 1, side: "inside", frictionless: true, path: { startAngleDeg: -45, direction: "positive", end: { kind: "physical_endpoint", sweepAngleDeg: 45 } } },
+      ],
+    };
+    const vNode = validateStagePlan(withNext);
+    const vQoder = validateQoderStagePlan(withNext);
+    expect(vNode.ok).toBe(false);
+    expect(vQoder.ok).toBe(false);
+    if (!vNode.ok) {
+      expect(vNode.code).toBe("INCONSISTENT_CONDITIONS");
+      expect(vNode.fieldErrors.some((e) => e.path === "/stages/0/bounce")).toBe(true);
+    }
+  });
 });

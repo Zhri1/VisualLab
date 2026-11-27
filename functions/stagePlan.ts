@@ -326,6 +326,9 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
         } else {
           bounce = { ...source.bounce };
           stage.bounce = bounce;
+          if (i < stages.length - 1 || hasEnd) {
+            issue(path + "/bounce", "PRECONDITION_CONFLICT", "首次落地反弹仅用于终段抛体，不能与后续阶段或切向入弧同时使用。");
+          }
           numberField(source.bounce, bounce, "normalRestitution", path + "/bounce/normalRestitution", (v) => v >= 0 && v <= 1);
           if (source.bounce.stopAt == null) bounce.stopAt = "first_apex";
           else if (typeof source.bounce.stopAt !== "string") issue(path + "/bounce/stopAt", "TYPE", "反弹终止模式须为字符串。");
@@ -337,6 +340,25 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
           }
         }
       }
+      // 仅在入射竖直速度 vy0 与发射原点 y0 可由静态结构确定时执行反求与预检，不把未知前段默认为 vy0=0。
+      const knownHorizontalLaunch =
+        i > 0 &&
+        stages.slice(0, i).every(
+          (st) =>
+            st.kind === "spring_release" ||
+            st.kind === "horizontal_slide" ||
+            st.kind === "lossless_turn" ||
+            st.kind === "constant_force_1d" ||
+            (st.kind === "conveyor_belt" && !(typeof st.angleDeg === "number" && st.angleDeg > 0)),
+        );
+      const knownVy0 =
+        i === 0 && typeof normalizedInitial.vyMps === "number" && Number.isFinite(normalizedInitial.vyMps)
+          ? normalizedInitial.vyMps
+          : knownHorizontalLaunch
+            ? 0
+            : null;
+      const knownY0 = i === 0 || knownHorizontalLaunch ? 0 : null;
+      const gVal = typeof draft.gravityMps2 === "number" && draft.gravityMps2 > 0 ? draft.gravityMps2 : null;
       if (hasEnd) {
         if (hasDrop || hasPlane) {
           // 互斥错误交由 gaokaoConstraints 统一给出精确路径提示
@@ -349,27 +371,57 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
         if (apexH !== null && eVal === 0) {
           issue(path + "/bounce/apexHeightM", "PRECONDITION_CONFLICT", "恢复系数为 0 时竖直方向不反弹，无法反推或达到非零反弹高度。");
         }
-        if (!hasDropValue && !hasPlaneValue && !fromArc && apexH !== null && eVal !== null && eVal > 0 && !(hasDrop && hasPlane)) {
-          const derivedH = apexH / (eVal * eVal);
-          stage.dropHeightM = derivedH;
-          bounceDerived.push({
-            stageIndex: i,
-            targetPath: path + "/dropHeightM",
-            quantity: "projectile_drop_height",
-            value: derivedH,
-            unit: "m",
-            source: "derived",
-            rule: "bounce_apex_height",
-            inputPaths: [path + "/bounce/apexHeightM", path + "/bounce/normalRestitution"],
-          });
+        const canInvertH =
+          !hasDropValue &&
+          !hasPlaneValue &&
+          !fromArc &&
+          apexH !== null &&
+          eVal !== null &&
+          eVal > 0 &&
+          knownVy0 !== null &&
+          gVal !== null &&
+          !(hasDrop && hasPlane);
+        if (canInvertH) {
+          const derivedH = apexH / (eVal * eVal) - (knownVy0 * knownVy0) / (2 * gVal);
+          if (derivedH < -1e-9) {
+            issue(path + "/bounce/apexHeightM", "PRECONDITION_CONFLICT", "给定竖直初速下反弹高度过小，无法反求非负桌面落差 H。");
+          } else {
+            const clampedH = Math.max(0, derivedH);
+            stage.dropHeightM = clampedH;
+            delete stage.landingPlaneYM;
+            bounceDerived.push({
+              stageIndex: i,
+              targetPath: path + "/dropHeightM",
+              quantity: "projectile_drop_height",
+              value: clampedH,
+              unit: "m",
+              source: "derived",
+              rule: "bounce_apex_height",
+              inputPaths: [path + "/bounce/apexHeightM", path + "/bounce/normalRestitution"],
+            });
+          }
         } else if (!hasDropValue && !hasPlaneValue && !fromArc && scaleMode === "normalized" && !bounce && !(hasDrop && hasPlane)) {
           stage.dropHeightM = 1;
+          delete stage.landingPlaneYM;
         } else {
           if (hasDrop || (!hasPlane && !fromArc)) numberField(source, stage, "dropHeightM", path + "/dropHeightM", nonnegative);
           if (hasPlane || (fromArc && !hasDrop)) numberField(source, stage, "landingPlaneYM", path + "/landingPlaneYM", finite);
-          if (hasDropValue && apexH !== null && eVal !== null && eVal > 0 && typeof stage.dropHeightM === "number") {
-            if (Math.abs(eVal * eVal * stage.dropHeightM - apexH) > 1e-6 * Math.max(1, apexH)) {
-              issue(path + "/bounce/apexHeightM", "PRECONDITION_CONFLICT", "反弹最大高度与落差和恢复系数不自洽（应满足 h = e²H）。");
+          if (apexH !== null && eVal !== null && eVal > 0 && knownVy0 !== null && gVal !== null) {
+            const actualH =
+              hasDropValue && typeof stage.dropHeightM === "number"
+                ? stage.dropHeightM
+                : hasPlaneValue && typeof stage.landingPlaneYM === "number" && knownY0 !== null
+                  ? knownY0 - stage.landingPlaneYM
+                  : null;
+            if (actualH !== null) {
+              if (actualH < -1e-9) {
+                issue(path + "/landingPlaneYM", "PRECONDITION_CONFLICT", "落地平面高于发射点，无法由此产生指定反弹高度。");
+              } else {
+                const expectedApexH = eVal * eVal * (Math.max(0, actualH) + (knownVy0 * knownVy0) / (2 * gVal));
+                if (Math.abs(expectedApexH - apexH) > 1e-6 * Math.max(1, apexH)) {
+                  issue(path + "/bounce/apexHeightM", "PRECONDITION_CONFLICT", "反弹最大高度与入射初速、落差和恢复系数不自洽（应满足 h = e²(H + vᵧ₀²/(2g))）。");
+                }
+              }
             }
           }
         }
