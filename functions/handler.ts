@@ -395,6 +395,12 @@ class VisionError extends Error {
 const DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const DEFAULT_MODEL = "qwen4-max";
 const DEFAULT_MAX_TOKENS = 2048;
+// 助教对话的输出上限，独立于识图的 VISION_MAX_TOKENS：推理模型先花掉一大截
+// token 写英文思考链，沿用 2048 会让正文一个 token 都不剩。
+const DEFAULT_CHAT_MAX_TOKENS = 4096;
+// 助教对话的超时，独立于识图的 VISION_TIMEOUT_MS：推理模型要先写完英文思考链
+// 再写正文，复杂多阶段题整轮耗时可达 20s 以上。
+const DEFAULT_CHAT_TIMEOUT_MS = 40_000;
 
 function env(name: string): string {
   let fromRuntime = "";
@@ -419,6 +425,18 @@ function timeoutMs(): number {
 function maxTokens(): number {
   const value = Number(env("VISION_MAX_TOKENS"));
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : DEFAULT_MAX_TOKENS;
+}
+
+/** 助教对话的 token 上限，可用 CHAT_MAX_TOKENS 单独覆盖。 */
+function chatMaxTokens(): number {
+  const value = Number(env("CHAT_MAX_TOKENS"));
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : DEFAULT_CHAT_MAX_TOKENS;
+}
+
+/** 助教对话的超时，可用 CHAT_TIMEOUT_MS 单独覆盖。 */
+function chatTimeoutMs(): number {
+  const value = Number(env("CHAT_TIMEOUT_MS"));
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_CHAT_TIMEOUT_MS;
 }
 
 function repairRetryEnabled(): boolean {
@@ -761,13 +779,28 @@ function extractTutorReply(payload: unknown, options?: { allowReasoningFallback?
   const legacyText = extractTextFromField(choice?.text);
   if (isUsableReply(legacyText)) return legacyText;
 
-  // 相似题模式必须关闭 reasoning 回退：思考链（英文推导稿）不是答案。
+  // reasoning_content 回退分三档：false 完全禁用（similar 要求纯 JSON）；
+  // 未指定只接受中文思考链；true 强制允许（兼容只填 reasoning 的中文模型）。
   if (options?.allowReasoningFallback === false) return "";
 
   const reasoning = extractTextFromField(choice?.message?.reasoning_content);
-  if (isUsableReply(reasoning)) return reasoning;
+  if (!isUsableReply(reasoning)) return "";
+  if (options?.allowReasoningFallback === true) return reasoning;
+  // qwen 推理模型的思考链是英文推导稿，不能当正文返回。
+  return looksLikeNonChinese(reasoning) ? "" : reasoning;
+}
 
-  return "";
+/**
+ * 判断一段回复是否明显不是中文（只用于 tutor / socratic 的自然语言回复）。
+ * 阈值取拉丁字母占比 > 72%：正常中文讲解即使公式写满 v = √(gR)，汉字仍远多于拉丁字母。
+ */
+function looksLikeNonChinese(text: string): boolean {
+  const han = (text.match(/[\u4e00-\u9fff]/g) ?? []).length;
+  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
+  const total = han + latin;
+  if (total < 40) return false;
+  if (han === 0) return true;
+  return latin / total > 0.72;
 }
 
 const AMBIGUOUS_VAR_PARAM_RE = /(?:可调(?:节)?|待定|任意改变|自由调节|大小可变|宽度可变|长度可变|高度可变|半径可变)/;
@@ -969,6 +1002,7 @@ function buildTutorSystemPrompt(
             "3. 多轮追问策略：若学生已在回答上一步问题，先明确肯定答对的部分，或温柔指出卡点与高频易错点（结合【当前题目与物理引擎实算数据】严格核对数值与方向，绝不编造矛盾数据）；确认当前阶段过关后，再推进到下一阶段并抛出下一个引导小问题。",
             "4. 只有当全部物理阶段都引导学生自己推导完成后，才用简短 2~3 句话总结全题关键结论与核心物理方法。",
             "5. 绝不输出字面 null、NULL、undefined、空白回复或原始 JSON 字段名；不要输出 # 标题、--- 分割线、Markdown 表格或 LaTeX 反斜杠命令（如 \\frac、\\sqrt），公式一律用直观纯文本符号（如 a = g(sinθ - μcosθ)、N + mg = mv²/R、v = √(gR)）。必要时可提醒学生观察动画对应时刻。",
+            "6. 回复必须全部使用简体中文，严禁用英文作答、严禁输出英文思考过程或英文分析草稿；物理量符号与公式保持原样即可。",
           ].join("\n")
         : [
             "你是 VisualLab 的资深高中物理 AI 助教，正在结合交互动画一步步辅导学生理解物理题。",
@@ -978,6 +1012,7 @@ function buildTutorSystemPrompt(
             "3. 涉及时刻、速度、位置、支持力/张力、能量或半径等数值时，严格以「当前题目与物理引擎实算数据」为准，绝不编造与实算矛盾的数值。",
             "4. 先给清晰结论，再分步讲清受力分析、运动过程拆分、守恒定律与临界条件。表达简洁易读，直接用中文自然段或「1. / 2.」分点；不要输出 # 标题、--- 分割线、Markdown 表格或 LaTeX 反斜杠命令（如 \\frac、\\sqrt、\\[...\\]），公式一律用直观符号写成纯文本（如 N + mg = mv²/R、v = √(gR)、ΔEk = W合）。",
             "5. 必要时可提醒学生在时间轴点击对应关键事件观察，或直接说「把某参数改成某值」做对比实验。",
+            "6. 回复必须全部使用简体中文，严禁用英文作答、严禁把英文推理草稿或英文提纲当正文输出；物理量符号与公式保持原样即可。",
           ].join("\n");
   const sections: string[] = [base];
   if (context && Object.keys(context).length > 0) {
@@ -1004,6 +1039,12 @@ const SIMILAR_REPAIR_HINT =
 const SIMILAR_JSON_REPAIR_HINT =
   "你上一次输出的 JSON 不合法，无法解析。请重新只输出一个合法 JSON 对象：字符串内部严禁出现英文双引号（需要强调或引用时用「」），不要输出任何解释、注释或代码围栏。";
 
+const CHINESE_REPLY_HINT =
+  "你上一次的回复不是中文（或英文占比过高），已被判定为不合格。请只用简体中文重新回答同一个问题：不要输出英文句子、英文分析草稿或英文提纲；物理量符号、单位和公式可以保持原样。";
+
+const SIMILAR_LANGUAGE_HINT =
+  "你上一次没有按格式输出，而是用英文写了一段分析说明。请只输出一个合法 JSON 对象：summary 与每道题的所有文字字段都必须用简体中文，不要输出任何英文说明、思考过程或代码围栏。";
+
 async function callTutorChat(request: {
   message: string;
   context?: Record<string, unknown> | null;
@@ -1024,10 +1065,11 @@ async function callTutorChat(request: {
   const runOnce = async (
     model: string,
     similarRepairHint?: string,
+    languageRepair = false,
   ): Promise<{ reply: string; model: string; similarProblems?: TutorSimilarProblem[]; ragReferences?: RagReference[] }> => {
     const baseUrl = env("DASHSCOPE_BASE_URL") || DEFAULT_BASE_URL;
     const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
-    const limit = timeoutMs();
+    const limit = chatTimeoutMs();
     const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
       { role: "system", content: buildTutorSystemPrompt(request.context, mode, ragContext) },
     ];
@@ -1039,9 +1081,12 @@ async function callTutorChat(request: {
       }
     }
     const userMessage = request.message.trim().slice(0, 2000);
+    const repairHints = [similarRepairHint, languageRepair ? CHINESE_REPLY_HINT : undefined].filter(
+      (hint): hint is string => Boolean(hint),
+    );
     messages.push({
       role: "user",
-      content: similarRepairHint ? `${userMessage}\n\n${similarRepairHint}` : userMessage,
+      content: repairHints.length ? `${userMessage}\n\n${repairHints.join("\n\n")}` : userMessage,
     });
 
     const controller = new AbortController();
@@ -1054,9 +1099,10 @@ async function callTutorChat(request: {
         body: JSON.stringify({
           model,
           temperature: mode === "similar" ? 0.5 : 0.35,
-          max_tokens: Math.min(maxTokens(), mode === "similar" ? 2000 : 1400),
-          // 相似题要求纯 JSON 输出：开着思考链会把 max_tokens 全耗在 reasoning_content 上。
-          ...(mode === "similar" ? { enable_thinking: false } : {}),
+          // qwen 系列推理模型会先输出英文 reasoning_content 再写正文，正文额度必须留足。
+          max_tokens: Math.min(chatMaxTokens(), mode === "similar" ? 2000 : mode === "socratic" ? 1600 : 3072),
+          // similar 要纯 JSON、socratic 只要 80~160 字：两者都不值得付思考链的 token 与延迟。
+          ...(mode === "similar" || mode === "socratic" ? { enable_thinking: false } : {}),
           messages,
         }),
         signal: controller.signal,
@@ -1074,8 +1120,14 @@ async function callTutorChat(request: {
       throw new VisionError("upstream", `AI 助教服务返回 ${response.status}：${detail || "无详细信息"}`);
     }
     const payload = await response.json().catch(() => null);
+    // similar 完全禁用回退；tutor / socratic 只接受中文思考链，英文思考稿一律拦掉。
     const rawReply = extractTutorReply(payload, { allowReasoningFallback: mode !== "similar" });
     if (!rawReply) throw new VisionError("parse", "AI 助教返回了无效空内容");
+    // 语言兜底：模型偶尔仍会用英文作答，追加中文要求重试一次（只重试一次，避免死循环）。
+    if (mode !== "similar" && !languageRepair && looksLikeNonChinese(rawReply)) {
+      console.warn(`[chat] ${model} 返回非中文内容，追加中文要求重试一次`);
+      return runOnce(model, similarRepairHint, true);
+    }
     if (mode === "similar") {
       const parsed = parseSimilarResponseDetailed(rawReply);
       if (parsed.similarProblems.length === 0 && !similarRepairHint) {
@@ -1087,9 +1139,19 @@ async function callTutorChat(request: {
         if (/^\s*[[{]/.test(rawReply)) {
           throw new VisionError("parse", "相似变式题 JSON 解析失败，需重新生成");
         }
+        // 模型用英文跑偏（如 "Let me analyze the current problem..."）同样要重试：
+        // 英文分析说明不是答案，直接当 summary 返回等于把跑偏内容交给前端。
+        if (looksLikeNonChinese(rawReply)) {
+          throw new VisionError("parse", "相似变式题用英文作答，需重新生成");
+        }
       }
+      // 最后一道保险：模型跑偏留下的英文 summary 不要直接展示给用户。
+      const summary =
+        parsed.summary && !looksLikeNonChinese(parsed.summary)
+          ? parsed.summary
+          : "已根据当前题目生成相似变式参考：";
       return {
-        reply: parsed.summary || "已根据当前题目生成相似变式参考：",
+        reply: summary,
         model,
         similarProblems: parsed.similarProblems,
         ragReferences,
@@ -1111,8 +1173,10 @@ async function callTutorChat(request: {
       request.mode === "similar" && error.kind === "parse"
         ? error.message.includes("未定变参")
           ? SIMILAR_REPAIR_HINT
-          : error.message.includes("JSON")
-            ? SIMILAR_JSON_REPAIR_HINT
+          : error.message.includes("英文")
+            ? SIMILAR_LANGUAGE_HINT
+            : error.message.includes("JSON")
+              ? SIMILAR_JSON_REPAIR_HINT
             : undefined
         : undefined;
     return runOnce(retryModel, repairHint);

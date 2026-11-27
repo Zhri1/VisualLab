@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { handlePlan } from '../plan';
-import { extractTutorReply, parseSimilarResponse } from '../dashscope';
+import { extractTutorReply, looksLikeNonChinese, parseSimilarResponse } from '../dashscope';
 import { handler as qoderHandler } from '../../../functions/handler';
 
 function chatRequest(message: string, context?: unknown, extra?: Record<string, string | Blob>) {
@@ -156,8 +156,9 @@ describe('真实 AI 物理助教对话入口（Node 与 Qoder 双端一致）', 
     expect(body.similarProblems[1].stem).toContain('k=150N/m');
   });
 
-  it('similar 模式显式关闭思考链，且思考链不会被当成正文返回', async () => {
-    // 线上故障复现：思考链占满 max_tokens，content 为空，reasoning_content 是英文推导稿
+  it('思考链不会被当成正文返回（默认禁用英文 reasoning 回退）', async () => {
+    // 线上故障复现：思考链占满 max_tokens，content 为空，reasoning_content 是英文推导稿。
+    // 这正是「AI 助手有时输出英文」的根因，默认必须不回退。
     const reasoningOnly = {
       choices: [
         {
@@ -168,8 +169,8 @@ describe('真实 AI 物理助教对话入口（Node 与 Qoder 双端一致）', 
         },
       ],
     };
-    expect(extractTutorReply(reasoningOnly)).toContain('We need to');
-    expect(extractTutorReply(reasoningOnly, { allowReasoningFallback: false })).toBe('');
+    expect(extractTutorReply(reasoningOnly)).toBe('');
+    expect(extractTutorReply(reasoningOnly, { allowReasoningFallback: true })).toContain('We need to');
 
     fetchMock.mockResolvedValueOnce(
       new Response(
@@ -207,7 +208,111 @@ describe('真实 AI 物理助教对话入口（Node 与 Qoder 双端一致）', 
     expect(sent.enable_thinking).toBe(false);
   });
 
-  it('tutor / socratic 模式不传 enable_thinking，保留原有思考链行为', async () => {
+  it.each([
+    ['Node handlePlan', handlePlan],
+    ['Qoder handler', qoderHandler],
+  ])('%s 模型整段英文作答时追加中文要求重试一次', async (_name, fn) => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content:
+                    'We need to analyze the forces acting on the block. The normal force from the track can only push inward, so at the highest point the required centripetal force may be provided entirely by gravity.',
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: '轨道只能向内压滑块，最高点当重力恰好提供全部向心力时 N = 0，这就是临界条件。',
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+
+    const res = await fn(chatRequest('最高点支持力为什么为零？', { currentTimeSeconds: 0.5 }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string; reply: string };
+    expect(body.status).toBe('ok');
+    expect(body.reply).toContain('临界条件');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const secondMessages = JSON.parse(String(fetchMock.mock.calls[1][1]?.body)).messages as Array<{
+      role: string;
+      content: string;
+    }>;
+    expect(secondMessages[secondMessages.length - 1].content).toContain('简体中文');
+  });
+
+  it.each([
+    ['Node handlePlan', handlePlan],
+    ['Qoder handler', qoderHandler],
+  ])('%s similar 模式模型用英文跑偏时重试并拿到中文 JSON', async (_name, fn) => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content:
+                    'Let me analyze the current problem and design 2-3 similar variations that fit the physics engine constraints.',
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    summary: '推荐一道斜面弹簧变式',
+                    similarProblems: [
+                      {
+                        title: '斜面弹簧变式',
+                        tags: ['动能定理'],
+                        difficulty: '基础',
+                        stem: '斜面长 2m，倾角 30°，滑块质量 1kg 由静止释放，g=10m/s²。',
+                        focus: '考查基本受力与动能定理',
+                        hint: '用动能定理列式。',
+                      },
+                    ],
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+
+    const res = await fn(chatRequest('推荐相似题', { problemText: '斜面下滑压缩弹簧' }, { chatMode: 'similar' }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { similarProblems: unknown[] };
+    expect(body.similarProblems).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('tutor 保留思考链，socratic 关闭思考链', async () => {
+    // tutor 需要推理，保留 reasoning；socratic 只输出 80~160 字，思考链纯属浪费且易耗尽正文额度。
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ choices: [{ message: { content: '先看受力。' } }] }), {
         status: 200,
@@ -215,8 +320,22 @@ describe('真实 AI 物理助教对话入口（Node 与 Qoder 双端一致）', 
       }),
     );
     await handlePlan(chatRequest('这题怎么想？', { problemText: '斜面滑块' }, { chatMode: 'tutor' }));
-    const sent = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as { enable_thinking?: boolean };
-    expect(sent.enable_thinking).toBeUndefined();
+    const tutorBody = JSON.parse(
+      String(fetchMock.mock.calls[fetchMock.mock.calls.length - 1][1]?.body),
+    ) as { enable_thinking?: boolean };
+    expect(tutorBody.enable_thinking).toBeUndefined();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ choices: [{ message: { content: '先算下滑分力。' } }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    await handlePlan(chatRequest('第一步算什么？', { problemText: '斜面滑块' }, { chatMode: 'socratic' }));
+    const socraticBody = JSON.parse(
+      String(fetchMock.mock.calls[fetchMock.mock.calls.length - 1][1]?.body),
+    ) as { enable_thinking?: boolean };
+    expect(socraticBody.enable_thinking).toBe(false);
   });
 
   it('中文里混入英文双引号破坏 JSON 时自动补转义，不丢题', () => {
@@ -708,5 +827,32 @@ describe('真实 AI 物理助教对话入口（Node 与 Qoder 双端一致）', 
     };
     const unmatchedUserText = unmatchedPayload.messages[1].content.map((c) => c.text ?? '').join('\n');
     expect(unmatchedUserText).not.toContain('母题拆段参考');
+  });
+});
+
+describe('助教回复语言判定', () => {
+  it('中文讲解含大量公式时仍判为中文', () => {
+    const reply =
+      '滑块沿斜面下滑，受力分析为 N + mg = mv²/R 的变形式。由动能定理 ΔEk = W合 可得 ' +
+      'v = √(gR)，代入 R = 0.5 m 得 v ≈ 2.24 m/s。注意支持力 N 始终垂直于轨面，' +
+      '在最高点临界条件为 N = 0，此时 v = √(gR) 恰好成立。';
+    expect(looksLikeNonChinese(reply)).toBe(false);
+  });
+
+  it('整段英文思考稿判为非中文', () => {
+    const reply =
+      'We need to solve the problem step by step. First, consider the forces acting on the block. ' +
+      'The normal force and gravity both contribute to the centripetal acceleration. ' +
+      'At the top of the loop, the critical condition is that the normal force becomes zero.';
+    expect(looksLikeNonChinese(reply)).toBe(true);
+  });
+
+  it('过短回复不判定，避免误伤纯公式回答', () => {
+    expect(looksLikeNonChinese('v = √(gR)')).toBe(false);
+    expect(looksLikeNonChinese('')).toBe(false);
+  });
+
+  it('无汉字但有足够长度时判为非中文', () => {
+    expect(looksLikeNonChinese('The answer is v = sqrt(gR) and N equals zero at the top point.')).toBe(true);
   });
 });
