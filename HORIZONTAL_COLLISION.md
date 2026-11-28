@@ -112,6 +112,7 @@ collision事件新增可选collision元数据：`{ mode, normalXM, momentumBefor
   - 无量纲能量 $e = \frac{M}{m+M}\frac{v_0^2}{gR}$。
   - 当 $e \le 2$ 时，球沿槽上升至最大角 $\phi_{\max} = 2\arcsin(\sqrt{e}/2) \le \pi/2$ 与槽共速 $v_{\text{cm}} = \frac{m}{m+M}v_0$（相对静止，事件 `movable_arc_top`），随后对称下滑返回槽底并分离（事件 `movable_arc_return_exit`）：球速 $v_{B2} = \frac{m-M}{m+M}v_0$，槽速 $v_{C2} = \frac{2m}{m+M}v_0$，返回槽底瞬间法向力 $N_{\text{bottom}} = mg + m\frac{v_0^2}{R}$。
   - 临界条件 `criticalTopRelativeRest: true` 对应 $e = 2$，即 $v_0 = \sqrt{\frac{2(m+M)}{M}gR}$。
-- 上游预压弹簧（`horizontal_approach.upstreamSpring`）：
-  - 若题面给出 `springConstantNpm` 与 `initialCompressionM` 及初位，则完整求解；
-  - 若题面未给弹簧劲度系数 $k$、初始压缩量 $x_0$ 或物体间水平间距，但给出弹性正碰（静止靶球）及 `criticalTopRelativeRest: true`，则确定性反求 $v_{B1}$、碰前入射速 $v_{A0} = \frac{m_A+m_B}{2m_A}v_{B1}$ 及弹簧弹性势能 $E_p = \frac{1}{2}m_A v_{A0}^2$，并以 `playback.mode = "suffix"` 仅播放从碰撞与滑上圆弧槽开始的已知后缀，上游弹簧仅作示意，不编造未知前段时长或后续二次相遇。
+- 上游预压弹簧（`horizontal_approach.upstreamSpring`）与槽底间距（`entryGapM`）：
+  - 若题面给出 `springConstantNpm`、`initialCompressionM`、初位以及明确的 `entryGapM`（`0` 表示碰撞即在槽底，正值表示已知自由滑行距离），则完整按同一物理时钟求解（并正常检查碰后二次接触边界）；
+  - 若题面未给弹簧劲度系数 $k$、初始压缩量 $x_0$、物体初位或碰撞点到槽底的水平间距（`entryGapM: null` 或在含未知上游弹簧的题中省略），但给出弹性正碰（静止靶球）及 `criticalTopRelativeRest: true`，则确定性反求 $v_{B1}$、碰前入射速 $v_{A0} = \frac{m_A+m_B}{2m_A}v_{B1}$ 及弹簧弹性势能 $E_p = \frac{1}{2}m_A v_{A0}^2$，并在规范化回包中保留 `entryGapM: null` 而不静默认作 `0`；
+  - 未知 `entryGapM` 时以 `playback.mode = "suffix"` 并在碰撞瞬时结果与底入圆弧槽之间输出显式 `playbackGaps` 播放时间缺口与 `movable_arc_gap` 事件：碰撞时刻保留两物体精确碰后速度，槽内后缀从 B 进入槽底起计时，另一物体 A 仅展示确定的匀速速度而不编造相对槽的实时坐标或后续二次相遇，API 规范化回包再次装配时该缺口与后缀说明保持不丢失。

@@ -428,13 +428,16 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
   }
   for(const[id,body]of Object.entries(snapshot.bodies??{})){
     const x=X(body.position.x),y=Y(body.position.y),i=data.ids.indexOf(id),speed=Math.hypot(body.velocity.x,body.velocity.y);
+    const posUnknown=Boolean(body.positionUndetermined);
     block(x,y,id===(tracked??motion.primaryBodyId)?14:(i===0?5:8)+3);
-    ctx.save();ctx.strokeStyle=color(id);ctx.fillStyle=color(id);ctx.lineWidth=2;
+    ctx.save();ctx.strokeStyle=posUnknown?SOFT:color(id);ctx.fillStyle=posUnknown?SOFT:color(id);ctx.lineWidth=2;
     if(id===(tracked??motion.primaryBodyId)){ctx.beginPath();ctx.arc(x,y,12,0,2*Math.PI);ctx.strokeStyle=HAIR;ctx.stroke();ctx.strokeStyle=color(id);}
-    ctx.beginPath();ctx.arc(x,y,i===0?5:8,0,2*Math.PI);if(i===0)ctx.fill();else ctx.stroke();
+    if(posUnknown)ctx.setLineDash([3,3]);
+    ctx.beginPath();ctx.arc(x,y,i===0?5:8,0,2*Math.PI);if(i===0&&!posUnknown)ctx.fill();else ctx.stroke();
+    ctx.setLineDash([]);
     if(speed>.01){const ux=body.velocity.x/speed,uy=-body.velocity.y/speed,len=Math.min(53,24+speed*5);const ex=Math.max(10,Math.min(W-10,x+ux*len)),ey=Math.max(10,Math.min(H-10,y+uy*len)),a=Math.atan2(ey-y,ex-x);ctx.beginPath();ctx.moveTo(x+ux*12,y+uy*12);ctx.lineTo(ex,ey);ctx.moveTo(ex-7*Math.cos(a-.45),ey-7*Math.sin(a-.45));ctx.lineTo(ex,ey);ctx.lineTo(ex-7*Math.cos(a+.45),ey-7*Math.sin(a+.45));ctx.stroke();}
     const name=id.length>12?id.slice(0,11)+'…':id;
-    vel.push({text:`${name}: v = ${formatSpeed(speed)} m/s`,color:color(id),cx:x,by:y-19,dir:-1,leader:{x,y}});
+    vel.push({text:posUnknown?`${name}: v = ${formatSpeed(speed)} m/s（间距未知 · 仅速度确定）`:`${name}: v = ${formatSpeed(speed)} m/s`,color:posUnknown?SOFT:color(id),cx:x,by:y-19,dir:-1,leader:{x,y}});
     ctx.restore();
   }
   const rects=occupied.slice();
@@ -461,7 +464,8 @@ export function MultiBodyReadouts({motion,time,isPlaying=false}:{motion:Motion;t
   const mr=motion.stageGeometry?.magneticReencounter;
   const emStatus=em?(time<em.offSeconds-1e-9?'电场开 · 磁场开':time<em.restoreSeconds-1e-9?'电场开 · 磁场撤去（匀速直线漂移）':'电场开 · 磁场已恢复（两轨迹外切，非碰撞）'):null;
   return <figcaption id="multi-body-readouts" className={'multi-body-readouts'+(ids.some(id=>id.length>16)?' has-long-ids':'')+(horizontal?' has-horizontal-states':'')} aria-live={isPlaying?'off':'polite'}>
-    {ids.map((id,i)=>{const b=sample.bodies![id];return <span className="body-body-value" key={id} data-body-id={id}><i className="body-swatch" style={{background:i===0?INK:TARGET}}/>{id}：v = {formatSpeed(Math.hypot(b.velocity.x,b.velocity.y))} m/s；{bodyStatusText[b.status]}{b.groupId?' · 粘连':''}{(horizontal||!!em||!!mr)&&<><br/>x = {signed(b.position.x)}，y = {signed(b.position.y)} m<br/>vₓ = {signed(b.velocity.x)}，vᵧ = {signed(b.velocity.y)} m/s</>}</span>;})}
+    {ids.map((id,i)=>{const b=sample.bodies![id];return <span className="body-body-value" key={id} data-body-id={id}><i className="body-swatch" style={{background:i===0?INK:TARGET}}/>{id}：v = {formatSpeed(Math.hypot(b.velocity.x,b.velocity.y))} m/s；{bodyStatusText[b.status]}{b.groupId?' · 粘连':''}{(horizontal||!!em||!!mr)&&<><br/>{b.positionUndetermined?'x 未知（碰后到槽底间距未定）':`x = ${signed(b.position.x)}，y = ${signed(b.position.y)} m`}<br/>vₓ = {signed(b.velocity.x)}，vᵧ = {signed(b.velocity.y)} m/s</>}</span>;})}
+    {!!motion.playbackGaps?.length&&<span className="body-constraint">播放时间缺口：{motion.playbackGaps[0].reason}</span>}
     {emStatus&&<span className="body-constraint">场区状态：{emStatus}{em?.scaleMode==='normalized'?' · 归一化标度（m=q=L=v₀=1）':''}</span>}
     {mr&&<span className="body-constraint">匀强磁场（{mr.fieldDirection==='into_page'?'垂直纸面向里':'垂直纸面向外'}）· 共 {mr.collisionCount} 次正碰{mr.scaleMode==='normalized'?' · 归一化标度（m=q=B=a=1）':''}</span>}
     {motion.stageGeometry?.multiBodyMovableArc&&(()=>{const ma=motion.stageGeometry!.multiBodyMovableArc!,gs=motion.movableArcAt?.(time);return <span className="body-constraint">可移动圆弧槽 C（M = {ma.grooveMassKg} kg，R = {ma.radiusM} m）：x = {signed(gs?.grooveXM??ma.entryXM)} m，v = {signed(gs?.grooveVX??0)} m/s{gs?.normalForceN!=null&&gs.normalForceN>0?`，支持力 N = ${gs.normalForceN.toFixed(2)} N`:''}{ma.bottomReturnNormalForceN!=null?`（返回槽底 N = ${ma.bottomReturnNormalForceN.toFixed(2)} N）`:''}</span>;})()}

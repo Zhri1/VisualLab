@@ -9,6 +9,7 @@ const labels:Record<string,[string,string]>={
  turn_around:['带面折返','滑块速度减为零后在带面滑动摩擦作用下反向加速。'],
  conveyor_exit:['离开传送带','到达传送带端点离开带面；未给地面时不生成虚构落地。'],
  contact:['实际接触','由真实轨迹求得首次接触，尚未应用碰撞冲量。'],collision:['水平正碰','按实际碰前速度、两质量与动量守恒同时更新两物体，保留世界位置。'],
+ movable_arc_gap:['未知水平间距（播放时间缺口）','碰撞点到圆弧槽底的水平间距未知：此处省略未计时的自由滑行，动画从球滑入槽底起计时，另一物体仅保留确定速度而不猜测其相对槽的位置或后续二次相遇。'],
  movable_arc_top:['球到达槽顶相对静止','水平动量守恒：球在四分之一圆弧槽顶与槽共速（相对静止），随后沿槽对称滑回。'],
  movable_arc_return_exit:['球返回槽底分离','球对称滑回槽底并与槽首次分离，系统水平动量与机械能守恒。'],
  movable_arc_top_exit:['球从槽顶飞出','入槽动能超过临界值，球到达槽顶时保留向上相对速度。'],
@@ -30,8 +31,9 @@ export function computeHorizontalMotion(plan:ResolvedStagePlan, scope?:PlaybackS
   ...(r.collisionValues?[{quantity:'collision_energy_lost',value:r.collisionValues.energyLostJ,unit:'J',source:'derived' as const,rule:r.collisionValues.mode,inputPaths:['/bodies','/initial/bodies','/stages/0','/stages/1/mode']}]:[]),
   ...(r.extraCalculations??[]),
  ];
- const timing=scope?.mode==='suffix'?{...scope,anchor:{label:'碰撞点',position:{xM:r.initial.bodies[primary].xM,yM:0}},absoluteStartSeconds:null,excludedStageIndices:[0]}:undefined;
- return{geometry:r.geometry,primaryBodyId:primary,durationSeconds:r.duration,segments:r.segments,events,termination,get endReason(){return termination.reason;},motionStatus:{state:r.status,reason:r.reason,bodyIds:plan.bodies!.map(b=>b.bodyId),message},...(timing?{timing}:{}),...(calculations.length?{calculations}:{}),...(r.movableArcAt?{movableArcAt:r.movableArcAt}:{}),sampleAt(time){
+ const gapUnknown=Boolean(r.geometry.multiBodyMovableArc?.entryGapUnknown);
+ const timing=scope?.mode==='suffix'?{...scope,anchor:{label:gapUnknown?'槽底入口':'碰撞点',position:{xM:r.initial.bodies[primary].xM,yM:0}},absoluteStartSeconds:null,excludedStageIndices:[0]}:undefined;
+ return{geometry:r.geometry,primaryBodyId:primary,durationSeconds:r.duration,segments:r.segments,events,termination,get endReason(){return termination.reason;},motionStatus:{state:r.status,reason:r.reason,bodyIds:plan.bodies!.map(b=>b.bodyId),message},...(timing?{timing}:{}),...(r.playbackGaps?.length?{playbackGaps:r.playbackGaps}:{}),...(calculations.length?{calculations}:{}),...(r.movableArcAt?{movableArcAt:r.movableArcAt}:{}),sampleAt(time){
   if(time<0)return project(r.initial);
   const t=Number.isNaN(time)?0:Math.min(r.duration,time);
   let nearest=-1,distance=Infinity;

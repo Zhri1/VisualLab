@@ -157,6 +157,7 @@ export function validateHorizontalFields(draft:Obj,c:HorizontalValidationContext
       if('entryDirection'in head&&head.entryDirection!=null)choice(head,'entryDirection',hp+'/entryDirection',[1,-1]);
       if('criticalTopRelativeRest'in head&&head.criticalTopRelativeRest!=null&&head.criticalTopRelativeRest!==true)issue(hp+'/criticalTopRelativeRest','UNSUPPORTED','criticalTopRelativeRest 仅支持 true。');
       if('entryGapM'in head&&head.entryGapM!=null)num(head,'entryGapM',hp+'/entryGapM',v=>v>=0);
+      else if('entryGapM'in head&&head.entryGapM===null)head.entryGapM=null;
      }else{
       const checked=legacy({kind:'stage_plan',schemaVersion:1,gravityMps2:draft.gravityMps2,initial:obj(head)&&head.kind==='projectile'?{vxMps:1,vyMps:0}:{speedMps:1},stages:tr.stages});
       if(!checked.ok){for(const m of checked.missingKeys)missing.push(m.replace(/^\/stages\//,tp+'/stages/'));for(const e of checked.fieldErrors){if(e.path==='/stages/0/end'&&obj(head)&&head.kineticFrictionCoefficient===0)continue;errors.push({...e,path:e.path.replace(/^\/stages\//,tp+'/stages/')});}}
@@ -187,11 +188,12 @@ export function validateHorizontalFields(draft:Obj,c:HorizontalValidationContext
    }
   }
  }
- // 上游预压弹簧 + 弹性正碰 + 底入可移动圆弧槽临界到顶相对静止：确定性反求入射速度与弹簧弹性势能，未知前段以 suffix 播放。
+ // 上游预压弹簧 + 弹性正碰 + 底入可移动圆弧槽临界到顶相对静止：确定性反求入射速度与弹簧弹性势能，未知前段与未知槽距以 suffix/缺口播放。
  let derivedPlayback:PlaybackScope|undefined;
  const s0=obj(stages[0])?stages[0]:null,s1=obj(stages[1])?stages[1]:null,s2=obj(stages[2])?stages[2]:null;
  if(s0?.kind==='horizontal_approach'&&s1?.kind==='collision_1d'&&s1.mode==='elastic'&&s2?.kind==='parallel_motion'&&Array.isArray(s2.tracks)&&typeof draft.gravityMps2==='number'&&draft.gravityMps2>0){
-  const arcTrack=s2.tracks.find(tr=>obj(tr)&&Array.isArray(tr.stages)&&obj(tr.stages[0])&&tr.stages[0].kind==='movable_arc'&&tr.stages[0].criticalTopRelativeRest===true) as (Obj&{bodyIds:string[];stages:Obj[]})|undefined;
+  const arcTrackIdx=s2.tracks.findIndex(tr=>obj(tr)&&Array.isArray(tr.stages)&&obj(tr.stages[0])&&tr.stages[0].kind==='movable_arc');
+  const arcTrack=arcTrackIdx>=0?(s2.tracks[arcTrackIdx] as Obj&{bodyIds:string[];stages:Obj[]}):undefined;
   const us=obj(s0.upstreamSpring)?s0.upstreamSpring:null;
   if(arcTrack&&Array.isArray(arcTrack.bodyIds)&&arcTrack.bodyIds.length===1){
    const arcStage=arcTrack.stages[0],arcBodyId=arcTrack.bodyIds[0];
@@ -200,11 +202,10 @@ export function validateHorizontalFields(draft:Obj,c:HorizontalValidationContext
    const mOther=bodies.find(b=>obj(b)&&b.bodyId===otherBodyId)?.massKg;
    if(typeof mArc==='number'&&mArc>0&&typeof mOther==='number'&&mOther>0&&typeof arcStage.radiusM==='number'&&arcStage.radiusM>0&&typeof arcStage.grooveMassKg==='number'&&arcStage.grooveMassKg>0&&otherBodyId){
     const dir=(arcStage.entryDirection===1||arcStage.entryDirection===-1?arcStage.entryDirection:s1.normalXM===1||s1.normalXM===-1?s1.normalXM:1) as 1|-1;
-    const vCrit=movableArcCriticalEntrySpeed(arcStage.radiusM,mArc,arcStage.grooveMassKg,draft.gravityMps2);
     const aIdx=initials.findIndex(b=>b.bodyId===otherBodyId),bIdx=initials.findIndex(b=>b.bodyId===arcBodyId);
     const aInit=aIdx>=0?initials[aIdx]:null,bInit=bIdx>=0?initials[bIdx]:null;
     const dropMissing=(path:string)=>{const idx=missing.indexOf(path);if(idx>=0)missing.splice(idx,1);};
-    if(aInit&&bInit&&bInit.vxMps===0){
+    if(aInit&&bInit){
      const unresolved:string[]=[];
      if(us){
       if(us.springConstantNpm==null)unresolved.push('/stages/0/upstreamSpring/springConstantNpm');
@@ -216,7 +217,13 @@ export function validateHorizontalFields(draft:Obj,c:HorizontalValidationContext
       if(s1.normalXM==null){s1.normalXM=dir;dropMissing('/stages/1/normalXM');}
       unresolved.push('/initial/bodies');
      }
-     if(aInit.vxMps==null){
+     // 未知碰撞点到槽底的水平间距：保留为 null 而非静默认作 0，确保 API 规范化回包再装配时不丢失缺口。
+     if(arcStage.entryGapM===null||(arcStage.entryGapM===undefined&&(us!=null||unresolved.length>0))){
+      arcStage.entryGapM=null;
+      unresolved.push(`/stages/2/tracks/${arcTrackIdx}/stages/0/entryGapM`);
+     }
+     if(arcStage.criticalTopRelativeRest===true&&bInit.vxMps===0&&aInit.vxMps==null){
+      const vCrit=movableArcCriticalEntrySpeed(arcStage.radiusM,mArc,arcStage.grooveMassKg,draft.gravityMps2);
       const vA0=us&&typeof us.springConstantNpm==='number'&&typeof us.initialCompressionM==='number'
        ?dir*us.initialCompressionM*Math.sqrt(us.springConstantNpm/mOther)
        :dir*((mOther+mArc)/(2*mOther))*vCrit;
@@ -224,7 +231,7 @@ export function validateHorizontalFields(draft:Obj,c:HorizontalValidationContext
       dropMissing(`/initial/bodies/${aIdx}/vxMps`);
      }
      if(unresolved.length>0){
-      derivedPlayback={mode:'suffix',startStageIndex:1,unresolvedKeys:unresolved,reason:'题面未给出弹簧劲度系数、初始压缩量或水平间距，仅播放碰撞与底入可移动圆弧槽的已知后缀，上游弹簧仅作示意且不猜测后续二次相遇。'};
+      derivedPlayback={mode:'suffix',startStageIndex:1,unresolvedKeys:unresolved,reason:'题面未给出弹簧劲度系数、初始压缩量或碰撞点到槽底的水平间距，碰撞瞬时与槽内已知后缀间存在播放时间缺口，上游弹簧仅作示意且不猜测后续二次相遇。'};
       c.setPlayback?.(derivedPlayback);
      }
     }

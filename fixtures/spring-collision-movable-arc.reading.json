@@ -55,6 +55,7 @@
               "radiusM": 0.8,
               "grooveMassKg": 4,
               "entryDirection": 1,
+              "entryGapM": null,
               "criticalTopRelativeRest": true
             }
           ]

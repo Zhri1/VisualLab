@@ -9,6 +9,7 @@ import {
   assembleStageScene,
   type MovableArcStage,
 } from "../index.ts";
+import { buildPlanResponse } from "../../api/validate.ts";
 
 const stage = (over: Partial<MovableArcStage> = {}): MovableArcStage => ({
   kind: "movable_arc",
@@ -217,13 +218,87 @@ describe("底入可动四分之一圆弧槽与多体弹性碰撞接续", () => {
     expect(post.bodies?.A.vxMps).toBeCloseTo(0.25 * vB1, 8);
     expect(post.bodies?.B.vxMps).toBeCloseTo(vB1, 8);
 
-    // 末态：B 首次分离槽底，A 在同一时钟继续匀速运动，槽 C 读数同步
+    // 末态：B 首次分离槽底，槽 C 读数同步；因碰撞点到槽底间距未知，输出显式缺口且 A 仅保留确定速度而不编造相对槽坐标
+    expect(motion.playbackGaps).toHaveLength(1);
+    expect(motion.events.some((e) => e.kind === "movable_arc_gap")).toBe(true);
+    expect(motion.timing?.anchor.label).toBe("槽底入口");
     const end = motion.sampleAt(motion.durationSeconds);
     const grooveEnd = motion.movableArcAt?.(motion.durationSeconds);
     expect(end.bodies?.B.vxMps).toBeCloseTo((-3 / 5) * vB1, 8);
     expect(grooveEnd?.grooveVX).toBeCloseTo((2 / 5) * vB1, 8);
     expect(end.bodies?.A.vxMps).toBeCloseTo(0.25 * vB1, 8);
-    expect(end.bodies?.A.xM).toBeCloseTo(0.25 * vB1 * motion.durationSeconds, 8);
+    expect(end.bodies?.A.positionUndetermined).toBe(true);
+
+    // API 规范化回包（buildPlanResponse → assembleStageScene）再次装配后，缺口、后缀说明与物理量不丢失
+    const apiRes = buildPlanResponse(raw);
+    expect(apiRes.status).toBe("ok");
+    if (apiRes.status === "ok") {
+      const rebuilt = assembleStageScene(apiRes.reading);
+      expect(rebuilt.ok).toBe(true);
+      if (rebuilt.ok) {
+        expect(rebuilt.scene.motion.timing?.mode).toBe("suffix");
+        expect(rebuilt.scene.motion.playbackGaps).toHaveLength(1);
+        expect(rebuilt.scene.motion.events.some((e) => e.kind === "movable_arc_gap")).toBe(true);
+        expect(rebuilt.scene.motion.calculations?.find((c) => c.quantity === "initial_elastic_energy")?.value).toBeCloseTo(ep, 8);
+        expect(rebuilt.scene.motion.calculations?.find((c) => c.quantity === "movable_arc_bottom_normal_force")?.value).toBeCloseTo(35, 8);
+        expect(rebuilt.scene.motion.sampleAt(rebuilt.scene.motion.durationSeconds).bodies?.A.positionUndetermined).toBe(true);
+      }
+    }
+  });
+
+  it("显式 entryGapM = 0 表示碰撞恰在槽底：无播放缺口，两物体同钟精确位置", () => {
+    const vB1 = movableArcCriticalEntrySpeed(0.8, 1, 4, 10);
+    const vA0 = (3 / 4) * vB1;
+    const plan = {
+      kind: "stage_plan",
+      schemaVersion: 1,
+      gravityMps2: 10,
+      bodies: [
+        { bodyId: "A", massKg: 2 },
+        { bodyId: "B", massKg: 1 },
+      ],
+      primaryBodyId: "B",
+      initial: {
+        bodies: [
+          { bodyId: "A", xM: 0, vxMps: vA0 },
+          { bodyId: "B", xM: 0, vxMps: 0 },
+        ],
+      },
+      stages: [
+        {
+          kind: "horizontal_approach",
+          tracks: [
+            { bodyId: "A", kineticFrictionCoefficient: 0 },
+            { bodyId: "B", kineticFrictionCoefficient: 0 },
+          ],
+          end: { kind: "contact_or_rest" },
+        },
+        {
+          kind: "collision_1d",
+          bodyIds: ["A", "B"],
+          mode: "elastic",
+          normalXM: 1,
+          contact: { kind: "horizontal_meeting", approachStageIndex: 0 },
+          externalImpulseNegligible: true,
+        },
+        {
+          kind: "parallel_motion",
+          tracks: [
+            { bodyIds: ["A"], stages: [{ kind: "horizontal_slide", kineticFrictionCoefficient: 0, end: { kind: "scene_end" } }] },
+            { bodyIds: ["B"], stages: [{ kind: "movable_arc", entryMode: "bottom", radiusM: 0.8, grooveMassKg: 4, entryGapM: 0 }] },
+          ],
+          end: { kind: "all_finite_tracks" },
+        },
+      ],
+    };
+    const built = assembleStageScene(plan);
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    expect(built.scene.motion.playbackGaps).toBeUndefined();
+    expect(built.scene.motion.events.some((e) => e.kind === "movable_arc_gap")).toBe(false);
+    const end = built.scene.motion.sampleAt(built.scene.motion.durationSeconds);
+    expect(end.bodies?.A.positionUndetermined).toBeUndefined();
+    expect(end.bodies?.A.xM).toBeCloseTo(0.25 * vB1 * built.scene.motion.durationSeconds, 7);
   });
 
   it("第二组参数验证（A:B:C = 3:2:5，R=1.2 m，g=9.8 m/s²，显式初位与入槽间距）", () => {

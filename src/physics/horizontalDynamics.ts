@@ -85,6 +85,7 @@ export function solveHorizontal(plan:HorizontalPlan, scope?: PlaybackScope) {
   const segments:{stageIndex:number;kind:'horizontal_approach'|'conveyor_belt'|BodyTrackStage['kind'];startSeconds:number;endSeconds:number;bodyIds:string[];stagePath:string}[]=[];
   const events:BodyEvent[]=[];
   const extraCalculations:ExtraCalc[]=[];
+  const playbackGaps:{timeSeconds:number;stageIndex:number;reason:string}[]=[];
   function add(t:number,kind:string,index:number,path:string,owners:string[],before:BodySnapshot,after=before,values?:CollisionValues){events.push({timeSeconds:t,kind,stageIndex:index,stagePath:path,bodyIds:owners.slice(),before:structuredClone(before),after:structuredClone(after),...(values?{collision:values}:{})});}
   add(0,'release',0,'/stages/0',ids,preAt(0));
   if(isConveyor&&conveyorRun){
@@ -182,7 +183,16 @@ export function solveHorizontal(plan:HorizontalPlan, scope?: PlaybackScope) {
       if(reason==='stopped'){status=tracks.every(t=>t.at(age).status==='resting')?'complete':'range_end';if(status==='range_end')reason='prefix_end';}
       for(const tr of tracks){
         if(tr.geometryPendulum)geometry.pendulums=geometry.pendulums!.filter(p=>!tr.ids.some(id=>p.bodyIds.includes(id))).concat(tr.geometryPendulum);
-        if(tr.geometryMovableArc)geometry.multiBodyMovableArc={...tr.geometryMovableArc,entryTimeSeconds:tc+tr.geometryMovableArc.entryTimeSeconds,exitTimeSeconds:tc+tr.geometryMovableArc.exitTimeSeconds};
+        if(tr.geometryMovableArc){
+          geometry.multiBodyMovableArc={...tr.geometryMovableArc,entryTimeSeconds:tc+tr.geometryMovableArc.entryTimeSeconds,exitTimeSeconds:tc+tr.geometryMovableArc.exitTimeSeconds};
+          if(tr.geometryMovableArc.entryGapUnknown){
+            playbackGaps.push({
+              stageIndex:2,
+              timeSeconds:tc,
+              reason:'题面未给出碰撞点到圆弧槽底的水平间距，碰撞后至滑入槽底之间的自由滑行时长未知；此处为播放时间缺口，动画从球滑入槽底起计时，另一物体仅保留确定速度而不猜测其相对槽的实时位置或后续二次相遇。',
+            });
+          }
+        }
         geometry.bodyTracks!.push(...tr.geometry.filter(v=>v.start<=age).map(v=>v.value));
         for(const s of tr.segments){const end=Math.min(s.endSeconds,age);if(end>s.startSeconds)segments.push({...s,startSeconds:tc+s.startSeconds,endSeconds:tc+end});}
       }
@@ -220,8 +230,18 @@ export function solveHorizontal(plan:HorizontalPlan, scope?: PlaybackScope) {
   function postSnapshot(age:number):BodySnapshot{
     if(!tracks.length)return structuredClone(postStart);
     const s=structuredClone(postStart);s.constraints={};
+    const gapUnknownArc=geometry.multiBodyMovableArc?.entryGapUnknown?geometry.multiBodyMovableArc.bodyId:null;
     for(const tr of tracks){const value=tr.at(age),c=tr.stringAt?.(age);if(c)s.constraints[c.constraintId]=c;
-      for(const id of tr.ids){delete s.bodies[id].constraintId;Object.assign(s.bodies[id],value);if(c)s.bodies[id].constraintId=c.constraintId;}}
+      for(const id of tr.ids){
+        delete s.bodies[id].constraintId;
+        if(gapUnknownArc&&id!==gapUnknownArc&&age>0){
+          // 碰撞点到槽底的水平间距未知：保留另一物体碰后的确定速度，但不编造其相对槽的实时世界坐标。
+          Object.assign(s.bodies[id],{...value,xM:postStart.bodies[id].xM,yM:postStart.bodies[id].yM,positionUndetermined:true});
+        }else{
+          Object.assign(s.bodies[id],value);
+        }
+        if(c)s.bodies[id].constraintId=c.constraintId;
+      }}
     return s;
   }
   const snapshot=(t:number)=>impact&&collision&&t>=tc?postSnapshot(t===duration?postAge:t-tc):preAt(t);
@@ -229,7 +249,7 @@ export function solveHorizontal(plan:HorizontalPlan, scope?: PlaybackScope) {
   const movableArcAt=arcTrackForEval?.movableArcEval?(t:number)=>arcTrackForEval.movableArcEval!(Math.max(0,t-tc)):undefined;
   const finite=(s:BodySnapshot)=>Object.values(s.bodies).every(b=>[b.xM,b.yM,b.vxMps,b.vyMps,b.massKg].every(Number.isFinite))&&Object.values(s.constraints).every(c=>Number.isFinite(c.tensionN));
   if(!Number.isFinite(duration)||!finite(snapshot(duration))||events.some(e=>!finite(e.before)||!finite(e.after)))throw new RangeError('水平正碰数值量级无法表示。');
-  return {geometry,segments,events,duration,reason,status,snapshot,initial:preAt(0),collisionValues,extraCalculations,movableArcAt};
+  return {geometry,segments,events,duration,reason,status,snapshot,initial:preAt(0),collisionValues,extraCalculations,movableArcAt,playbackGaps};
 
   function makeTrack(stages:BodyTrackStage[],owners:string[],i:number):Track{
     const path=`/stages/2/tracks/${i}/stages/0`,head=stages[0],start=postStart.bodies[owners[0]];
@@ -258,7 +278,8 @@ export function solveHorizontal(plan:HorizontalPlan, scope?: PlaybackScope) {
     if(head.kind==='movable_arc'){
       if(start.vxMps===0)throw new BodyPlanError(path,'碰后速度为零，无法进入底入可移动圆弧槽。');
       const mass=owners.reduce((s,id)=>s+postStart.bodies[id].massKg,0);
-      const entryGap=head.entryGapM??0;
+      const entryGapUnknown=head.entryGapM===null||(head.entryGapM===undefined&&scope?.mode==='suffix');
+      const entryGap=typeof head.entryGapM==='number'&&Number.isFinite(head.entryGapM)?head.entryGapM:0;
       const dir=Math.sign(start.vxMps) as 1|-1;
       const gapTime=entryGap>0?entryGap/Math.abs(start.vxMps):0;
       const entryX=start.xM+dir*entryGap;
@@ -285,10 +306,14 @@ export function solveHorizontal(plan:HorizontalPlan, scope?: PlaybackScope) {
         const dt=localT-solved.durationSeconds;
         return{grooveXM:solved.exit.grooveXM+solved.exit.grooveVX*dt,grooveVX:solved.exit.grooveVX,normalForceN:0,angleDeg:solved.exit.angleDeg,relativeSpeedMps:0};
       };
-      const trackEvents:TrackEvent[]=solved.events.map(ev=>{
-        const st=scalar({xM:ev.xM,yM:ev.yM,vxMps:ev.vxMps,vyMps:ev.vyMps});
-        return{time:gapTime+ev.timeSeconds,kind:ev.kind,path,before:st,after:st,normalForceBeforeN:ev.normalForceBeforeN,normalForceAfterN:ev.normalForceAfterN};
-      });
+      const entryScalar=scalar({xM:entryX,yM:start.yM,vxMps:start.vxMps,vyMps:0});
+      const trackEvents:TrackEvent[]=[
+        ...(entryGapUnknown?[{time:0,kind:'movable_arc_gap',path,before:entryScalar,after:entryScalar}]:[]),
+        ...solved.events.map(ev=>{
+          const st=scalar({xM:ev.xM,yM:ev.yM,vxMps:ev.vxMps,vyMps:ev.vyMps});
+          return{time:gapTime+ev.timeSeconds,kind:ev.kind,path,before:st,after:st,normalForceBeforeN:ev.normalForceBeforeN,normalForceAfterN:ev.normalForceAfterN};
+        }),
+      ];
       const trackSegments:TrackSegment[]=[
         ...(gapTime>0?[{stageIndex:2,stagePath:path,bodyIds:owners,kind:'horizontal_slide' as const,startSeconds:0,endSeconds:gapTime}]:[]),
         {stageIndex:2,stagePath:path,bodyIds:owners,kind:'movable_arc' as const,startSeconds:gapTime,endSeconds:totalDuration},
@@ -309,6 +334,7 @@ export function solveHorizontal(plan:HorizontalPlan, scope?: PlaybackScope) {
           entryTimeSeconds:gapTime,exitTimeSeconds:totalDuration,
           exitGrooveXM:solved.exit.grooveXM,exitGrooveVX:solved.exit.grooveVX,
           bottomReturnNormalForceN:solved.bottomReturnNormalForceN??null,
+          ...(entryGapUnknown?{entryGapUnknown:true}:{}),
         },
         extraCalcs:calcs,
       };

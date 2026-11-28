@@ -4,6 +4,7 @@ export type BodyDefinition = { bodyId: string; massKg: number };
 export type BodyState = BodyDefinition & {
   xM: number; yM: number; vxMps: number; vyMps: number; springCompressionM: number;
   status: 'moving' | 'resting' | 'turning' | 'landed' | 'model_boundary';
+  positionUndetermined?: boolean;
   constraintId?: string; groupId?: string;
 };
 export type StringState = {
@@ -57,6 +58,7 @@ export type BodyGeometry = {
     bodyId: string; stagePath: string; entryXM: number; entryYM: number; radiusM: number; grooveMassKg: number;
     entryDirection: -1 | 1; entryTimeSeconds: number; exitTimeSeconds: number; exitGrooveXM: number; exitGrooveVX: number;
     bottomReturnNormalForceN: number | null;
+    entryGapUnknown?: boolean;
   };
   upstreamSpring?: { bodyId: string; xM: number; schematic: boolean; elasticEnergyJ: number | null };
 };
