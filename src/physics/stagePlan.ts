@@ -7,7 +7,7 @@ import { validateMultiBodyPlan } from './multiBodyPlan.ts';
 import { validateSwitchableEMPlan, type SwitchableEMStage } from './switchableEMCollision.ts';
 import { validateMagneticReencounterPlan, type MagneticReencounterStage } from './magneticReencounter.ts';
 import type { BodyDefinition, BodyStage } from './multiBodyTypes.ts';
-export type Energy = { stageIndex: number; elasticEnergyJ: number; origin: "given" | "user" | "spring_parameters" | "critical_arc_top"; basis?: Record<string, number> };
+export type Energy = { stageIndex: number; elasticEnergyJ: number; origin: "given" | "user" | "spring_parameters" | "critical_arc_top" | "tangent_to_next_arc"; basis?: Record<string, number> };
 export type PlaybackScope = { mode: "full" | "suffix" | "state_only"; startStageIndex: number; unresolvedKeys: string[]; reason: string; xM?: number; vxMps?: number; stopReason?: "stop_at_target" | "stop_before_target" | "prefix_end" };
 export type SingleStageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release" | "constant_force_1d" | "conveyor_belt" | "magnetic_deflection" | "movable_arc" | "movable_semicircle" | "spring_pair";
 export type StageKind = SingleStageKind | BodyStage['kind'] | SwitchableEMStage['kind'] | MagneticReencounterStage['kind'];
@@ -208,7 +208,25 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
   }
   const componentInitial = firstKind === "projectile" || (magneticInitial && hasComponents) || (firstKind == null && hasComponents && !hasSpeed);
   const initialKeys = conveyorInitial ? ["vxMps"] : componentInitial ? ["vxMps", "vyMps"] : ["speedMps"];
-  for (const key of initialKeys) numberField(initial, normalizedInitial, key, "/initial/" + key, key === "speedMps" ? nonnegative : finite);
+  // 若首段抛体或「圆弧 → 抛体」满足「已知落差/落面 + 切向入后段圆弧」反求条件，允许初速暂为 null 交由 gaokaoConstraints 反求。
+  const hasTangentLaunchDerivation =
+    (firstKind === "projectile" &&
+      record(stages[0]?.end) &&
+      stages[0].end.kind === "tangent_to_next_arc" &&
+      stages[0].dropHeightM != null &&
+      stages[0].landingPlaneYM == null) ||
+    (firstKind === "vertical_arc" &&
+      stages[1]?.kind === "projectile" &&
+      record(stages[1]?.end) &&
+      stages[1].end.kind === "tangent_to_next_arc" &&
+      stages[1].landingPlaneYM != null &&
+      stages[1].dropHeightM == null);
+  for (const key of initialKeys) {
+    const optionalInitial =
+      hasTangentLaunchDerivation &&
+      ((firstKind === "projectile" && key === "vxMps") || (firstKind === "vertical_arc" && key === "speedMps"));
+    numberField(initial, normalizedInitial, key, "/initial/" + key, key === "speedMps" ? nonnegative : finite, !optionalInitial);
+  }
   // 初态形状冲突时也保留另一种形状的已知值，便于用户选择正确形式。
   for (const key of ["speedMps", "vxMps", "vyMps"]) {
     if (!initialKeys.includes(key) && key in initial) numberField(initial, normalizedInitial, key, "/initial/" + key, key === "speedMps" ? nonnegative : finite, false);
@@ -672,10 +690,17 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
       massKg: draft.massKg,
       initial: normalizedInitial,
       stages: draft.stages,
+      ...(input.energy != null ? { energy: input.energy } : {}),
       ...(nonSpringConstraints ? { constraints: input.constraints } : {}),
     });
     if (solved.ok) {
       draft.stages = solved.stages;
+      if (solved.initial) {
+        Object.assign(normalizedInitial, solved.initial);
+      }
+      if (solved.energy) {
+        draft.energy = solved.energy;
+      }
       derivedCalculations = [...bounceDerived, ...solved.calculations];
     } else {
       for (const mk of solved.missingKeys) missingKeys.push(mk);

@@ -19,7 +19,17 @@
 }
 ```
 
-- **互斥规则**：`end: { kind: "tangent_to_next_arc" }` 与显式 `dropHeightM`、`landingPlaneYM` 三者互斥；同时出现定位 `/stages/<i>` 报 `PRECONDITION_CONFLICT`。
+- **互斥与双向反求规则**：
+  - **已知出射速度 → 反求落差**（既有）：`end: { kind: "tangent_to_next_arc" }` 且未给 `dropHeightM`/`landingPlaneYM`，由入射速度 $(v_x, v_y)$ 反求 `dropHeightM`；若同时给出了入射速度与落差/落面，则定位 `/stages/<i>` 报 `PRECONDITION_CONFLICT`。
+  - **已知平抛落差/落面与入口切线 → 反求水平出射速度（新增 `deriveProjectileTangentLaunchSpeed`）**：当平抛初速待求（`initial.vxMps: null` 且 `vyMps: 0`；或前段为水平切线出射的光滑 `vertical_arc` 且 `initial.speedMps: null`；或前段为无摩擦未连接 `spring_release` 且 `k`/`c`/`energy` 未给）且已知正落差 $H > 0$（直接给 `dropHeightM`，或圆弧后给固定 `landingPlaneYM` 由出射高度求 $H = y_{\text{exit}} - \text{landingPlaneYM} > 0$）时，允许 `end: { kind: "tangent_to_next_arc" }` 与该落差/落面同时出现：
+    - 入弧竖直分速度 $v_{y,\text{entry}} = -\sqrt{2gH} < 0$，飞行时间 $t = \sqrt{2H/g} > 0$。
+    - 要求非竖直切线（$\cos\varphi_0 \ne 0$）、非水平切线（$\sin\varphi_0 \ne 0$）且切线竖直分量向下（$d\sin\varphi_0 < 0$）；否则定位 `/stages/<i+1>/path/startAngleDeg` 或 `/stages/<i>/end` 报 `PRECONDITION_CONFLICT`。
+    - 带符号水平出射速度：
+      $$v_x = v_{y,\text{entry}} \cot\varphi_0 = -\sqrt{2gH}\frac{\cos\varphi_0}{\sin\varphi_0}$$
+    - 反传前段能量（保留推导来源 `DerivedCalculation`）：
+      - 前段为光滑 `vertical_arc` 时，校验出射切线水平且与 $v_x$ 同向、内轨最高点满足 $v_x^2 \ge gR$，由机械能守恒反求入弧初速 $v_0 = \sqrt{v_x^2 + 2gR(\cos\varphi_{\text{start}} - \cos\varphi_{\text{end}})}$ 写回 `initial.speedMps`。
+      - 前段为光滑 `spring_release` 时，校验 $v_x > 0$，反求弹簧初始弹性势能 $E_p = \frac{1}{2}mv_x^2$ 写回 `energy`（`origin: "tangent_to_next_arc"`），并由既有 `resolveSpringEnergy` 以 `suffix` 模式从桌缘精确播放、标注未计时前段。
+    - 规范化后移除 `stages[i].end`，保留 `dropHeightM` 或 `landingPlaneYM`，并在 `derivedCalculations` 记录 `rule: "tangent_to_next_arc_launch_vx"` 与 `rule: "energy_backprop_from_tangent_launch"`。
 - **接续前提**：紧邻后继段 `stages[i + 1]` 必须为携带显式 `path`（含 `startAngleDeg`、`direction`）的 `vertical_arc`，否则定位 `/stages/<i>/end` 报 `PRECONDITION_CONFLICT`。
 - **物理推导（`deriveProjectileTangentDrop`）**：
   - 入口角 $\varphi_0 = \text{nextArcStartAngleDeg} \cdot \pi / 180$，方向符号 $d = +1$（`positive`）或 $-1$（`negative`）。

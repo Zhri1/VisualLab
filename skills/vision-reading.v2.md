@@ -419,7 +419,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 同一题允许串联多个 `vertical_arc` 或 `horizontal_slide`（如 `projectile → vertical_arc → horizontal_slide → vertical_arc`），并遵守以下声明式提取规则（**不要由视觉模型代算落差、半径或世界圆心**）：
 
 - **后继段省略 `path.center`**：显式 `vertical_arc.path` 作为后继段时**应省略 `center`**，由物理库按前段出口世界坐标、入口角与半径自动反算衔接圆心，避免手算世界圆心出错；首段也可省略 `center`（默认入口在 `(0, 0)`）。
-- **平抛/斜抛切向入弧**：题面写「恰好沿切线滑入圆弧」且未直接给落差时，`projectile` 使用 `end: { "kind": "tangent_to_next_arc" }`（与 `dropHeightM`、`landingPlaneYM` 互斥，三选一）。
+- **平抛/斜抛切向入弧**：题面写「恰好沿切线滑入圆弧」时：若已知初速、未知落差，`projectile` 只写 `end: { "kind": "tangent_to_next_arc" }`（不写 `dropHeightM`/`landingPlaneYM`）；若已知正落差（或圆弧后固定 `landingPlaneYM`）且平抛初速/前段圆弧初速/预压弹簧势能待求，则保留该 `dropHeightM`（或 `landingPlaneYM`）并同时写 `end: { "kind": "tangent_to_next_arc" }`，将待求的 `initial.vxMps` / `initial.speedMps` / 弹簧 `k, c` 填 `null`，由物理库反求水平出射速度并反传前段能量。
 - **圆弧高差反求半径**：题面给出圆弧两端的竖直高度差与圆心角、但未直接给半径时，`vertical_arc` 填 `"radiusM": null` + `"verticalDropM": <高度差数值>`（与显式正数 `radiusM` 互斥）。
 - **圆轨临界过顶反求半径**：题干或小问要求「恰好到达圆轨最高点」且该圆弧半径未给时，`vertical_arc` 填 `"radiusM": null`，并在顶层添加 `"constraints": [{ "kind": "critical_arc_top", "stageIndex": <该圆弧下标> }]`（同时适用于旧预压弹簧 180° 内轨与显式 `path` 圆轨）。
 - **题图字母地标**：各 stage 可选填 `"startLabel"` / `"endLabel"`（如 `"A"`、`"B"`、`"C"`、`"D"`、`"E"`）。
