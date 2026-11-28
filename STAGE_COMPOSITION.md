@@ -122,6 +122,7 @@ Node 服务与 Qoder 云函数识别新题时使用同一张映射表。
 | `movable_semicircle` | `radiusM`、`grooveMassKg`、`direction`、`frictionless`、`groundFrictionless`，详情见 [可平动半圆轨道契约](MOVABLE_SEMICIRCLE.md)。 | 正速从底部切向进入初静止的可平动半圆内轨，取样同时包含滑块与轨道运动，记录实际到顶、提前失去接触或首个转折点。 |
 | `spring_pair` | `springConstantNpm`、`targetMassKg`（可 null）、`separationSpeedMps`（可 null）、可选 `gapM`；入射球质量读顶层 `massKg`。 | 弹簧不锚墙的弹性双球作用：匀速走完 gap → 压缩 → 共速（Ep 最大）→ 恢复原长分离。`targetMassKg` 缺而给 `separationSpeedMps` 时反求 m₂ = m₁(u+s)/(u−s)。末段。 |
 | `circular_orbit` | `gravitationalParameterM3s2`（中心天体引力常量乘质量 $GM$，正值）、`orbitalRadiusM`（轨道半径 $r$）或互斥的 `altitudeM` + `centralBodyRadiusM`（$r = R + h$，给离地高度时必须提供中心天体半径）、可选 `direction`（`"ccw"` 默认逆时针 / `"cw"` 顺时针）、`initialAngleDeg`（默认 0°）、`orbits`（默认 1 圈）。无需顶层 `gravityMps2` 或 `massKg`。 | 固定中心天体与低质量单卫星圆周轨道运动：计算 $v = \sqrt{GM/r}$、$T = 2\pi\sqrt{r^3/(GM)}$、向心加速度 $a_c = GM/r^2$，完整播放指定圈数并输出轨道方向、速率与半径。椭圆轨道与霍曼转移不在本版范围。 |
+| `field_scene` | `particles[]`（`id/massKg/chargeC/xM/yM/vxMps/vyMps`）、`regions[]`（`id` + 可空边界 `xMinM/xMaxM/yMinM/yMaxM` + 带符号 `magneticTeslaB`，向外为正、向里为负；null 待反求时配 `fieldDirection`）、`observers[]`（`cross_x/cross_y` 配 `atM` 与可选 `direction`；`enter_region/leave_region` 配 `regionId`）、`constraints[]`（`solveRegionId/observerId/kind/targetM|targetCos`）、可选 `durationSeconds/maxSeconds`。无需顶层 `massKg/initial/gravityMps2`。 | 开放组合接口：多粒子共钟执行，各区匀强磁场内解析圆周、过界时位置速度连续换场；观察事件解析求首次穿越时刻；未知 B 由观察量扫描+二分反求后正演复核。独立单段，不与其他阶段混用。 |
 
 `horizontal_slide.end` 原有 `distance/stop` 两种互斥分支保持兼容。指定距离时，库比较到达目标与因摩擦停止两个事件。停止更早时返回 `stop_before_target`，恰好同时发生时停止优先，返回 `stop_at_target`。只指定 `stop` 时，以停止为目标。光滑面上有正初速且要求因摩擦停止，返回可定位的前提冲突。
 
@@ -138,6 +139,8 @@ V1 支持斜面到坡底接无损转向，转向接水平滑动或弹簧，水�
 传送带后缀只在实际离开固定带端时开始。题面给定接续端时使用 `continuationExitEdge`，实际从另一端离开则止于离带事件。定长匀速且题未给时长时由物理库求实际边界，不设固定观察时长。入带端、离带事件与两种位移参考系见 [传送带契约](CONVEYOR_BELT.md)。
 
 动量守恒扩展另允许 `movable_arc → spring_pair` 与 `movable_arc → horizontal_slide`（μ=0）；`spring_pair` 为末段。识别文案见 [vision-reading.v2 第17、18节](skills/vision-reading.v2.md)。「恰好不能再次滑上槽」一类临界条件写成 `separationSpeedMps`（= 槽速），由库反求靶球质量，识别端不代算答案。多体阶段的系统能量把槽与靶球计入，耗散按守恒校验而非单体质点初末差。
+
+开放组合接口 `field_scene` 把「AI 搭场景、物理库执行」落成契约：粒子数、各自初态、边界位置、各区磁场、观察事件与反求约束全是场景参数；改方向、改边界、加粒子只改 JSON。执行器对每颗粒子独立共钟推进：区内按 $R=mv/|q|B$、$\omega=|q|B/m$ 解析圆周，穿越区域边界时保留位置与速度换用新区磁场；`cross_x/cross_y` 观察用三角方程闭式求首次穿越时刻（与换界同刻发生时两者都记录）。反求按 constraints 声明顺序对 $|B|$ 对数扫描找变号括号后二分，命中观察量目标值后正演复核。识别文案见 [vision-reading.v2 第24节](skills/vision-reading.v2.md)。
 
 ## 4. 装配结果、绘图与阶段修改
 

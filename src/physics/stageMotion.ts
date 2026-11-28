@@ -9,6 +9,7 @@ import type { BodyGeometry, BodySnapshot, MotionStatus } from './multiBodyTypes.
 import { computeSwitchableEMMotion, type SwitchableEMGeometry } from './switchableEMMotion.ts';
 import { computeMagneticReencounterMotion, type MagneticReencounterGeometry } from './magneticReencounterMotion.ts';
 import { computeMultiBodyMotion } from './multiBodyMotion.ts';
+import { computeFieldSceneMotion } from './fieldScene.ts';
 import { validateStagePlan } from "./stagePlan.ts";
 import { landingTime, linearState, springMetrics, springState } from "./kinematics.ts";
 import { solveRoughSpring, type RoughSpring, type RoughSpringConflict } from "./roughSpring.ts";
@@ -38,6 +39,8 @@ export type StageGeometry = BodyGeometry & {
     direction: "right" | "left"; startLabel?: string; endLabel?: string;
   };
   springPair?: { stageIndex: number; yM: number; gapM: number; mass2Kg: number; targetEntryXM: number; contactTimeSeconds: number; separateTimeSeconds: number; springConstantNpm: number; incomingDir?: -1 | 1; maxCompressionM?: number; restLengthM?: number };
+  /** 开放组合磁场场景：分区/多粒子轨迹/观察事件标记，供专用画布渲染。 */
+  fieldScene?: import('./fieldScene.ts').FieldSceneGeometry;
   spring?: { contact: Point; anchor: Point };
   springs?: Array<{ stageIndex: number; contact: Point; anchor: Point }>;
   projectile?: { launch: Point; landingPlane: { yM: number } };
@@ -51,7 +54,7 @@ export type StageGeometry = BodyGeometry & {
   blockSizeM: number;
   positionReference: "front_bottom" | "particle";
 };
-export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "bounce_apex" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'pendulum_peg_top' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit' | 'magnetic_exit' | 'movable_arc_exit' | 'movable_arc_return_exit' | 'movable_arc_top_exit' | 'movable_semicircle_top' | 'movable_semicircle_turn' | 'spring_pair_separate' | 'orbit_complete';
+export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "bounce_apex" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'pendulum_peg_top' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit' | 'magnetic_exit' | 'movable_arc_exit' | 'movable_arc_return_exit' | 'movable_arc_top_exit' | 'movable_semicircle_top' | 'movable_semicircle_turn' | 'spring_pair_separate' | 'orbit_complete' | 'field_scene_complete';
 export type ImpulseNs = {jxNs:number;jyNs:number;magnitudeNs:number};
 export type StageEvent = {
   impulseNs?: ImpulseNs;
@@ -87,6 +90,8 @@ export type StageMotion = {
   movableSemicircleAt?(timeSeconds: number): MovableSemicircleReading | null;
   /** 与 sampleAt 同一时钟的弹簧双球读数（靶球位置/速度、压缩量）。 */
   springPairAt?(timeSeconds: number): { x2M: number; vx2Mps: number; compressionM: number } | null;
+  /** 与 sampleAt 同一时钟的组合磁场场景读数（各粒子所在区域、已命中观察事件）。 */
+  fieldSceneAt?(timeSeconds: number): import('./fieldScene.ts').FieldSceneReading;
 };
 /** 动能、相关势能与播放窗口内累计已知摩擦耗能（J）。 */
 export type EnergyReading = {
@@ -590,6 +595,7 @@ function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: Motion
 
 function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | StagePlanFailure {
   const first = plan.stages[0];
+  if (first?.kind === 'field_scene') return computeFieldSceneMotion(first);
   if (first?.kind === 'switchable_em_collision') return computeSwitchableEMMotion(first);
   if (first?.kind === 'magnetic_reencounter') return computeMagneticReencounterMotion(first);
   if (plan.bodies) return computeMultiBodyMotion(plan, scope);
@@ -752,6 +758,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     }
     const hasNext = index + 1 < plan.stages.length;
     try { switch (stage.kind) {
+      case "field_scene": throw new RangeError("组合磁场场景由 field_scene 入口直接求解，不进入逐段循环。");
       case "incline_slide": run = incline(stage, state, plan.gravityMps2!, geometry, plan.stages[index + 1]?.kind === "projectile", index, plan.massKg); break;
       case "lossless_turn": run = turn(state, plan.stages[index + 1] as SingleStage | undefined); break;
       case "horizontal_slide": run = horizontal(stage, state, plan.gravityMps2 ?? 0, geometry, index); break;

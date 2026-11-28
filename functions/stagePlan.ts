@@ -9,10 +9,11 @@ import { circularEntry, circularGeometry, type ExplicitArcPath } from './circula
 import { validateMultiBodyPlan } from './multiBodyPlan.ts';
 import { validateSwitchableEMPlan, type SwitchableEMStage } from './switchableEMCollision.ts';
 import { validateMagneticReencounterPlan, type MagneticReencounterStage } from './magneticReencounter.ts';
+import { validateFieldScene } from './fieldScene.ts';
 import type { BodyDefinition, BodyStage } from './multiBodyTypes.ts';
 export type Energy = { stageIndex: number; elasticEnergyJ: number; origin: "given" | "user" | "spring_parameters" | "critical_arc_top" | "tangent_to_next_arc"; basis?: Record<string, number> };
 export type PlaybackScope = { mode: "full" | "suffix" | "state_only"; startStageIndex: number; unresolvedKeys: string[]; reason: string; xM?: number; vxMps?: number; stopReason?: "stop_at_target" | "stop_before_target" | "prefix_end" };
-export type SingleStageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release" | "constant_force_1d" | "conveyor_belt" | "magnetic_deflection" | "movable_arc" | "movable_semicircle" | "spring_pair" | "circular_orbit";
+export type SingleStageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release" | "constant_force_1d" | "conveyor_belt" | "magnetic_deflection" | "movable_arc" | "movable_semicircle" | "spring_pair" | "circular_orbit" | "field_scene";
 export type StageKind = SingleStageKind | BodyStage['kind'] | SwitchableEMStage['kind'] | MagneticReencounterStage['kind'];
 export type ProjectileBounce = {
   normalRestitution: number;
@@ -30,6 +31,7 @@ export type SingleStage =
   | import("./circularOrbit.ts").CircularOrbitStage
   | import("./movableSemicircle.ts").MovableSemicircleStage
   | import("./springPair.ts").SpringPairStage
+  | import("./fieldScene.ts").FieldSceneStage
   | { kind: "spring_release"; springConstantNpm: number | null; initialCompressionM: number | null; kineticFrictionCoefficient: number; unattached: true; slidesAfterRelease: boolean; releaseCompleteByM?: number | null }
   | { kind: "spring_contact"; springConstantNpm: number; frictionless: true; unattached: true; kineticFrictionCoefficient?: never; staticFrictionCoefficient?: never; reboundAtMaxCompression?: never }
   | { kind: "spring_contact"; springConstantNpm: number; kineticFrictionCoefficient: number; staticFrictionCoefficient?: number | null; reboundAtMaxCompression?: boolean | null; unattached: true; frictionless?: never }
@@ -77,12 +79,12 @@ export type StagePlanFailure = {
 };
 export type StagePlanValidation = { ok: true; reading: ResolvedStagePlan; playback?: PlaybackScope } | StagePlanFailure;
 
-const stageKinds: readonly string[] = ["incline_slide", "lossless_turn", "horizontal_slide", "spring_contact", "projectile", "vertical_arc", "spring_release", "constant_force_1d", "conveyor_belt", "magnetic_deflection", "movable_arc", "movable_semicircle", "spring_pair", "circular_orbit"];
+const stageKinds: readonly string[] = ["incline_slide", "lossless_turn", "horizontal_slide", "spring_contact", "projectile", "vertical_arc", "spring_release", "constant_force_1d", "conveyor_belt", "magnetic_deflection", "movable_arc", "movable_semicircle", "spring_pair", "circular_orbit", "field_scene"];
 const positive = (value: number) => value > 0;
 const nonnegative = (value: number) => value >= 0;
 const finite = (_value: number) => true;
 const numericRules: Record<StageKind, Record<string, (value: number) => boolean>> = {
-  switchable_em_collision: {}, magnetic_reencounter: {}, horizontal_approach: {}, pendulum_swing: {}, collision_1d: {}, parallel_motion: {}, block_plank: {}, pulley_system: {},
+  switchable_em_collision: {}, magnetic_reencounter: {}, horizontal_approach: {}, pendulum_swing: {}, collision_1d: {}, parallel_motion: {}, block_plank: {}, pulley_system: {}, field_scene: {},
   incline_slide: { lengthM: positive, angleDeg: (value) => value > 0 && value < 90, kineticFrictionCoefficient: nonnegative },
   lossless_turn: {},
   horizontal_slide: { kineticFrictionCoefficient: nonnegative },
@@ -235,7 +237,7 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
       stages[1].dropHeightM == null);
   for (const key of initialKeys) {
     const optionalInitial =
-      firstKind === "circular_orbit" ||
+      firstKind === "circular_orbit" || firstKind === "field_scene" ||
       (hasTangentLaunchDerivation &&
         ((firstKind === "projectile" && key === "vxMps") || (firstKind === "vertical_arc" && key === "speedMps")));
     numberField(initial, normalizedInitial, key, "/initial/" + key, key === "speedMps" ? nonnegative : finite, !optionalInitial);
@@ -651,6 +653,15 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
       }
       if (hasAccel && source.staticFrictionCoefficient == null) {
         missingKeys.push(path + "/staticFrictionCoefficient");
+      }
+    }
+    if (source.kind === "field_scene") {
+      if (i > 0 || stages.length > 1) issue(path + "/kind", "UNSUPPORTED", "组合磁场场景作为独立单段模型使用。");
+      try {
+        validateFieldScene(source as import("./fieldScene.ts").FieldSceneStage);
+      } catch (error) {
+        const field = (error as { field?: string }).field;
+        issue(field && field.startsWith("/stages") ? field : path, "RANGE", (error as Error).message);
       }
     }
     if (source.kind === "magnetic_deflection") {

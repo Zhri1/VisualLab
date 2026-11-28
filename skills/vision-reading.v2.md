@@ -13,6 +13,7 @@
 | **可自由滑动的圆弧槽 / 可平动半圆轨道 / 不锚墙弹簧连两球** | 动量守恒专用模型（第 17、17.1、18 节） | 顶层 `massKg`（滑块/球）+ `initial: { speedMps }`；槽/轨道质量写段内 `grooveMassKg`，靶球质量写段内 `targetMassKg` | 不写 `bodies`；可平动半圆内轨（底部带速进入）用 `movable_semicircle`，四分之一槽顶静止下滑用 `movable_arc`，固定圆轨用 `vertical_arc` |
 | **匀强磁场偏转**（垂直纸面的匀强磁场，区内忽略重力；可接仅受重力的抛体） | 单物体多阶段（第 20 节） | 顶层 `massKg` 必填；磁场首段水平向右用 `{ speedMps }`，分量初态用 `{ vxMps, vyMps }`；接抛体需顶层 `gravityMps2` | 不把实际出射速度写成新初态，不把对入射地面的高度写成出射点落差 |
 | **分区电磁场 + 双粒子弹性正碰 + 撤场恢复**（y>0 向下匀强电场，y<0 垂直纸面匀强磁场，碰后按竖线撤场、两圆外切恢复） | 复合电磁模型（第 21 节） | 唯一阶段 `switchable_em_collision`，顶层 `initial: { speedMps: null }`（标度放段内）；符号题设 `scaleMode: "normalized"` | 不拆成 `magnetic_deflection` 或多体 `collision_1d`；不代算 E、B、等待时间或路程 |
+| **多粒子 + 分区磁场自由组合**（若干带电粒子各自初态；平面按竖线/横线分块、各块 B 方向大小独立；过界换场；观察「某粒子首次到某线/某区」；通过观察量反求未知 B） | 开放组合场景（第 24 节） | 唯一阶段 `field_scene`；粒子质量/电荷/初态写段内 `particles`；顶层 `initial` 可省、`scaleMode: "normalized"` 或 `"si"` | 不拆成多个 `magnetic_deflection`；不写 `bodies`；不把过界后的速度代算成新初态 |
 | **不支持题型**（未登记的电磁模型、天体、热光原、机械波等） | 超范围（第 6 节） | `stages: []` + 非空 `unsupportedReason` | 不硬套不匹配的阶段 |
 
 轻绳摆和最低点两物体正碰另按第9节输出，使用body表，不套旧顶层massKg。
@@ -956,3 +957,49 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
   "assumptions": ["题设使用符号基准 m、q、B、a，按归一化标度 1 演示"]
 }
 ```
+
+## 24. 开放组合磁场场景（`field_scene`）
+
+题面特征：平面被一条或几条边界分成若干区域，各区域有独立的垂直纸面匀强磁场（方向/大小可不同，也可无场）；**两颗粒子或更多**从同一点或不同点以各自初速射入；要求观察「某粒子首次穿过某条线」「某粒子返回某区」等事件；或只给观察量（角度、返回点坐标）反求未知 B。
+
+**分工原则：AI 只搭场景，物理库负责执行。** 放几颗粒子、各自起点与初速方向、边界位置、各区 B、观察哪些事件，全部是场景参数；改粒子数、改入射方向、改边界位置都**只改 JSON，不改代码**。
+
+- 唯一阶段 `field_scene`，不与其他阶段混用；顶层 `initial` 可省略（粒子初态在段内）。
+- `particles[]`：`id`（唯一）、`massKg`、`chargeC`（可负）、`xM/yM`（起点）、`vxMps/vyMps`（初速分量，含方向）。忽略重力与粒子间作用为题设默认。
+- `regions[]`：按声明顺序优先匹配；`xMinM/xMaxM/yMinM/yMaxM` 缺省或 null = 该方向无界；`magneticTeslaB` **带符号**：垂直纸面向外为正、向里为负；无场区省略或 null。半平面示例：I 区 `{xMinM:0, xMaxM:d, magneticTeslaB:-B1}`，II 区 `{xMinM:d, magneticTeslaB:+B2}`。
+- `observers[]`：`{id, particleId, kind, ...}`。`kind:"cross_x"|"cross_y"` 配 `atM`（目标坐标）与可选 `direction`（+1/−1，缺省任意方向首次）；`kind:"enter_region"|"leave_region"` 配 `regionId`。每个观察只记录**首次**命中，时刻由解析穿越方程精确求出。
+- `constraints[]`（反求时才写）：`{solveRegionId, observerId, kind, targetM|targetCos}`；待求区域 `magneticTeslaB` 填 `null` 并用 `fieldDirection` 给方向；`kind` 取 `position_x/position_y/velocity_cos_x/velocity_cos_y`。**按依赖顺序声明**（先只含一个未知区的约束）。引擎扫描+二分求根后正演复核。
+- **严禁代算**：半径、偏转角、过界时刻、返回点坐标、反求出的 B 全部由物理库计算；题给角度/坐标只作为 observers/constraints 的目标值出现。
+- 归一化：题面只给符号或比例时 `scaleMode:"normalized"`，可自选 d=1、v₀=1、m=1、q=−1 等演示标度并在 `assumptions` 声明；几何关系与比值与标度无关。
+
+示例（双粒子跨反向磁场原题：负电 a/b 沿 +x/+y 从 O 入射，I 区向里、II 区向外；观察 b 首过虚线、b 返回 I 区、a 首次回 x 轴；归一化 d=1）：
+
+```json
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "scaleMode": "normalized",
+  "stages": [
+    {
+      "kind": "field_scene",
+      "particles": [
+        { "id": "a", "massKg": 1, "chargeC": -1, "xM": 0, "yM": 0, "vxMps": 1, "vyMps": 0 },
+        { "id": "b", "massKg": 1, "chargeC": -1, "xM": 0, "yM": 0, "vxMps": 0, "vyMps": 1 }
+      ],
+      "regions": [
+        { "id": "I", "xMinM": 0, "xMaxM": 1, "magneticTeslaB": -0.6 },
+        { "id": "II", "xMinM": 1, "magneticTeslaB": 0.4 }
+      ],
+      "observers": [
+        { "id": "b_first", "particleId": "b", "kind": "cross_x", "atM": 1, "direction": 1, "label": "b 首次过虚线" },
+        { "id": "b_return", "particleId": "b", "kind": "cross_x", "atM": 1, "direction": -1, "label": "b 返回 I 区" },
+        { "id": "a_axis", "particleId": "a", "kind": "cross_y", "atM": 0, "direction": 1, "label": "a 首次回 x 轴" }
+      ]
+    }
+  ],
+  "assumptions": ["归一化 d=1 m、v0=1 m/s、m=1 kg、q=-1 C；I 区 0.6 T 向里、II 区 0.4 T 向外"]
+}
+```
+
+反求变体：把两区 `magneticTeslaB` 改 `null` + `fieldDirection`，并加
+`"constraints": [{"solveRegionId":"I","observerId":"b_first","kind":"velocity_cos_y","targetCos":0.4},{"solveRegionId":"II","observerId":"b_return","kind":"position_y","targetM":6.110100926607787}]`。

@@ -383,6 +383,14 @@ export function stageWorldBounds(motion: Motion): WorldBounds {
   for (const sp of springs) {
     points.push({ x: sp.contact.xM, y: sp.contact.yM }, { x: sp.anchor.xM, y: sp.anchor.yM });
   }
+  if (g.fieldScene) {
+    const b = g.fieldScene.bounds;
+    points.push(
+      { x: b.minXM, y: b.minYM }, { x: b.maxXM, y: b.maxYM },
+      { x: b.minXM, y: b.maxYM }, { x: b.maxXM, y: b.minYM },
+    );
+    for (const o of g.fieldScene.observers) points.push({ x: o.xM, y: o.yM });
+  }
   if (g.movableArc) {
     const ma = g.movableArc;
     const drift = Math.max(0, motion.durationSeconds - ma.exitTimeSeconds) * ma.exitGrooveVX;
@@ -458,6 +466,125 @@ export function stageWorldBounds(motion: Motion): WorldBounds {
   return computeWorldBounds(points);
 }
 
+/** 组合磁场场景：分区符号（×向里 / ·向外）、多粒子共钟轨迹、过界虚线、观察事件标记。 */
+function drawFieldScene(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  motion: Motion,
+  time: number,
+  vp: ViewportTransform,
+  fs: NonNullable<Motion["stageGeometry"]>["fieldScene"] & object,
+) {
+  const { X, Y } = vp;
+  const b = fs.bounds;
+  const padX = (b.maxXM - b.minXM) * 0.06 + 0.2;
+  const padY = (b.maxYM - b.minYM) * 0.06 + 0.2;
+  const vx0 = b.minXM - padX, vx1 = b.maxXM + padX, vy0 = b.minYM - padY, vy1 = b.maxYM + padY;
+  // 分区底色与磁场符号。
+  for (const r of fs.regions) {
+    const x0 = r.xMinM ?? vx0, x1 = r.xMaxM ?? vx1, y0 = r.yMinM ?? vy0, y1 = r.yMaxM ?? vy1;
+    ctx.fillStyle = FILL;
+    ctx.fillRect(X(x0), Y(y1), X(x1) - X(x0), Y(y0) - Y(y1));
+    const B = r.magneticTeslaB ?? 0;
+    const into = B < 0;
+    ctx.strokeStyle = SOFT; ctx.fillStyle = SOFT; ctx.lineWidth = 1;
+    const stepX = Math.max((x1 - x0) / 7, 0.35), stepY = stepX;
+    for (let gx = x0 + stepX / 2; gx < x1; gx += stepX) {
+      for (let gy = y0 + stepY / 2; gy < y1; gy += stepY) {
+        const px = X(gx), py = Y(gy);
+        if (into) {
+          ctx.beginPath(); ctx.moveTo(px - 3, py - 3); ctx.lineTo(px + 3, py + 3);
+          ctx.moveTo(px + 3, py - 3); ctx.lineTo(px - 3, py + 3); ctx.stroke();
+        } else {
+          ctx.beginPath(); ctx.arc(px, py, 1.7, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+    ctx.fillStyle = INK; ctx.font = `600 12px ${SANS}`;
+    ctx.fillText(r.id, X(x0) + 6, Y(y1) + 14);
+  }
+  // 有限边界画虚线（过界换场处）。
+  ctx.save(); ctx.setLineDash([5, 5]); ctx.strokeStyle = SOFT; ctx.lineWidth = 1.2;
+  for (const r of fs.regions) {
+    for (const [v, vertical] of [[r.xMinM, true], [r.xMaxM, true], [r.yMinM, false], [r.yMaxM, false]] as const) {
+      if (v == null) continue;
+      ctx.beginPath();
+      if (vertical) { ctx.moveTo(X(v), Y(vy1)); ctx.lineTo(X(v), Y(vy0)); }
+      else { ctx.moveTo(X(vx0), Y(v)); ctx.lineTo(X(vx1), Y(v)); }
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+  // 坐标轴（原题 xOy）。
+  ctx.strokeStyle = INK; ctx.lineWidth = 1.4; ctx.fillStyle = INK; ctx.font = `12px ${SANS}`;
+  if (vy0 <= 0 && vy1 >= 0) {
+    ctx.beginPath(); ctx.moveTo(X(vx0), Y(0)); ctx.lineTo(X(vx1), Y(0)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(X(vx1), Y(0)); ctx.lineTo(X(vx1) - 7, Y(0) - 3.5); ctx.lineTo(X(vx1) - 7, Y(0) + 3.5); ctx.closePath(); ctx.fill();
+    ctx.fillText("x", X(vx1) - 10, Y(0) + 16);
+  }
+  if (vx0 <= 0 && vx1 >= 0) {
+    ctx.beginPath(); ctx.moveTo(X(0), Y(vy0)); ctx.lineTo(X(0), Y(vy1)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(X(0), Y(vy1)); ctx.lineTo(X(0) - 3.5, Y(vy1) + 7); ctx.lineTo(X(0) + 3.5, Y(vy1) + 7); ctx.closePath(); ctx.fill();
+    ctx.fillText("y", X(0) - 14, Y(vy1) + 10);
+    ctx.fillText("O", X(0) - 14, Y(0) + 14);
+  }
+  // 轨迹（全程浅灰）+ 已走部分（墨黑）+ 当前位置与速度箭头。
+  const shades = [INK, "#5f5f5b", "#9a9a94", "#b9b9b3"];
+  fs.particles.forEach((p, i) => {
+    const shade = shades[i % shades.length];
+    ctx.strokeStyle = SOFT; ctx.lineWidth = 1; ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    p.trail.forEach((pt, k) => { if (k === 0) ctx.moveTo(X(pt.xM), Y(pt.yM)); else ctx.lineTo(X(pt.xM), Y(pt.yM)); });
+    ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = shade; ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    const steps = 64;
+    for (let k = 0; k <= steps; k += 1) {
+      const st = motion.sampleAt((time * k) / steps);
+      const body = st.bodies?.[p.id];
+      const px = body ? body.position.x : st.position.x;
+      const py = body ? body.position.y : st.position.y;
+      if (k === 0) ctx.moveTo(X(px), Y(py)); else ctx.lineTo(X(px), Y(py));
+    }
+    ctx.stroke();
+    const now = motion.sampleAt(time);
+    const body = now.bodies?.[p.id];
+    const cx = X(body ? body.position.x : now.position.x);
+    const cy = Y(body ? body.position.y : now.position.y);
+    const vx = body ? body.velocity.x : now.velocity.x;
+    const vy = body ? body.velocity.y : now.velocity.y;
+    const sp = Math.hypot(vx, vy) || 1;
+    ctx.strokeStyle = shade; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + (vx / sp) * 22, cy - (vy / sp) * 22); ctx.stroke();
+    ctx.fillStyle = shade;
+    ctx.beginPath(); ctx.arc(cx, cy, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.font = `600 13px ${SANS}`;
+    ctx.fillText(p.id, cx + 8, cy - 8);
+  });
+  // 观察事件标记：命中后画十字 + 标签 + 时刻。
+  const reading = motion.fieldSceneAt?.(time);
+  for (const o of fs.observers) {
+    if (o.timeSeconds > time + 1e-9) continue;
+    const px = X(o.xM), py = Y(o.yM);
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(px - 6, py); ctx.lineTo(px + 6, py); ctx.moveTo(px, py - 6); ctx.lineTo(px, py + 6); ctx.stroke();
+    ctx.fillStyle = INK; ctx.font = `11px ${SANS}`;
+    ctx.fillText(`${o.label} t=${o.timeSeconds.toFixed(2)}s`, px + 9, py - 9);
+  }
+  // 顶部 HUD：共钟时刻 + 各粒子所在区。
+  ctx.fillStyle = INK; ctx.font = `12px ${SANS}`;
+  const regionsText = (reading?.particles ?? []).map((p) => `${p.id}:${p.regionId ?? "无场"}`).join("  ");
+  ctx.fillText(`t = ${time.toFixed(2)} s   ${regionsText}   观察 ${reading?.fired.length ?? 0}/${fs.observers.length}`, 12, 20);
+  ctx.fillStyle = SOFT; ctx.font = `11px ${SANS}`;
+  const legend = fs.regions.map((r) => {
+    const B = r.magneticTeslaB ?? 0;
+    return `${r.id}: ${B !== 0 ? `${Math.abs(B).toFixed(2)} T ${B < 0 ? "向里" : "向外"}` : "待求/无场"}`;
+  }).join("   ");
+  ctx.fillText(legend, 12, H - 10);
+  void W;
+}
+
 export function drawStageScene(
   ctx: CanvasRenderingContext2D,
   W: number,
@@ -483,7 +610,7 @@ export function drawStageScene(
   const last = motion.sampleAt(motion.durationSeconds);
   const worldBounds = precomputedBounds ?? stageWorldBounds(motion);
   const narrow = W < 420;
-  const hasTopHud = inclineLaunch || explicitArc || !!g.conveyor || !!g.linearTrack || !!g.movableArc || !!g.movableSemicircle || !!g.springPair || g.scaleMode === "normalized" || motion.timing?.mode === "suffix";
+  const hasTopHud = inclineLaunch || explicitArc || !!g.conveyor || !!g.linearTrack || !!g.movableArc || !!g.movableSemicircle || !!g.springPair || !!g.fieldScene || g.scaleMode === "normalized" || motion.timing?.mode === "suffix";
   const vp = fitViewport(W, H, worldBounds, {
     top: hasTopHud ? 48 : 34,
     right: narrow ? 30 : 48,
@@ -497,6 +624,10 @@ export function drawStageScene(
   ctx.fillRect(0, 0, W, H);
   ctx.lineCap = "butt";
   ctx.lineJoin = "round";
+  if (g.fieldScene) {
+    drawFieldScene(ctx, W, H, motion, time, vp, g.fieldScene);
+    return;
+  }
   if (g.schematic?.horizontal) {
     const { start, plannedEnd } = g.schematic.horizontal;
     ctx.save(); ctx.setLineDash([5, 5]); ctx.strokeStyle = SOFT;

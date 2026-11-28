@@ -16,8 +16,8 @@ function build(input: unknown) {
 }
 
 describe("内置示例题库（多过程多模型高考压轴题 + 传送带）", () => {
-  it("恰好 8 道题、id 唯一、默认示例存在且全部附带真实存在的原题图片", () => {
-    expect(SAMPLES.length).toBe(8);
+  it("恰好 11 道题、id 唯一、默认示例存在且全部附带真实存在的原题图片", () => {
+    expect(SAMPLES.length).toBe(11);
     const ids = SAMPLES.map((sample) => sample.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(getSample("missing-id").id).toBe(SAMPLES[0].id);
@@ -32,7 +32,7 @@ describe("内置示例题库（多过程多模型高考压轴题 + 传送带）"
     const motion = build(sample.reading);
     expect(motion.durationSeconds).toBeGreaterThan(0.5);
     expect(motion.events.length).toBeGreaterThanOrEqual(sample.id === "conveyor-accel" ? 3 : 4);
-    expect(motion.segments.length).toBeGreaterThanOrEqual(sample.id === "pulley-ground-slack" ? 1 : 2);
+    expect(motion.segments.length).toBeGreaterThanOrEqual(sample.id === "pulley-ground-slack" || sample.id.startsWith("field-scene") ? 1 : 2);
     expect(sample.problemText.length).toBeGreaterThan(40);
     expect(sample.message.length).toBeGreaterThan(0);
     expect(sample.assumptions.length).toBe(3);
@@ -109,5 +109,23 @@ describe("内置示例题库（多过程多模型高考压轴题 + 传送带）"
     expect(kinds).toContain("apex");
     expect(kinds).toContain("reach_bottom");
     expect(motion.stageGeometry?.landmarks?.map((l) => l.label)).toEqual(["A", "B", "C", "D", "E"]);
+  });
+
+  it("field-scene 三示例：原题闭式解、反求 B=0.6/0.4、边界变体整体缩放", () => {
+    const SQ21 = Math.sqrt(21);
+    const AX = (15 + 5 * Math.sqrt(5)) / 6;
+    const forward = build(getSample("field-scene-two-particle").reading);
+    const obs = (m: ReturnType<typeof build>, id: string) => m.events.find((e) => e.eventKind === "field_observer" && e.label.includes(id === "b_first" ? "b 首次过虚线" : id === "b_return" ? "b 返回 I 区" : "a 首次回 x 轴"))!;
+    expect(obs(forward, "b_first").position!.y).toBeCloseTo(SQ21 / 3, 6);
+    expect(obs(forward, "b_return").position!.y).toBeCloseTo((4 * SQ21) / 3, 6);
+    expect(obs(forward, "a_axis").position!.x).toBeCloseTo(AX, 6);
+    const reverse = build(getSample("field-scene-reverse-b").reading);
+    const bs = (reverse.calculations ?? []).filter((c) => c.quantity.startsWith("反求 B"));
+    expect(bs.map((c) => c.value).sort((a, b) => a - b)).toEqual([expect.closeTo(-0.6, 5), expect.closeTo(0.4, 5)]);
+    expect(obs(reverse, "a_axis").position!.x).toBeCloseTo(AX, 5);
+    const variant = build(getSample("field-scene-boundary-variant").reading);
+    expect(obs(variant, "b_return").position!.y).toBeCloseTo((4 * SQ21 / 3) * 1.4, 5);
+    expect(obs(variant, "a_axis").position!.x).toBeCloseTo(AX * 1.4, 5);
+    expect(variant.sampleAt(variant.durationSeconds / 2).bodies?.c).toBeTruthy();
   });
 });

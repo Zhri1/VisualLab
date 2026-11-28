@@ -113,7 +113,7 @@ export interface ResolvedConditions {
   springConstantNpm: number;
 }
 
-export type SegmentKind = "incline" | "horizontal" | "spring" | "projectile" | "vertical_arc" | 'pendulum' | 'movable_arc' | 'movable_semicircle' | 'spring_pair' | 'switchable_em' | 'circular_orbit';
+export type SegmentKind = "incline" | "horizontal" | "spring" | "projectile" | "vertical_arc" | 'pendulum' | 'movable_arc' | 'movable_semicircle' | 'spring_pair' | 'switchable_em' | 'circular_orbit' | 'field_scene';
 export type BodyMotionSample = Omit<BodyState,'xM'|'yM'|'vxMps'|'vyMps'> & {position:Vec2;velocity:Vec2};
 
 export interface MotionSegment {
@@ -196,6 +196,7 @@ export interface Motion {
   movableArcAt?(timeSeconds: number): { grooveXM: number; grooveVX: number; normalForceN?: number; angleDeg?: number; relativeSpeedMps?: number } | null;
   movableSemicircleAt?(timeSeconds: number): import("../physics/movableSemicircle").MovableSemicircleReading | null;
   springPairAt?(timeSeconds: number): { x2M: number; vx2Mps: number; compressionM: number } | null;
+  fieldSceneAt?(timeSeconds: number): import("../physics/fieldScene").FieldSceneReading;
 }
 
 /* ---------------- 错误 ---------------- */

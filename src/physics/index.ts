@@ -32,6 +32,8 @@ export { solveMovableArc, solveMovableArcBottom, movableArcCriticalEntrySpeed } 
 export type { MovableArcStage, MovableArcSample, MovableArcSolution } from './movableArc.ts';
 export { solveSpringPair } from './springPair.ts';
 export type { SpringPairStage } from './springPair.ts';
+export { solveFieldScene, computeFieldSceneMotion, validateFieldScene } from './fieldScene.ts';
+export type { FieldSceneStage, SceneParticle, FieldRegion, SceneObserver, SceneConstraint, FieldSceneGeometry, FieldSceneReading, FieldSceneSolution, FiredObserver } from './fieldScene.ts';
 export { solveMagneticDeflection } from './magneticDeflection.ts';
 export type { MagneticDeflectionStage, MagneticDeflectionSolution, MagneticGeometry, MagneticFieldDirection, MagneticExitKind, MagneticPoint, MagneticEntry, MagneticState, MagneticEvent } from './magneticDeflection.ts';
 

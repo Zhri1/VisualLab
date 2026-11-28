@@ -24,6 +24,7 @@ export type CommandResult =
 
 /** 关键词 → 阶段 kind。顺序即优先级，越具体的越靠前。 */
 const KEYWORDS: Array<{ kind: string; words: string[] }> = [
+  { kind:'field_scene',words:['组合磁场','分区磁场','反向磁场','过界','换场','两颗粒子','双粒子'] },
   { kind:'horizontal_approach',words:['接近','碰前','碰撞前','正碰前','接触前'] },
   { kind:'block_plank',words:['木板','长木板','共速','板边'] },
   { kind:'pulley_system',words:['滑轮','定滑轮','连接体','张力','悬挂'] },
@@ -114,8 +115,11 @@ export function parseCommand(command: string, plan: { stages: PlanStageLike[] })
   if (text.includes('圆弧槽') && findStageIndex(plan.stages, 'movable_arc') < 0) {
     return { status: 'unsupported', message: '当前计划里没有「圆弧槽」对应的阶段' };
   }
+  if ((text.includes('反向磁场') || text.includes('分区磁场') || text.includes('组合磁场')) && findStageIndex(plan.stages, 'field_scene') < 0) {
+    return { status: 'unsupported', message: '当前计划里没有「组合磁场场景」对应的阶段' };
+  }
   for (const { kind, words } of KEYWORDS) {
-    if ((kind === 'horizontal_approach'||kind==='vertical_arc'||kind==='constant_force_1d'||kind==='block_plank'||kind==='conveyor_belt'||kind==='pulley_system'||kind==='movable_arc'||kind==='spring_pair') && findStageIndex(plan.stages, kind) < 0) continue;
+    if ((kind === 'horizontal_approach'||kind==='vertical_arc'||kind==='constant_force_1d'||kind==='block_plank'||kind==='conveyor_belt'||kind==='pulley_system'||kind==='movable_arc'||kind==='spring_pair'||kind==='field_scene') && findStageIndex(plan.stages, kind) < 0) continue;
     if (!words.some((word) => text.includes(word))) continue;
     const index = findStageIndex(plan.stages, kind);
     if (index < 0) {
