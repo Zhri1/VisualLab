@@ -135,7 +135,8 @@ export function useWorkspace() {
   // phase 变化时写入历史，使浏览器后退/前进与页内视图一致。
   useEffect(() => {
     const homeUrl = window.location.pathname + window.location.search;
-    if (phase === "workspace" && window.location.hash !== "#/work") {
+    if (phase === "workspace" && window.location.hash !== "#/work" && !window.location.hash.startsWith("#s=")) {
+      // 分享载荷留在地址栏：刷新/转发仍能复现，不被 #/work 覆盖。
       window.history.pushState(null, "", "#/work");
     } else if (phase === "home" && window.location.hash === "#/work") {
       window.history.pushState(null, "", homeUrl);
@@ -477,6 +478,11 @@ export function useWorkspace() {
     if (typeof shared.playbackRate === "number") setPlaybackRate(shared.playbackRate);
     if (shared.reading) applyReadingOverride(shared.reading as WorkspaceReading);
     else if (shared.sampleId) loadSample(shared.sampleId);
+    // 同页复现同一样例时 motion 不变、装配 effect 不会重跑：立即_seek_到分享时刻。
+    if (motionRef.current) {
+      seek(shared.timeSeconds ?? 0);
+      setIsPlaying(false);
+    }
     return true;
   };
   useEffect(() => {
@@ -490,6 +496,8 @@ export function useWorkspace() {
   }, []);
 
   const restartHome = useCallback(() => {
+    // 清掉分享/工作台 hash 载荷，回首页后刷新不再误复现分享状态。
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
     if (recognizeAbortRef.current) {
       recognizeAbortRef.current.abort();
       recognizeAbortRef.current = null;

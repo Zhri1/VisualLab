@@ -111,7 +111,7 @@ for (let i = 0; i < 40; i += 1) {
   await sleep(200);
 }
 check("分享链接复现题目", await ev('!!document.querySelector(".canvas-frame canvas")'));
-check("分享链接复现时刻", restored, `saved=${savedTime}`);
+check("分享链接复现时刻", restored, `saved=${savedTime} got=${await ev('parseFloat(document.querySelector(".time-readout b")?.textContent ?? "-1")')}`);
 
 const t0 = Date.now();
 await ev('[...document.querySelectorAll(".export-menu button")].find(b=>b.textContent==="存图")?.click()'); await sleep(900);
