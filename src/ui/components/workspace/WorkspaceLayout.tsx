@@ -266,6 +266,7 @@ export function WorkspaceLayout({ ws }: Props) {
     emf_rail: "电磁感应导轨",
     switchable_em_collision: "分区电磁场与正碰",
     magnetic_reencounter: "磁场双粒子正碰与再相遇",
+    field_scene: "组合磁场场景",
   } as const;
   const title = stagePlan
     ? stagePlan.stages.map((stage) => stageLabels[stage.kind as keyof typeof stageLabels] ?? "未知阶段").join(" · ")

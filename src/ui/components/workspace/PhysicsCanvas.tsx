@@ -527,7 +527,8 @@ function drawScene(
 }
 
 export function PhysicsCanvas(props: Props) {
-  if(props.motion?.primaryBodyId)return <MultiBodyPhysicsCanvas motion={props.motion} time={props.time} isPlaying={props.isPlaying} trackedBodyId={props.trackedBodyId} readouts={props.readouts} forces={props.forces} decompose={props.decompose}/>;
+  // 组合磁场场景虽带 primaryBodyId（多粒子共钟），但渲染走专用分区画布，不走多体通用画布。
+  if(props.motion?.primaryBodyId && !props.motion.stageGeometry?.fieldScene)return <MultiBodyPhysicsCanvas motion={props.motion} time={props.time} isPlaying={props.isPlaying} trackedBodyId={props.trackedBodyId} readouts={props.readouts} forces={props.forces} decompose={props.decompose}/>;
   if (props.motion?.stageGeometry) {
     return (
       <StagePhysicsCanvas

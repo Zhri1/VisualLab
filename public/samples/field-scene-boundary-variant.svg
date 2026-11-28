@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 300" font-family="PingFang SC, sans-serif">
+  <rect width="360" height="300" fill="#fbfbf9"/>
+  <g stroke="#8e8e88" stroke-width="1">
+    <path d="M78 70 l6 6 M84 70 l-6 6 M96 70 l6 6 M102 70 l-6 6 M114 70 l6 6 M120 70 l-6 6"/>
+    <path d="M78 110 l6 6 M84 110 l-6 6 M96 110 l6 6 M102 110 l-6 6 M114 110 l6 6 M120 110 l-6 6"/>
+    <path d="M78 150 l6 6 M84 150 l-6 6 M96 150 l6 6 M102 150 l-6 6 M114 150 l6 6 M120 150 l-6 6"/>
+    <path d="M78 190 l6 6 M84 190 l-6 6 M96 190 l6 6 M102 190 l-6 6 M114 190 l6 6 M120 190 l-6 6"/>
+    <path d="M78 262 l6 6 M84 262 l-6 6 M96 262 l6 6 M102 262 l-6 6 M114 262 l6 6 M120 262 l-6 6"/>
+  </g>
+  <g fill="#8e8e88">
+    <circle cx="140" cy="73" r="1.8"/><circle cx="175" cy="73" r="1.8"/><circle cx="210" cy="73" r="1.8"/><circle cx="245" cy="73" r="1.8"/><circle cx="280" cy="73" r="1.8"/>
+    <circle cx="140" cy="113" r="1.8"/><circle cx="175" cy="113" r="1.8"/><circle cx="210" cy="113" r="1.8"/><circle cx="245" cy="113" r="1.8"/><circle cx="280" cy="113" r="1.8"/>
+    <circle cx="140" cy="153" r="1.8"/><circle cx="175" cy="153" r="1.8"/><circle cx="210" cy="153" r="1.8"/><circle cx="245" cy="153" r="1.8"/><circle cx="280" cy="153" r="1.8"/>
+    <circle cx="140" cy="193" r="1.8"/><circle cx="175" cy="193" r="1.8"/><circle cx="210" cy="193" r="1.8"/><circle cx="245" cy="193" r="1.8"/><circle cx="280" cy="193" r="1.8"/>
+    <circle cx="140" cy="265" r="1.8"/><circle cx="175" cy="265" r="1.8"/><circle cx="210" cy="265" r="1.8"/><circle cx="245" cy="265" r="1.8"/><circle cx="280" cy="265" r="1.8"/>
+  </g>
+  <line x1="126" y1="40" x2="126" y2="280" stroke="#1c1c1c" stroke-width="1.2" stroke-dasharray="5 5"/>
+  <line x1="40" y1="250" x2="320" y2="250" stroke="#1c1c1c" stroke-width="1.4"/>
+  <path d="M320 250 l-8 -4 v8 z" fill="#1c1c1c"/>
+  <line x1="70" y1="280" x2="70" y2="40" stroke="#1c1c1c" stroke-width="1.4"/>
+  <path d="M70 40 l-4 8 h8 z" fill="#1c1c1c"/>
+  <text x="322" y="264" font-size="13" fill="#1c1c1c">x</text>
+  <text x="56" y="44" font-size="13" fill="#1c1c1c">y</text>
+  <text x="56" y="264" font-size="13" fill="#1c1c1c">O</text>
+  <text x="86" y="56" font-size="13" fill="#1c1c1c">I</text>
+  <text x="286" y="56" font-size="13" fill="#1c1c1c">II</text>
+  <text x="130" y="264" font-size="12" fill="#5f5f5b">d′=1.4d</text>
+  <line x1="70" y1="250" x2="96" y2="250" stroke="#1c1c1c" stroke-width="1.6"/>
+  <path d="M96 250 l-7 -3.5 v7 z" fill="#1c1c1c"/>
+  <text x="80" y="244" font-size="12" fill="#1c1c1c">a</text>
+  <line x1="70" y1="250" x2="70" y2="222" stroke="#1c1c1c" stroke-width="1.6"/>
+  <path d="M70 222 l-3.5 7 h7 z" fill="#1c1c1c"/>
+  <text x="58" y="228" font-size="12" fill="#1c1c1c">b</text>
+  <line x1="70" y1="250" x2="89" y2="231" stroke="#5f5f5b" stroke-width="1.6"/>
+  <path d="M89 231 l-7 1.5 5.5 5.5 z" fill="#5f5f5b"/>
+  <text x="92" y="228" font-size="12" fill="#5f5f5b">c(45°)</text>
+</svg>

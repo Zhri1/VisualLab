@@ -102,4 +102,18 @@ describe("parseCommand", () => {
     const result = parseCommand("只看圆弧槽", PLAN);
     expect(result.status).toBe("unsupported");
   });
+
+  it("只看组合磁场 / 只看过界 → 组合场景段", () => {
+    const plan = { stages: [{ kind: "field_scene" }] };
+    for (const text of ["只看组合磁场", "只看过界", "只看反向磁场"]) {
+      const result = parseCommand(text, plan);
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") expect(result.intent.throughStageIndex).toBe(0);
+    }
+  });
+
+  it("旧计划里没有组合磁场场景 → 不静默成功", () => {
+    const result = parseCommand("只看反向磁场", PLAN);
+    expect(result.status).toBe("unsupported");
+  });
 });

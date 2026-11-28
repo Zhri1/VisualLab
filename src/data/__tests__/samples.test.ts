@@ -16,13 +16,13 @@ function build(input: unknown) {
 }
 
 /** 单阶段示例：只有一段运动，事件数与段数下限相应放宽。 */
-const SINGLE_STAGE_IDS = new Set(["pulley-ground-slack", "circular-orbit", "binary-circular-orbit", "emf-rail-friction"]);
+const SINGLE_STAGE_IDS = new Set(["pulley-ground-slack", "circular-orbit", "binary-circular-orbit", "emf-rail-friction", "field-scene-two-particle", "field-scene-reverse-b", "field-scene-boundary-variant"]);
 /** 事件天然偏少的示例（单段或事件合并）。 */
 const FEW_EVENT_IDS = new Set(["conveyor-accel", "circular-orbit", "binary-circular-orbit", "emf-rail-friction"]);
 
 describe("内置示例题库（多过程多模型高考压轴题 + 传送带）", () => {
-  it("恰好 15 道题、id 唯一、默认示例存在且全部附带真实存在的原题图片", () => {
-    expect(SAMPLES.length).toBe(15);
+  it("恰好 18 道题、id 唯一、默认示例存在且全部附带真实存在的原题图片", () => {
+    expect(SAMPLES.length).toBe(18);
     const ids = SAMPLES.map((sample) => sample.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(getSample("missing-id").id).toBe(SAMPLES[0].id);
@@ -141,5 +141,23 @@ describe("内置示例题库（多过程多模型高考压轴题 + 传送带）"
     expect(mid.emfRail?.currentA).toBeGreaterThan(0);
     expect(mid.emfRail!.currentA).toBeLessThan(start.emfRail!.currentA);
     expect(getSample("emf-rail-friction").difficulty).toBe("中档");
+  });
+
+  it("field-scene 三示例：原题闭式解、反求 B=0.6/0.4、边界变体整体缩放", () => {
+    const SQ21 = Math.sqrt(21);
+    const AX = (15 + 5 * Math.sqrt(5)) / 6;
+    const forward = build(getSample("field-scene-two-particle").reading);
+    const obs = (m: ReturnType<typeof build>, id: string) => m.events.find((e) => e.eventKind === "field_observer" && e.label.includes(id === "b_first" ? "b 首次过虚线" : id === "b_return" ? "b 返回 I 区" : "a 首次回 x 轴"))!;
+    expect(obs(forward, "b_first").position!.y).toBeCloseTo(SQ21 / 3, 6);
+    expect(obs(forward, "b_return").position!.y).toBeCloseTo((4 * SQ21) / 3, 6);
+    expect(obs(forward, "a_axis").position!.x).toBeCloseTo(AX, 6);
+    const reverse = build(getSample("field-scene-reverse-b").reading);
+    const bs = (reverse.calculations ?? []).filter((c) => c.quantity.startsWith("反求 B"));
+    expect(bs.map((c) => c.value).sort((a, b) => a - b)).toEqual([expect.closeTo(-0.6, 5), expect.closeTo(0.4, 5)]);
+    expect(obs(reverse, "a_axis").position!.x).toBeCloseTo(AX, 5);
+    const variant = build(getSample("field-scene-boundary-variant").reading);
+    expect(obs(variant, "b_return").position!.y).toBeCloseTo((4 * SQ21 / 3) * 1.4, 5);
+    expect(obs(variant, "a_axis").position!.x).toBeCloseTo(AX * 1.4, 5);
+    expect(variant.sampleAt(variant.durationSeconds / 2).bodies?.c).toBeTruthy();
   });
 });

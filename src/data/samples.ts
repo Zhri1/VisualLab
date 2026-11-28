@@ -27,6 +27,9 @@ import conveyorMovableSemicircle from "../../fixtures/conveyor-movable-semicircl
 import magneticReencounter from "../../fixtures/magnetic-reencounter-hubei2023.reading.json";
 import horizontalCollisionPendulum from "../../fixtures/horizontal-collision-pendulum.reading.json";
 import emfRailFriction from "../../fixtures/emf-rail-friction.reading.json";
+import fieldSceneTwoParticle from "../../fixtures/field-scene-two-particle.reading.json";
+import fieldSceneReverseB from "../../fixtures/field-scene-reverse-b.reading.json";
+import fieldSceneBoundaryVariant from "../../fixtures/field-scene-boundary-variant.reading.json";
 
 export type SampleDifficulty = "基础" | "中档" | "压轴";
 
@@ -763,6 +766,116 @@ export const SAMPLES: Sample[] = [
       },
     ],
     reading: emfRailFriction as WorkspaceReading,
+  },
+  {
+    id: "field-scene-two-particle",
+    title: "双粒子跨反向磁场 · 组合场景正演",
+    imageUrl: "/samples/field-scene-two-particle.svg",
+    problemText:
+      "在 xOy 平面内，与 y 轴相距 d 且平行于 y 轴的虚线左侧（0<x<d）有垂直纸面向里的匀强磁场 I，右侧有垂直纸面向外的匀强磁场 II。两完全相同的带负电粒子 a、b 分别沿 +x、+y 方向以等大初速从原点 O 射入。已知 b 第一次经过虚线时速度与 +y 方向夹角 θ 满足 cos θ = 2/5，经磁场 II 偏转后恰好从 P(d, 4√21d/3) 再次进入 I 区。不计重力与粒子间作用。求：(1) B_I : B_II；(2) a 第一次到达 x 轴的位置到 O 的距离。",
+    message: "已载入组合磁场场景：两粒子共钟执行，过界换场位置速度连续，观察事件解析求时刻。",
+    description: "开放组合接口示范：AI 只写粒子初态 + 分区磁场 + 观察事件；引擎共钟推进、过界换场、精确记录「b 返回左区」「a 首次回 x 轴」。",
+    difficulty: "压轴",
+    tags: ["组合场景", "磁场偏转", "过界换场", "观察事件"],
+    assumptions: ["归一化演示参数 d = 1 m、v₀ = 1 m/s、m = 1 kg、q = −1 C（几何与比值与量纲无关）", "I 区 B = 0.6 T 向里、II 区 B = 0.4 T 向外（即 3:2）", "忽略重力与粒子间相互作用"],
+    questions: [
+      {
+        label: "(1) B_I : B_II",
+        eventKind: "field_observer",
+        formula: "r₁(1−cos θ) = d → r₁ = 5d/3；P 点弦长 → r₂ = 5d/2；B ∝ 1/r",
+        substitution: "B_I : B_II = r₂ : r₁ = 3 : 2",
+      },
+      {
+        label: "(2) a 首次回 x 轴距离",
+        eventKind: "field_observer",
+        formula: "a 在 I 区与 x 轴相切，于 (d, −d/3) 过界；II 区圆几何求首次 y=0",
+        substitution: "x = (15+5√5)d/6 ≈ 4.3634d",
+      },
+    ],
+    practice: [
+      {
+        prompt: "b 穿越虚线进入 II 区的瞬间，哪些量连续？",
+        options: ["位置与速度都连续", "速度方向突变", "速率减半"],
+        answer: 0,
+        explain: "过界换场只改变受力的磁场参数：位置与速度（含方向、速率）连续，之后按新区 B 重新定圆。",
+      },
+    ],
+    compare: {
+      label: "看反求 B（只给角度与 P 点）",
+      backLabel: "回到正演 B = 0.6 / 0.4",
+      reading: fieldSceneReverseB as unknown as WorkspaceReading,
+    },
+    reading: fieldSceneTwoParticle as unknown as WorkspaceReading,
+  },
+  {
+    id: "field-scene-reverse-b",
+    title: "双粒子跨反向磁场 · 由观察量反求 B",
+    imageUrl: "/samples/field-scene-two-particle.svg",
+    problemText:
+      "同原题图。两磁场大小未知：只知 b 第一次过虚线时速度与 +y 夹角余弦为 2/5，且经 II 区偏转后从 P(d, 4√21d/3) 返回 I 区。把这两个观察量作为约束，反求 B_I 与 B_II（归一化 d=1、v₀=1、m=1、q=−1）。",
+    message: "已载入反求示例：constraints 声明观察量目标值，引擎对 |B| 扫描+二分求根后正演复核。",
+    description: "反求也是可复用能力：未知 B 填 null + fieldDirection，constraints 指向观察事件与目标值；换一道同类题只改目标数字。",
+    difficulty: "压轴",
+    tags: ["组合场景", "反求", "约束求根", "磁场偏转"],
+    assumptions: ["归一化 d = 1 m、v₀ = 1 m/s、m = 1 kg、q = −1 C", "I 区向里、II 区向外（方向给定，大小待求）", "忽略重力与粒子间相互作用"],
+    questions: [
+      {
+        label: "反求 B_I",
+        eventKind: "field_observer",
+        formula: "cos θ = 2/5 钉住 r₁ = 5d/3 → B₁ = m v₀/(|q| r₁)",
+        substitution: "B_I = 0.6 T（向里）",
+      },
+      {
+        label: "反求 B_II",
+        eventKind: "field_observer",
+        formula: "P 点 y = 4√21d/3 钉住 r₂ = 5d/2",
+        substitution: "B_II = 0.4 T（向外）；比值 3:2",
+      },
+    ],
+    practice: [
+      {
+        prompt: "反求时为什么可以先求 B_I 再求 B_II？",
+        options: ["第一个约束只涉及 I 区内的圆弧", "两个约束互相独立无顺序", "B_II 不影响 b 的轨迹"],
+        answer: 0,
+        explain: "b 首次过虚线前的轨迹只由 I 区决定，故先解 B_I；返回点约束在 B_I 已知后只含 B_II，顺序求根即可。",
+      },
+    ],
+    reading: fieldSceneReverseB as unknown as WorkspaceReading,
+  },
+  {
+    id: "field-scene-boundary-variant",
+    title: "组合场景变体 · 边界外移 + 第三颗粒子",
+    imageUrl: "/samples/field-scene-boundary-variant.svg",
+    problemText:
+      "原题改两处：虚线外移到 d′ = 1.4d（两磁场同比缩放保持 3:2），并加放第三颗完全相同粒子 c 以 45° 方向入射。不改任何代码，只改场景描述：确认三粒子共钟跑通、b 仍从缩放后的 P 点返回、a 首次回 x 轴距离整体缩放 1.4 倍。",
+    message: "已载入变体：同一执行接口，只换场景参数（边界、粒子数、入射方向）。",
+    description: "组合性验收：两颗改三颗、换边界位置都只是 AI 改场景参数；引擎接口不变。",
+    difficulty: "压轴",
+    tags: ["组合场景", "变体验收", "多粒子", "过界换场"],
+    assumptions: ["d′ = 1.4 m；B_I = 3/7 T 向里、B_II = 2/7 T 向外（保持 3:2）", "c 与 a、b 完全相同，初速方向 45°", "忽略重力与粒子间相互作用"],
+    questions: [
+      {
+        label: "b 返回点（缩放后）",
+        eventKind: "field_observer",
+        formula: "几何相似：y_P = 4√21d′/3",
+        substitution: "y_P ≈ 8.5541 m（= 6.1101 × 1.4）",
+      },
+      {
+        label: "a 首次回 x 轴（缩放后）",
+        eventKind: "field_observer",
+        formula: "x = (15+5√5)d′/6",
+        substitution: "x ≈ 6.1087 m（= 4.3634 × 1.4）",
+      },
+    ],
+    practice: [
+      {
+        prompt: "加放粒子 c 需要改引擎代码吗？",
+        options: ["不需要，只在 particles 里加一条初态", "需要新增一个模型", "需要重写画布"],
+        answer: 0,
+        explain: "组合接口把「放几颗粒子、各自初态」交给场景描述；执行器对每颗粒子独立共钟推进。",
+      },
+    ],
+    reading: fieldSceneBoundaryVariant as unknown as WorkspaceReading,
   },
 ];
 

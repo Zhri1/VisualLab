@@ -52,6 +52,7 @@ const FILES = [
   { from: "src/physics/circularOrbit.ts", to: "functions/circularOrbit.ts" },
   { from: "src/physics/movableSemicircle.ts", to: "functions/movableSemicircle.ts" },
   { from: "src/physics/springPair.ts", to: "functions/springPair.ts" },
+  { from: "src/physics/fieldScene.ts", to: "functions/fieldScene.ts" },
   { from: "src/physics/uniformConstraints.ts", to: "functions/uniformConstraints.ts" },
   { from: "src/physics/emfRail.ts", to: "functions/emfRail.ts" },
   { from: "src/physics/stagePlan.ts", to: "functions/stagePlan.ts" },
