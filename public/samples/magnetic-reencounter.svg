@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <rect width="640" height="360" fill="#fbfbf9"/>
+  <text x="32" y="44" font-family="sans-serif" font-size="20" fill="#1c1c1c">匀强磁场 · 两粒子正碰后再相遇</text>
+  <text x="32" y="74" font-family="sans-serif" font-size="14" fill="#555550">xOy 平面内 x &gt; 0 区域有垂直纸面向里的匀强磁场 B。粒子 A、B 电荷量均为 +q，</text>
+  <text x="32" y="98" font-family="sans-serif" font-size="14" fill="#555550">质量分别为 2m、m。A 从 P(2a, 0) 沿 +y 方向射入，B 静止于原点 O；A 经半个周期</text>
+  <text x="32" y="122" font-family="sans-serif" font-size="14" fill="#555550">与 B 正碰，碰后 A 速率变为碰前 3 倍且反向。忽略重力与库仑力，求再次相遇的时间与位置。</text>
+  <rect x="150" y="150" width="440" height="170" fill="#eef2f7" stroke="#8e8e88" stroke-width="1.5"/>
+  <g fill="#8e8e88" font-family="sans-serif" font-size="14">
+    <text x="190" y="184">×</text><text x="270" y="184">×</text><text x="350" y="184">×</text><text x="430" y="184">×</text><text x="510" y="184">×</text>
+    <text x="190" y="236">×</text><text x="270" y="236">×</text><text x="350" y="236">×</text><text x="430" y="236">×</text><text x="510" y="236">×</text>
+    <text x="190" y="288">×</text><text x="270" y="288">×</text><text x="350" y="288">×</text><text x="430" y="288">×</text><text x="510" y="288">×</text>
+  </g>
+  <text x="470" y="168" font-family="sans-serif" font-size="13" fill="#555550">B（垂直纸面向里）</text>
+  <line x1="110" y1="300" x2="620" y2="300" stroke="#1c1c1c" stroke-width="1.5"/>
+  <line x1="150" y1="330" x2="150" y2="140" stroke="#1c1c1c" stroke-width="1.5"/>
+  <text x="628" y="304" font-family="sans-serif" font-size="12" fill="#1c1c1c">x</text>
+  <text x="140" y="136" font-family="sans-serif" font-size="12" fill="#1c1c1c">y</text>
+  <circle cx="150" cy="300" r="4" fill="#1c1c1c"/>
+  <text x="134" y="318" font-family="sans-serif" font-size="12" fill="#1c1c1c">O</text>
+  <circle cx="270" cy="300" r="4.5" fill="#8a4b4b"/>
+  <text x="258" y="320" font-family="sans-serif" font-size="12" fill="#8a4b4b">P(2a, 0)</text>
+  <path d="M270 300 A 60 60 0 0 1 210 240 A 60 60 0 0 1 150 300" fill="none" stroke="#2f6b3f" stroke-width="2"/>
+  <text x="276" y="252" font-family="sans-serif" font-size="12" fill="#2f6b3f">A（半径 a）</text>
+  <path d="M150 300 A 90 90 0 0 0 60 300" fill="none" stroke="#8a4b4b" stroke-width="2" stroke-dasharray="5 4"/>
+  <text x="58" y="286" font-family="sans-serif" font-size="12" fill="#8a4b4b">碰后 A</text>
+  <path d="M150 300 A 30 30 0 0 1 180 300" fill="none" stroke="#555550" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="182" y="316" font-family="sans-serif" font-size="12" fill="#555550">碰后 B</text>
+  <text x="32" y="348" font-family="sans-serif" font-size="12" fill="#8a4b4b">同种电荷同向偏转；周期 T = 2πm/(qB)，半径 r = mv/(qB)。</text>
+</svg>

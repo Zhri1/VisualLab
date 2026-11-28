@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <rect width="640" height="360" fill="#fbfbf9"/>
+  <text x="32" y="44" font-family="sans-serif" font-size="20" fill="#1c1c1c">万有引力 · 近地圆轨道卫星</text>
+  <text x="32" y="74" font-family="sans-serif" font-size="14" fill="#555550">地球半径 R = 6.371×10⁶ m，卫星在离地 h = 4.0×10⁵ m 的圆轨道上运行。</text>
+  <text x="32" y="98" font-family="sans-serif" font-size="14" fill="#555550">已知 GM = 3.986×10¹⁴ m³/s²，求线速度 v、周期 T 与向心加速度 a。</text>
+  <circle cx="300" cy="212" r="36" fill="#dfe8f2" stroke="#1c1c1c" stroke-width="2"/>
+  <text x="300" y="217" font-family="sans-serif" font-size="13" fill="#1c1c1c" text-anchor="middle">地球</text>
+  <circle cx="300" cy="212" r="112" fill="none" stroke="#8e8e88" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <circle cx="412" cy="212" r="7" fill="#8a4b4b" stroke="#1c1c1c" stroke-width="1.5"/>
+  <text x="424" y="217" font-family="sans-serif" font-size="13" fill="#1c1c1c">卫星 m</text>
+  <line x1="300" y1="212" x2="412" y2="212" stroke="#1c1c1c" stroke-width="1.5" stroke-dasharray="3 3"/>
+  <text x="318" y="204" font-family="sans-serif" font-size="13" fill="#1c1c1c">r = R + h</text>
+  <line x1="300" y1="212" x2="336" y2="212" stroke="#8a4b4b" stroke-width="2.5"/>
+  <text x="308" y="232" font-family="sans-serif" font-size="12" fill="#8a4b4b">R</text>
+  <line x1="336" y1="196" x2="336" y2="212" stroke="#8a4b4b" stroke-width="2.5"/>
+  <text x="340" y="196" font-family="sans-serif" font-size="12" fill="#8a4b4b">h</text>
+  <line x1="412" y1="205" x2="412" y2="163" stroke="#2f6b3f" stroke-width="2"/>
+  <path d="M412 163 l-4 9 h8 z" fill="#2f6b3f"/>
+  <text x="420" y="170" font-family="sans-serif" font-size="13" fill="#2f6b3f">v</text>
+  <line x1="412" y1="212" x2="366" y2="212" stroke="#2f6b3f" stroke-width="1.6"/>
+  <path d="M366 212 l9 -4 v8 z" fill="#2f6b3f"/>
+  <text x="352" y="236" font-family="sans-serif" font-size="12" fill="#2f6b3f">F向</text>
+  <text x="32" y="300" font-family="sans-serif" font-size="13" fill="#555550">v = √(GM/r)　T = 2π√(r³/GM)　a = GM/r²</text>
+  <text x="32" y="326" font-family="sans-serif" font-size="13" fill="#8a4b4b">轨道半径 r 必须用「中心天体半径 + 离地高度」，不能用离地高度直接代入。</text>
+</svg>

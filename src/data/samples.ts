@@ -1,5 +1,10 @@
 /**
- * 内置示例：精选 4 道多过程、多模型串联的高考压轴综合题。
+ * 内置示例题库：覆盖高考物理主要模型族。
+ *
+ * 覆盖范围（14 道）：
+ * - 组合压轴：平抛入弧 / 碰后平抛 / 斜面-圆弧-弹簧 / 弹簧-跳台-斜抛 / 传送带 / 组合场 / 连接体 / 可移动圆弧槽；
+ * - 单模型基础：万有引力圆轨道、双星系统、恒力一维（加速-匀速-减速）、弹性正碰后单摆上摆；
+ * - 电磁与多体压轴：匀强磁场两粒子正碰再相遇、传送带加速后冲上可平动半圆槽。
  *
  * 约定：
  * - 每道题均复用已验收的 fixtures 路径，包含多阶段不同物理模型串联；
@@ -15,6 +20,12 @@ import conveyorAccel from "../../fixtures/conveyor-accel.reading.json";
 import magneticDeflection from "../../fixtures/magnetic-deflection.reading.json";
 import movableArcSpring from "../../fixtures/movable-arc-spring.reading.json";
 import pulleyGroundSlack from "../../fixtures/pulley-ground-slack.reading.json";
+import circularOrbit from "../../fixtures/circular-orbit.reading.json";
+import binaryCircularOrbit from "../../fixtures/binary-circular-orbit.reading.json";
+import constantForceThreeStage from "../../fixtures/constant-force-three-stage.reading.json";
+import conveyorMovableSemicircle from "../../fixtures/conveyor-movable-semicircle.reading.json";
+import magneticReencounter from "../../fixtures/magnetic-reencounter-hubei2023.reading.json";
+import horizontalCollisionPendulum from "../../fixtures/horizontal-collision-pendulum.reading.json";
 
 export type SampleDifficulty = "基础" | "中档" | "压轴";
 
@@ -457,6 +468,253 @@ export const SAMPLES: Sample[] = [
       } as WorkspaceReading,
     },
     reading: movableArcSpring as WorkspaceReading,
+  },
+  {
+    id: "circular-orbit",
+    title: "万有引力 · 近地圆轨道卫星",
+    description: "单段圆轨：由引力参数 GM 与轨道半径求线速度、周期与向心加速度，重点看 r 与 (R+h) 的区别。",
+    difficulty: "基础",
+    tags: ["万有引力", "圆轨道", "天体运动"],
+    imageUrl: "/samples/circular-orbit.svg",
+    problemText:
+      "地球半径 R = 6.371×10⁶ m，一颗人造卫星在离地高度 h = 4.0×10⁵ m 的圆轨道上运行。已知地球的引力参数 GM = 3.986×10¹⁴ m³/s²。求：(1) 卫星的轨道半径 r；(2) 卫星的线速度大小 v；(3) 卫星运行的周期 T；(4) 卫星的向心加速度 a。",
+    message: "已建立圆轨模型：轨道半径取 R + h，线速度、周期与向心加速度由物理库按 GM 计算，可播放一整周。",
+    assumptions: ["GM = 3.986×10¹⁴ m³/s²", "圆轨道，忽略空气阻力与摄动", "轨道半径 r = R + h"],
+    questions: [
+      {
+        label: "(1) 轨道半径",
+        formula: "r = R + h",
+        substitution: "r = 6.371×10⁶ + 4.0×10⁵ = 6.771×10⁶ m",
+      },
+      {
+        label: "(2) 线速度",
+        eventKind: "orbit_half",
+        formula: "GMm/r² = mv²/r → v = √(GM/r)",
+        substitution: "v = √(3.986×10¹⁴ / 6.771×10⁶) ≈ 7.67×10³ m/s",
+      },
+      {
+        label: "(3) 周期",
+        eventKind: "orbit_complete",
+        formula: "T = 2πr/v = 2π√(r³/GM)",
+        substitution: "T ≈ 5.54×10³ s ≈ 92.4 min",
+      },
+    ],
+    practice: [
+      {
+        prompt: "把卫星高度从 400 km 抬到 800 km，运行周期会怎样变化？",
+        options: ["变长", "变短", "不变"],
+        answer: 0,
+        explain: "T ∝ r^(3/2)，轨道半径变大周期变长——这正是高轨卫星周期更长的原因。",
+      },
+    ],
+    reading: circularOrbit as WorkspaceReading,
+  },
+  {
+    id: "binary-circular-orbit",
+    title: "双星系统 · 绕共同质心同步运行",
+    description: "双星模型：半径按质量反比分配、周期必然相同，看质心如何把两星「锁」在一起。",
+    difficulty: "中档",
+    tags: ["双星", "万有引力", "质心"],
+    imageUrl: "/samples/binary-circular-orbit.svg",
+    problemText:
+      "两颗恒星质量分别为 m₁ = 2×10³⁰ kg 和 m₂ = 1×10³⁰ kg，相距 L = 3×10⁹ m，仅在相互引力作用下绕它们连线上的某点做匀速圆周运动。已知 G = 6.674×10⁻¹¹ N·m²/kg²。求：(1) 两星各自的轨道半径 r₁、r₂；(2) 系统的共同周期 T；(3) 两星的线速度大小 v₁、v₂。",
+    message: "已建立双星模型：质心固定在两星连线上，半径按质量反比分配，两星同步绕质心运行一整周。",
+    assumptions: ["G = 6.674×10⁻¹¹ N·m²/kg²", "仅受相互引力，忽略其他天体影响", "两星始终分居质心两侧且共线"],
+    questions: [
+      {
+        label: "(1) 轨道半径",
+        formula: "r₁ = m₂L/(m₁+m₂)，r₂ = m₁L/(m₁+m₂)",
+        substitution: "r₁ = 1×10³⁰×3×10⁹/3×10³⁰ = 1×10⁹ m；r₂ = 2×10⁹ m（r₁:r₂ = m₂:m₁）",
+      },
+      {
+        label: "(2) 共同周期",
+        eventKind: "orbit_half",
+        formula: "Gm₁m₂/L² = m₁ω²r₁ → T = 2π√(L³/(G(m₁+m₂)))",
+        substitution: "T = 2π√((3×10⁹)³/(6.674×10⁻¹¹×3×10³⁰)) ≈ 7.30×10⁴ s ≈ 20.3 h",
+      },
+      {
+        label: "(3) 线速度",
+        eventKind: "orbit_complete",
+        formula: "v = 2πr/T",
+        substitution: "v₁ ≈ 8.61×10⁴ m/s，v₂ ≈ 1.72×10⁵ m/s（v₁:v₂ = m₂:m₁）",
+      },
+    ],
+    practice: [
+      {
+        prompt: "若 m₁ 增大到 3×10³⁰ kg 而 L 不变，共同周期会怎样？",
+        options: ["变短", "变长", "不变"],
+        answer: 0,
+        explain: "T ∝ 1/√(m₁+m₂)，总质量变大、引力更强，周期变短。",
+      },
+    ],
+    reading: binaryCircularOrbit as WorkspaceReading,
+  },
+  {
+    id: "constant-force-three-stage",
+    title: "恒力一维 · 加速—匀速—减速后平抛",
+    description: "三段恒力推进：牛顿第二定律逐段求速度与位移，末段从桌沿平抛落地。",
+    difficulty: "基础",
+    tags: ["匀变速", "恒力", "平抛"],
+    imageUrl: "/samples/constant-force-three-stage.svg",
+    problemText:
+      "质量 m = 1.5 kg 的物块静止在光滑水平桌面上，先受水平恒力 F₁ = 3 N 作用 2 s；撤去 F₁ 后匀速运动 1.5 s；再受与运动方向相反的恒力 F₂ = 1.5 N 作用 2 s；随后从桌沿水平飞出。桌面离地 h = 0.8 m，g = 10 m/s²。求：(1) 三段末的速度；(2) 物块离开桌沿时的速度；(3) 落地点到桌沿的水平距离。",
+    message: "已按恒力一维建模：逐段由牛顿第二定律与运动学推进，末段从桌沿平抛落地。",
+    assumptions: ["桌面光滑，忽略空气阻力", "g = 10 m/s²", "两段恒力均沿运动所在直线"],
+    questions: [
+      {
+        label: "(1) 第 1 段末（2 s）",
+        timeSeconds: 2,
+        formula: "a₁ = F₁/m，v = a₁t",
+        substitution: "a₁ = 3/1.5 = 2 m/s²；v = 2×2 = 4 m/s，位移 4 m",
+      },
+      {
+        label: "(2) 第 2 段末（3.5 s）",
+        timeSeconds: 3.5,
+        formula: "F = 0 → 匀速",
+        substitution: "v 仍为 4 m/s，再走 4×1.5 = 6 m",
+      },
+      {
+        label: "(3) 第 3 段末（5.5 s）",
+        timeSeconds: 5.5,
+        formula: "a₂ = −F₂/m，v = v₀ + a₂t",
+        substitution: "a₂ = −1 m/s²；v = 4 − 1×2 = 2 m/s，再走 4 m",
+      },
+      {
+        label: "(4) 平抛射程",
+        eventKind: "land",
+        formula: "t = √(2h/g)，x = v·t",
+        substitution: "t = √(2×0.8/10) = 0.4 s；x = 2×0.4 = 0.8 m",
+      },
+    ],
+    practice: [
+      {
+        prompt: "若第 3 段的反向力改为 3 N，物块会怎样？",
+        options: ["2 s 内速度减到零后反向", "仍以 2 m/s 离开桌沿", "一直匀速"],
+        answer: 0,
+        explain: "a = −3/1.5 = −2 m/s²，2 s 后速度 4 − 4 = 0，恰好减到零（临界），不会飞出桌沿。",
+      },
+    ],
+    reading: constantForceThreeStage as WorkspaceReading,
+  },
+  {
+    id: "conveyor-movable-semicircle",
+    title: "传送带加速 · 冲上可平动半圆槽",
+    description: "斜面—传送带—可平动半圆槽三连：水平动量守恒，槽被滑块推着反向运动。",
+    difficulty: "压轴",
+    tags: ["传送带", "可平动槽", "动量守恒"],
+    imageUrl: "/samples/conveyor-movable-semicircle.svg",
+    problemText:
+      "滑块质量 m = 0.2 kg，从长 1.6 m、倾角 30° 的光滑斜面顶端由静止下滑，经坡底光滑转向后滑上以 5 m/s 匀速运行的传送带，滑块与带面间动摩擦因数 μ = 0.25。滑块离开传送带后滑上质量 M = 1.8 kg、半径 R = 0.36 m 的可平动光滑半圆槽，槽与地面均光滑。g = 10 m/s²。求：(1) 滑块到达坡底的速度；(2) 滑块在传送带上加速到与带共速所经过的距离；(3) 滑块到达槽顶时滑块与槽的速度。",
+    message: "已按斜面—传送带—可平动半圆槽串联建模：水平方向动量守恒，槽随滑块反向运动。",
+    assumptions: ["g = 10 m/s²", "斜面、槽面与地面光滑，传送带 μ = 0.25", "槽只做平动，不翻转"],
+    questions: [
+      {
+        label: "(1) 到达坡底",
+        eventKind: "reach_bottom",
+        formula: "mgL·sinθ = ½mv²",
+        substitution: "v = √(2×10×1.6×0.5) = 4 m/s",
+      },
+      {
+        label: "(2) 加速到共速的位移",
+        eventKind: "conveyor_common_velocity",
+        formula: "a = μg，Δx = (v带² − v²)/(2a)",
+        substitution: "a = 2.5 m/s²；Δx = (25 − 16)/(2×2.5) = 1.8 m",
+      },
+      {
+        label: "(3) 槽顶时两者速度",
+        eventKind: "movable_semicircle_top",
+        formula: "动量守恒 + 机械能守恒（槽顶高 2R）",
+        substitution: "mv₀ = mv + MV，½mv₀² = ½mv² + ½MV² + mg·2R → v = −2.2 m/s（向左），V = 0.8 m/s（向右）",
+      },
+    ],
+    practice: [
+      {
+        prompt: "滑块沿槽上升的过程中，槽的速度如何变化？",
+        options: ["一直增大", "先增大后不变", "一直为零"],
+        answer: 0,
+        explain: "水平方向系统动量守恒，滑块向右速度减小、槽向右速度增大，直到滑块到达槽顶。",
+      },
+    ],
+    reading: conveyorMovableSemicircle as WorkspaceReading,
+  },
+  {
+    id: "magnetic-reencounter",
+    title: "匀强磁场 · 两粒子正碰后再相遇",
+    description: "同种电荷同向偏转：半径随速率变、周期只由比荷决定，看多次正碰如何形成周期性相遇。",
+    difficulty: "压轴",
+    tags: ["磁场", "带电粒子", "正碰"],
+    imageUrl: "/samples/magnetic-reencounter.svg",
+    problemText:
+      "如图，xOy 平面内 x > 0 的区域存在垂直纸面向里的匀强磁场，磁感应强度为 B。粒子 A、B 的电荷量均为 +q，质量分别为 2m 和 m。粒子 A 从 P(2a, 0) 沿 +y 方向以速率 v 射入磁场，粒子 B 静止在原点 O。A 经过半个周期后与 B 发生正碰，碰后 A 的速率变为碰前的 3 倍且方向反向。忽略重力与粒子间的库仑力。求：(1) A 碰前的轨道半径；(2) A 的周期与 B 的周期之比；(3) 两粒子此后再次相遇的时刻与位置。",
+    message: "已按同种电荷同向偏转建模：两粒子在磁场中多次正碰，按归一化标度演示 18π 内的完整过程。",
+    assumptions: ["题设用符号 m、q、B、a，按归一化标度 1 演示", "忽略重力与粒子间库仑力", "碰撞为弹性正碰，碰撞时间极短"],
+    questions: [
+      {
+        label: "(1) 碰前轨道半径",
+        formula: "qvB = mv²/r → r = mv/(qB)",
+        substitution: "A 的质量为 2m，r_A = 2mv/(qB)；由 P(2a,0) 与 O 相切得 r_A = a，即 v = qBa/(2m)",
+      },
+      {
+        label: "(2) 周期之比",
+        formula: "T = 2πm/(qB)",
+        substitution: "T_A : T_B = 2m : m = 2 : 1（周期与速率无关，只由比荷决定）",
+      },
+      {
+        label: "(3) 碰后再相遇",
+        eventKind: "magnetic_collision",
+        formula: "碰后 v_A′ = 3v → r_A′ = 3a；两粒子各自做圆周运动，轨迹交点即相遇点",
+        substitution: "每次相遇间隔由两粒子转过角度差决定，动画按 18π 观察 9 次正碰",
+      },
+    ],
+    practice: [
+      {
+        prompt: "若把 A 的入射速率加倍，A 在磁场中的周期会怎样？",
+        options: ["不变", "变为 2 倍", "变为一半"],
+        answer: 0,
+        explain: "T = 2πm/(qB) 与速率无关；速率加倍只让半径加倍，周期不变。",
+      },
+    ],
+    reading: magneticReencounter as WorkspaceReading,
+  },
+  {
+    id: "pendulum-collision",
+    title: "弹性正碰 · 碰后摆球上摆",
+    description: "一维弹性碰撞 + 单摆：碰后滑块反向、摆球上摆，用能量守恒求最大高度与摆角。",
+    difficulty: "中档",
+    tags: ["弹性碰撞", "单摆", "能量守恒"],
+    imageUrl: "/samples/pendulum-collision.svg",
+    problemText:
+      "质量 m₁ = 1 kg 的滑块以 v₀ = 2 m/s 在光滑水平面上向右运动，与静止的 m₂ = 3 kg 小球发生弹性正碰。小球用长 L = 1 m 的轻绳悬挂于 O 点，碰后小球在竖直平面内摆动。g = 10 m/s²。求：(1) 碰后滑块与小球的速度；(2) 小球摆起的最大高度；(3) 最大摆角。",
+    message: "已按弹性正碰 + 单摆建模：碰后滑块反向匀速，小球上摆到最高点后转折。",
+    assumptions: ["g = 10 m/s²", "水平面光滑，轻绳不可伸长", "碰撞为弹性正碰，时间极短"],
+    questions: [
+      {
+        label: "(1) 碰后速度",
+        eventKind: "collision",
+        formula: "v₁′ = (m₁−m₂)v₀/(m₁+m₂)，v₂′ = 2m₁v₀/(m₁+m₂)",
+        substitution: "v₁′ = (1−3)×2/4 = −1 m/s（反向）；v₂′ = 2×1×2/4 = 1 m/s",
+      },
+      {
+        label: "(2) 最大高度",
+        eventKind: "pendulum_turn",
+        formula: "½m₂v₂′² = m₂gh → h = v₂′²/(2g)",
+        substitution: "h = 1²/(2×10) = 0.05 m",
+      },
+      {
+        label: "(3) 最大摆角",
+        formula: "cosθ = 1 − h/L",
+        substitution: "cosθ = 1 − 0.05/1 = 0.95 → θ ≈ 18.2°",
+      },
+    ],
+    practice: [
+      {
+        prompt: "若把 m₂ 换成 1 kg（等质量弹性正碰），碰后滑块会怎样？",
+        options: ["静止，速度全部传给小球", "以 1 m/s 继续前进", "以 2 m/s 反向弹回"],
+        answer: 0,
+        explain: "等质量弹性正碰发生速度交换：滑块停下，小球以 2 m/s 摆起。",
+      },
+    ],
+    reading: horizontalCollisionPendulum as WorkspaceReading,
   },
 ];
 

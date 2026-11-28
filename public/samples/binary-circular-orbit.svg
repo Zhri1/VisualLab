@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <rect width="640" height="360" fill="#fbfbf9"/>
+  <text x="32" y="44" font-family="sans-serif" font-size="20" fill="#1c1c1c">双星系统 · 绕共同质心同步圆周运动</text>
+  <text x="32" y="74" font-family="sans-serif" font-size="14" fill="#555550">两星质量 m₁ = 2×10³⁰ kg、m₂ = 1×10³⁰ kg，相距 L = 3×10⁹ m。</text>
+  <text x="32" y="98" font-family="sans-serif" font-size="14" fill="#555550">G = 6.674×10⁻¹¹，求各自轨道半径 r₁、r₂，线速度与共同周期 T。</text>
+  <line x1="60" y1="250" x2="600" y2="250" stroke="#8e8e88" stroke-width="1" stroke-dasharray="2 6"/>
+  <circle cx="230" cy="190" r="26" fill="#c9d8ea" stroke="#1c1c1c" stroke-width="2"/>
+  <text x="230" y="195" font-family="sans-serif" font-size="12" fill="#1c1c1c" text-anchor="middle">m₁</text>
+  <circle cx="430" cy="190" r="18" fill="#e6cfc9" stroke="#1c1c1c" stroke-width="2"/>
+  <text x="430" y="195" font-family="sans-serif" font-size="12" fill="#1c1c1c" text-anchor="middle">m₂</text>
+  <line x1="230" y1="190" x2="430" y2="190" stroke="#1c1c1c" stroke-width="1.5" stroke-dasharray="4 4"/>
+  <text x="300" y="182" font-family="sans-serif" font-size="13" fill="#1c1c1c">L = 3×10⁹ m</text>
+  <circle cx="297" cy="190" r="4.5" fill="#8a4b4b"/>
+  <text x="286" y="222" font-family="sans-serif" font-size="12" fill="#8a4b4b">质心 O</text>
+  <line x1="297" y1="190" x2="230" y2="190" stroke="#8a4b4b" stroke-width="2.5"/>
+  <text x="252" y="182" font-family="sans-serif" font-size="12" fill="#8a4b4b">r₁</text>
+  <line x1="297" y1="190" x2="430" y2="190" stroke="#8a4b4b" stroke-width="2.5"/>
+  <text x="356" y="182" font-family="sans-serif" font-size="12" fill="#8a4b4b">r₂</text>
+  <path d="M230 164 a26 26 0 0 1 20 -12" fill="none" stroke="#2f6b3f" stroke-width="2"/>
+  <path d="M430 172 a18 18 0 0 1 -14 8" fill="none" stroke="#2f6b3f" stroke-width="2"/>
+  <text x="196" y="140" font-family="sans-serif" font-size="13" fill="#2f6b3f">v₁</text>
+  <text x="444" y="158" font-family="sans-serif" font-size="13" fill="#2f6b3f">v₂</text>
+  <text x="32" y="292" font-family="sans-serif" font-size="13" fill="#555550">r₁ : r₂ = m₂ : m₁　　T = 2π√(L³ / (G(m₁+m₂)))</text>
+  <text x="32" y="318" font-family="sans-serif" font-size="13" fill="#8a4b4b">两星周期必相同；半径按质量反比分配，质心始终在两星连线上。</text>
+</svg>

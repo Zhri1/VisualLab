@@ -15,9 +15,14 @@ function build(input: unknown) {
   return built.motion;
 }
 
+/** 单阶段示例：只有一段运动，事件数与段数下限相应放宽。 */
+const SINGLE_STAGE_IDS = new Set(["pulley-ground-slack", "circular-orbit", "binary-circular-orbit"]);
+/** 事件天然偏少的示例（单段或事件合并）。 */
+const FEW_EVENT_IDS = new Set(["conveyor-accel", "circular-orbit", "binary-circular-orbit"]);
+
 describe("内置示例题库（多过程多模型高考压轴题 + 传送带）", () => {
-  it("恰好 8 道题、id 唯一、默认示例存在且全部附带真实存在的原题图片", () => {
-    expect(SAMPLES.length).toBe(8);
+  it("恰好 14 道题、id 唯一、默认示例存在且全部附带真实存在的原题图片", () => {
+    expect(SAMPLES.length).toBe(14);
     const ids = SAMPLES.map((sample) => sample.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(getSample("missing-id").id).toBe(SAMPLES[0].id);
@@ -31,8 +36,8 @@ describe("内置示例题库（多过程多模型高考压轴题 + 传送带）"
   it.each(SAMPLES)("$title 能装配并生成可播放动画", (sample) => {
     const motion = build(sample.reading);
     expect(motion.durationSeconds).toBeGreaterThan(0.5);
-    expect(motion.events.length).toBeGreaterThanOrEqual(sample.id === "conveyor-accel" ? 3 : 4);
-    expect(motion.segments.length).toBeGreaterThanOrEqual(sample.id === "pulley-ground-slack" ? 1 : 2);
+    expect(motion.events.length).toBeGreaterThanOrEqual(FEW_EVENT_IDS.has(sample.id) ? 3 : 4);
+    expect(motion.segments.length).toBeGreaterThanOrEqual(SINGLE_STAGE_IDS.has(sample.id) ? 1 : 2);
     expect(sample.problemText.length).toBeGreaterThan(40);
     expect(sample.message.length).toBeGreaterThan(0);
     expect(sample.assumptions.length).toBe(3);
