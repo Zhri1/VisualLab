@@ -61,7 +61,7 @@ export function computeDefaultPace(
   // 圆周轨道运动（如低轨/同步卫星）物理周期常达数千至数万秒：
   // 保持真实物理时间轴、周期与速率不变，仅将默认观看时钟按约 12 s/圈缩放（10–15 s 可观看区间），
   // 并在界面明确提示时间加速；普通力学题继续沿用下方只放慢不加速的既有规则。
-  const orbit = motion.stageGeometry?.circularOrbit;
+  const orbit = motion.stageGeometry?.circularOrbit ?? motion.stageGeometry?.binaryCircularOrbit;
   if (orbit && Number.isFinite(orbit.periodSeconds) && orbit.periodSeconds > 0) {
     const targetOrbitWatchSeconds = 12;
     if (orbit.periodSeconds > 15) {

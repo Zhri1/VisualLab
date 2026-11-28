@@ -48,3 +48,6 @@ export function buildMotion(scene: Scene | StageScene): ReturnType<typeof buildL
 export function buildMotion(scene: Scene | StageScene) {
   return "kind" in scene && scene.kind === "stage_scene" ? buildStageMotion(scene) : buildLegacyMotion(scene as Scene);
 }
+
+export {solveBinaryCircularOrbit, DEFAULT_GRAVITATIONAL_CONSTANT} from "./binaryCircularOrbit.ts";
+export type {BinaryCircularOrbitStage} from "./binaryCircularOrbit.ts";

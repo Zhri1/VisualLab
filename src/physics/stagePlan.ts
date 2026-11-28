@@ -1,3 +1,4 @@
+import {validateBinaryCircularOrbitPlan} from "./binaryCircularOrbit.ts";
 import { resolveUniformConstraints, inclineTrig } from "./uniformConstraints.ts";
 import type {HorizontalInitial} from './horizontalTypes.ts';
 import { resolveSpringEnergy } from "./springEnergy.ts";
@@ -10,7 +11,7 @@ import { validateMagneticReencounterPlan, type MagneticReencounterStage } from '
 import type { BodyDefinition, BodyStage } from './multiBodyTypes.ts';
 export type Energy = { stageIndex: number; elasticEnergyJ: number; origin: "given" | "user" | "spring_parameters" | "critical_arc_top" | "tangent_to_next_arc"; basis?: Record<string, number> };
 export type PlaybackScope = { mode: "full" | "suffix" | "state_only"; startStageIndex: number; unresolvedKeys: string[]; reason: string; xM?: number; vxMps?: number; stopReason?: "stop_at_target" | "stop_before_target" | "prefix_end" };
-export type SingleStageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release" | "constant_force_1d" | "conveyor_belt" | "magnetic_deflection" | "movable_arc" | "movable_semicircle" | "spring_pair" | "circular_orbit";
+export type SingleStageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release" | "constant_force_1d" | "conveyor_belt" | "magnetic_deflection" | "movable_arc" | "movable_semicircle" | "spring_pair" | "circular_orbit" | "binary_circular_orbit";
 export type StageKind = SingleStageKind | BodyStage['kind'] | SwitchableEMStage['kind'] | MagneticReencounterStage['kind'];
 export type ProjectileBounce = {
   normalRestitution: number;
@@ -25,6 +26,7 @@ export type SingleStage =
   | import("./conveyorBelt.ts").ConveyorBeltStage
   | import("./magneticDeflection.ts").MagneticDeflectionStage
   | import("./movableArc.ts").MovableArcStage
+  | import("./binaryCircularOrbit.ts").BinaryCircularOrbitStage
   | import("./circularOrbit.ts").CircularOrbitStage
   | import("./movableSemicircle.ts").MovableSemicircleStage
   | import("./springPair.ts").SpringPairStage
@@ -75,7 +77,7 @@ export type StagePlanFailure = {
 };
 export type StagePlanValidation = { ok: true; reading: ResolvedStagePlan; playback?: PlaybackScope } | StagePlanFailure;
 
-const stageKinds: readonly string[] = ["incline_slide", "lossless_turn", "horizontal_slide", "spring_contact", "projectile", "vertical_arc", "spring_release", "constant_force_1d", "conveyor_belt", "magnetic_deflection", "movable_arc", "movable_semicircle", "spring_pair", "circular_orbit"];
+const stageKinds: readonly string[] = ["incline_slide", "lossless_turn", "horizontal_slide", "spring_contact", "projectile", "vertical_arc", "spring_release", "constant_force_1d", "conveyor_belt", "magnetic_deflection", "movable_arc", "movable_semicircle", "spring_pair", "circular_orbit", "binary_circular_orbit"];
 const positive = (value: number) => value > 0;
 const nonnegative = (value: number) => value >= 0;
 const finite = (_value: number) => true;
@@ -88,6 +90,7 @@ const numericRules: Record<StageKind, Record<string, (value: number) => boolean>
   conveyor_belt: { initialBeltSpeedMps: finite, kineticFrictionCoefficient: nonnegative },
   magnetic_deflection: { magneticTeslaB: positive, chargeC: (value) => value !== 0, regionWidthM: positive },
   movable_arc: { radiusM: positive, grooveMassKg: positive },
+  binary_circular_orbit: {},
   circular_orbit: { gravitationalParameterM3s2: positive },
   movable_semicircle: { radiusM: positive, grooveMassKg: positive },
   spring_pair: {},
@@ -102,6 +105,7 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 export function validateStagePlan(input: unknown): StagePlanValidation {
+  if (record(input) && Array.isArray(input.stages) && input.stages.some(s=>record(s)&&s.kind==="binary_circular_orbit")) return validateBinaryCircularOrbitPlan(input);
   if (record(input) && Array.isArray(input.stages) && input.stages.some(stage => record(stage) && stage.kind === 'switchable_em_collision')) {
     return validateSwitchableEMPlan(input);
   }

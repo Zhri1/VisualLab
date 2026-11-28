@@ -1,0 +1,4 @@
+{
+  "kind":"stage_plan", "schemaVersion":1, "initial":{"speedMps":0},
+  "stages":[{"kind":"binary_circular_orbit","mass1Kg":2e30,"mass2Kg":1e30,"separationM":3e9,"gravitationalConstantM3KgS2":6.67430e-11,"direction":"ccw","initialAngleDeg":0,"orbits":1}]
+}

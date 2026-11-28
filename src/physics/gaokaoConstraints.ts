@@ -7,6 +7,7 @@ export type DerivedCalculation = {
   stageIndex: number;
   targetPath: string;
   quantity:
+    | "binary_total_mass" | "binary_star_mass"
     | "net_force" | "resistance" | "friction_coefficient"
     | "projectile_drop_height"
     | "arc_radius"
@@ -15,9 +16,10 @@ export type DerivedCalculation = {
     | "arc_entry_speed"
     | "initial_elastic_energy";
   value: number;
-  unit: "m" | "m/s" | "J" | "N" | "1";
+  unit: "m" | "m/s" | "J" | "N" | "1" | "kg";
   source: "derived";
   rule:
+    | "binary_period_mass" | "binary_mass_distribution" | "binary_mass_sum"
     | "arc_radius_from_horizontal_span"
     | "uniform_acceleration"
     | "tangent_to_next_arc"
