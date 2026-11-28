@@ -257,6 +257,7 @@ export function WorkspaceLayout({ ws }: Props) {
     movable_arc: "可移动圆弧槽",
     movable_semicircle: "可平动半圆轨道",
     spring_pair: "弹簧双球",
+    circular_orbit: "圆周轨道",
     spring_contact: "弹簧",
     projectile: "抛体",
     vertical_arc: "圆弧",

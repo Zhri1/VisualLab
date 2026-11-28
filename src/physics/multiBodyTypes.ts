@@ -4,6 +4,7 @@ export type BodyDefinition = { bodyId: string; massKg: number };
 export type BodyState = BodyDefinition & {
   xM: number; yM: number; vxMps: number; vyMps: number; springCompressionM: number;
   status: 'moving' | 'resting' | 'turning' | 'landed' | 'model_boundary';
+  positionUndetermined?: boolean;
   constraintId?: string; groupId?: string;
 };
 export type StringState = {
@@ -35,6 +36,7 @@ export type CollisionStage = {
 export type BodyTrackStage = PendulumStage
   | { kind: 'horizontal_slide'; kineticFrictionCoefficient: number; end: { kind: 'distance'; distanceM: number } | { kind: 'stop' } | { kind: 'scene_end' } }
   | { kind: 'conveyor_belt'; inheritFromStageIndex: number }
+  | import('./movableArc.ts').MovableArcStage
   | { kind: 'projectile'; landingPlaneYM: number; supportAbsentAtStart?: true; supportBoundary?: {edgeXM:number;supportedSide:'left'|'right'} };
 export type ParallelStage = {
   kind: 'parallel_motion'; tracks: { bodyIds: string[]; stages: BodyTrackStage[] }[];
@@ -52,4 +54,11 @@ export type BodyGeometry = {
   bodyTracks?: { bodyIds: string[]; stagePath: string; horizontal?: { start: Point; plannedEnd: Point | null }; projectile?: { launch: Point; landingPlane?: { yM: number } } }[];
   plank?: import('./blockPlankTypes.ts').PlankGeometry;
   pulley?: import('./pulleyTypes.ts').PulleyGeometry;
+  multiBodyMovableArc?: {
+    bodyId: string; stagePath: string; entryXM: number; entryYM: number; radiusM: number; grooveMassKg: number;
+    entryDirection: -1 | 1; entryTimeSeconds: number; exitTimeSeconds: number; exitGrooveXM: number; exitGrooveVX: number;
+    bottomReturnNormalForceN: number | null;
+    entryGapUnknown?: boolean;
+  };
+  upstreamSpring?: { bodyId: string; xM: number; schematic: boolean; elasticEnergyJ: number | null };
 };

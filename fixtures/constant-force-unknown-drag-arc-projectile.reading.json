@@ -1,0 +1,33 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "massKg": 1.0,
+  "initial": { "speedMps": 0 },
+  "stages": [
+    {
+      "kind": "constant_force_1d",
+      "netForceXN": -10,
+      "end": { "kind": "distance", "distanceM": 1.25 },
+      "startLabel": "A",
+      "endLabel": "B"
+    },
+    {
+      "kind": "vertical_arc",
+      "radiusM": 0.4,
+      "endAngleDeg": 180,
+      "side": "inside",
+      "frictionless": false,
+      "dragLaw": "unknown",
+      "knownExit": { "kind": "critical_top" },
+      "startLabel": "B",
+      "endLabel": "D"
+    },
+    {
+      "kind": "projectile",
+      "landingPlaneYM": 0,
+      "startLabel": "D",
+      "endLabel": "落点"
+    }
+  ]
+}

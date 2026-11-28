@@ -19,8 +19,8 @@ export function resolveSpringEnergy(input: Obj, draft: StagePlanDraft, missing: 
   const m = draft.massKg as number, g = draft.gravityMps2 ?? 0;
   const mu = s.kineticFrictionCoefficient as number, muh = h?.kineticFrictionCoefficient as number;
   let k = s.springConstantNpm as number | null, c = s.initialCompressionM as number | null;
-  let energy: Energy | undefined;
-  if (input.energy != null) {
+  let energy: Energy | undefined = draft.energy;
+  if (input.energy != null && !(draft.energy && draft.energy.origin === "tangent_to_next_arc")) {
     if (!object(input.energy)) issue("/energy", "TYPE", "能量记录须为对象。");
     else {
       const raw = input.energy, target: Obj = { origin: raw.origin };
@@ -32,7 +32,7 @@ export function resolveSpringEnergy(input: Obj, draft: StagePlanDraft, missing: 
       }
       if (raw.origin == null) missing.push("/energy/origin");
       else if (typeof raw.origin !== "string") issue("/energy/origin", "TYPE", "能量来源须为字符串。");
-      else if (!["given", "user", "spring_parameters", "critical_arc_top"].includes(raw.origin)) issue("/energy/origin", "UNSUPPORTED", "未登记的能量来源。");
+      else if (!["given", "user", "spring_parameters", "critical_arc_top", "tangent_to_next_arc"].includes(raw.origin)) issue("/energy/origin", "UNSUPPORTED", "未登记的能量来源。");
       if (raw.origin === "critical_arc_top" || raw.origin === "spring_parameters") {
         if (raw.basis == null) missing.push("/energy/basis");
         else if (!object(raw.basis)) issue("/energy/basis", "TYPE", "来源快照须为对象。");

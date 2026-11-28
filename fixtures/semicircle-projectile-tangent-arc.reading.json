@@ -1,0 +1,42 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "massKg": 1,
+  "initial": { "speedMps": null },
+  "stages": [
+    {
+      "kind": "vertical_arc",
+      "radiusM": 0.9,
+      "side": "inside",
+      "frictionless": true,
+      "startLabel": "B",
+      "endLabel": "A",
+      "path": {
+        "startAngleDeg": 0,
+        "direction": "negative",
+        "end": { "kind": "physical_endpoint", "sweepAngleDeg": 180 }
+      }
+    },
+    {
+      "kind": "projectile",
+      "landingPlaneYM": 0,
+      "startLabel": "A",
+      "endLabel": "C",
+      "end": { "kind": "tangent_to_next_arc" }
+    },
+    {
+      "kind": "vertical_arc",
+      "radiusM": 0.5,
+      "side": "inside",
+      "frictionless": true,
+      "startLabel": "C",
+      "endLabel": "D",
+      "path": {
+        "startAngleDeg": -37,
+        "direction": "positive",
+        "end": { "kind": "physical_endpoint", "sweepAngleDeg": 37 }
+      }
+    }
+  ]
+}

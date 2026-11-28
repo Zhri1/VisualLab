@@ -1,0 +1,5 @@
+{
+  "kind":"stage_plan", "schemaVersion":1, "gravityMps2":10, "massKg":0.5,
+  "initial":{"vxMps":6,"vyMps":0},
+  "stages":[{"kind":"projectile","dropHeightM":0.8,"reversal":{"kind":"equal_speed_opposite","stopAt":"after_impulse"}}]
+}

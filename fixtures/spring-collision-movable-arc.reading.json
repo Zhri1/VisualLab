@@ -1,0 +1,67 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "bodies": [
+    { "bodyId": "A", "massKg": 2 },
+    { "bodyId": "B", "massKg": 1 }
+  ],
+  "primaryBodyId": "B",
+  "initial": {
+    "bodies": [
+      { "bodyId": "A", "xM": null, "vxMps": null },
+      { "bodyId": "B", "xM": null, "vxMps": 0 }
+    ]
+  },
+  "stages": [
+    {
+      "kind": "horizontal_approach",
+      "upstreamSpring": {
+        "bodyId": "A",
+        "springConstantNpm": null,
+        "initialCompressionM": null,
+        "frictionless": true,
+        "unattached": true
+      },
+      "tracks": [
+        { "bodyId": "A", "kineticFrictionCoefficient": 0 },
+        { "bodyId": "B", "kineticFrictionCoefficient": 0 }
+      ],
+      "end": { "kind": "contact_or_rest" }
+    },
+    {
+      "kind": "collision_1d",
+      "bodyIds": ["A", "B"],
+      "mode": "elastic",
+      "normalXM": 1,
+      "contact": { "kind": "horizontal_meeting", "approachStageIndex": 0 },
+      "externalImpulseNegligible": true
+    },
+    {
+      "kind": "parallel_motion",
+      "tracks": [
+        {
+          "bodyIds": ["A"],
+          "stages": [
+            { "kind": "horizontal_slide", "kineticFrictionCoefficient": 0, "end": { "kind": "scene_end" } }
+          ]
+        },
+        {
+          "bodyIds": ["B"],
+          "stages": [
+            {
+              "kind": "movable_arc",
+              "entryMode": "bottom",
+              "radiusM": 0.8,
+              "grooveMassKg": 4,
+              "entryDirection": 1,
+              "entryGapM": null,
+              "criticalTopRelativeRest": true
+            }
+          ]
+        }
+      ],
+      "end": { "kind": "all_finite_tracks" }
+    }
+  ]
+}

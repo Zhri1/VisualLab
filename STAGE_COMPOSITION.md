@@ -40,6 +40,28 @@
 
 ## 2. 校验与错误定位
 
+### 2.0 匀变速题设反求增量
+
+`constant_force_1d` 与 `incline_slide` 可带 `kinematics: { durationSeconds?, elapsedSeconds?, displacementM?, finalSpeedMps? }`，只记录题给数值。恒力段的位移和末速度是世界 x 带符号量；斜面为沿本段运动方向的非负量。时长必须正；已知初速度时，由位移+时长、末速度+时长或位移+末速度唯一反求加速度。无唯一解继续提示缺值，所有重复约束必须一致；不允许用跨越折返的斜面位移冒充单向过程。恒力合力由 F=ma 反求，题给施力不可直接填成合力。`elapsedSeconds` 表示从计划起点至本段终点的累计时间，仅在前段用时确定后相减得到本段时间，不得猜测。
+
+斜面可用 `resistanceN`（沿运动反方向的恒定阻力，非负，质量必填）替代 `kineticFrictionCoefficient`，两者互斥；未知阻力不假设为摩擦。缺 `resistanceN` 时必须显式写 `resistanceN: null` 才允许由运动约束反求。上滑摩擦反求用 a=-g(sinθ+μcosθ)。上滑至停点且题面明确返回时附 `returnsToEntry: true`；这确认能自行滑回，但不覆盖已给静摩擦矛盾。
+
+斜面可带 `trig: { sin?, cos? }` 表示题给三角函数近似值（至少一项，未给的分量仍用精确角度），范围 (0,1)，与角度偏差不超过 0.02，平方和偏差不超过 0.05。动力学统一使用原近似值；几何与速度方向使用角度精确值，速率模长和坐标接续连续。不填时保持精确计算。
+
+水平段另支持 `end: { kind: "speed", speedMps }`，末速率非负。摩擦减速可唯一到达较小速率；初末相等时立即结束（零位移），无摩擦而末速不同或末速超过初速报前提冲突。
+
+最低点入射的旧 `vertical_arc` 可带 `horizontalSpanM`（入口到端点的正水平投影），当 `0 < endAngleDeg < 90` 时由 `R = horizontalSpanM / sin(endAngleDeg)` 唯一反求 `radiusM`。可用段内 `trig: {sin}` 保留题给出口角正弦近似，校验范围同上；此处近似仅为投影反求依据，轨迹方向仍由角度确定。显式 `path`、`verticalDropM` 与该投影反求互斥；给定 R 与投影不一致报冲突。推导规则 `arc_radius_from_horizontal_span` 保留，编辑投影后重新装配重算。
+
+仅询问最低点刚入弧的速度与支持力时，可在终段 `vertical_arc` 写 `entryOnly: true`。只继承实际入口状态，按 `N=m(g+v²/R)` 输出零时长 `arc_enter → arc_range_end`，以 `prefix_end` 结束，保留支持力。该最低点入口分支省略 `side` 时规范化为 `inside`；显式给定其他侧仍按原范围校验。不需要后续光滑事实或终点角；若题面有已知端点角仍可保留用于绘图及投影反求，但不得计算未给定后续力条件的弧内运动。该模式不支持显式 `path`、`dragLaw/knownExit` 或后缀；已给 `frictionless` 只保留事实，不参与瞬时法向方程。纯计算 `segments` 仍只含正时长阶段；播放器适配层另补零时长显示定位标记，使终帧的路段名、公式和受力使用入口状态，不增加物理用时。
+
+题设 `kinematics`、`trig` 与派生 `derivedCalculations` 随 API 回包保留。再次装配时对尚未被手动覆写的派生字段重新反求，改过的字段作为新给定约束校验，不默默覆盖。新增推导规则 `uniform_acceleration`，保留输入 JSON Pointer。
+
+### 2.1 抛体在指定高度等速反向
+
+`projectile` 可附 `reversal: { kind: "equal_speed_opposite", stopAt: "after_impulse" | "first_apex" }`，仅用于题面明确瞬时作用前后**总速度**大小相等、方向相反的条件。不得用于只反转竖直分量、一般球拍碰撞或任意恢复系数。它与 `bounce`、切向入弧 `end` 互斥，须为末段，顶层质量必填。原互斥的 `dropHeightM` / `landingPlaneYM` 在此表示触球平面，必须在实际到达该高度且竖直速度向下时触发；不得当作落地事件。
+
+事件 `velocity_reversal` 位置连续，`velocityAfter = -velocityBefore`，精确时刻取碰后态。事件及播放器保留 `impulseNs: { jxNs, jyNs, magnitudeNs } = m(vAfter-vBefore)`；同时输出派生冲量读数。`after_impulse` 精确结束于碰后，适用于题目只问触球距离、碰前速度与冲量；仅题目明确观察反向后最高点时选 `first_apex`，继续同一重力抛体到最高点并发 `apex`。两种结束均用 `prefix_end`，不擅自继续落地或虚构下一次接球。碰撞持续时间未给，输出总冲量，不编造平均作用力。
+
 B 从 `src/physics/index.ts` 导出纯函数 `validateStagePlan(input: unknown)`，供 C 校验模型回包，也供 `assembleScene` 复用。同一份验收样例在 Node 服务和 Qoder 云函数中应得到一致的结果。
 
 ```ts
@@ -92,13 +114,14 @@ Node 服务与 Qoder 云函数识别新题时使用同一张映射表。
 | `horizontal_slide` | `kineticFrictionCoefficient`，以及旧 `end: { kind: "distance", distanceM }` / `{ kind: "stop" }`；[预压扩展](PRECOMPRESSED_SPRING.md#2-距离和合法接续)另有 `distance_from_stage_start`。 | 旧 `distance` 只从本水平段起点量起，新引用距离可从A量总AB；摩擦停止可能先于目标。正速到达后还可按 [圆弧接续约定](VERTICAL_ARC.md#1-输入单位与范围) 接 `vertical_arc`。 |
 | `spring_contact` | `springConstantNpm`、`frictionless: true`、`unattached: true`，质量读计划顶层。 | 水平正速入射，计算接触、最大压缩和恢复原长后脱离。 |
 | `spring_release`（扩展） | `springConstantNpm`、`initialCompressionM`、`kineticFrictionCoefficient`、`unattached`、`slidesAfterRelease`；缺参后缀另需可确认的 `releaseCompleteByM`，见 [预压弹簧契约](PRECOMPRESSED_SPRING.md)。 | 预压后释放，仍压缩时也受摩擦；比较恢复原长与先停止。与旧 `spring_contact` 独立。 |
-| `vertical_arc` | `radiusM`、`endAngleDeg` 或显式 `path`、`side` 为 `"inside"` 或 `"rod"`、`frictionless: true`，质量与重力读计划顶层；完整范围见 [圆弧扩展契约](VERTICAL_ARC.md#1-输入单位与范围)。 | 计算到端点飞出、提前失去接触或停下回滑，输出圆弧几何、约束状态和关键事件。 |
+| `vertical_arc` | `radiusM`、`endAngleDeg` 或显式 `path`、`side` 为 `"inside"` 或 `"rod"`、`frictionless: true`（或未知阻力缺口分支：`frictionless: false`、`dragLaw: "unknown"`、`knownExit: { kind: "critical_top" } | { kind: "speed", speedMps }`），质量与重力读计划顶层；完整范围见 [圆弧扩展契约](VERTICAL_ARC.md#1-输入单位与范围)。 | 光滑分支计算到端点飞出、提前失去接触或停下回滑，输出圆弧几何、约束状态和关键事件。未知阻力分支不假装光滑、不编造阻力规律与耗时：由动能定理求总阻力功 $W_f$，输出 `playbackGaps` 播放时间缺口与虚线示意圆弧，再从已知出口状态接续后续精确运动。 |
 | `projectile` | 旧 `dropHeightM` 继续表示发射点到落地平面的非负落差，平面为 `launch.yM - dropHeightM`。扩展允许互斥的固定世界坐标 `landingPlaneYM`；圆弧后抛体必须选固定平面，详见 [固定地面约定](VERTICAL_ARC.md#2-接抛体时固定地面)。斜面末端直接抛出可选上述一种输入，详见 [檐口与地面坐标](INCLINE_PROJECTILE.md#2-坐标地面及绘图参考点)。可选 `bounce: { normalRestitution, stopAt: "first_apex", apexHeightM? }` 支持首次水平面反弹至最高点及由 `h` 反求 `H = h / e²`，详见 [预压弹簧契约第 8 节](PRECOMPRESSED_SPRING.md#8-增量扩展光滑桌面能量发射直连平抛与首次落地反弹)。 | 自实际发射状态起算，记录实际发生的最高点与落地；含 `bounce` 且 `e > 0` 时记录 `ground_bounce`（位置连续、`vx+ = vx−`、`vy+ = −e·vy−`）并追踪至 `bounce_apex`。斜面接续保留向下竖直分量，不产生内部最高点。 |
 | `pendulum_swing` / `collision_1d` / `parallel_motion`（待实现扩展） | 具体字段、张力/松绳、两质量、带符号速度和碰后约束见 [摆与碰撞契约第2至4节](PENDULUM_COLLISION.md#2-有序阶段与受控并行)。 | 一根轻绳的非线性摆动、最低点瞬时正碰及碰后同钟轨道；不新增整题模板或任意规则求解器。 |
 | `magnetic_deflection` | `magneticTeslaB`（T，正值）、`chargeC`（C，非零带符号）、`regionWidthM`（m，正值）、`fieldDirection`（`into_page` / `out_of_page`，默认向里）、`exitKind`（`region_edge` / `half_circle`，默认按竖直边界出射）。 | 单粒子在垂直纸面的匀强磁场中忽略重力，按洛伦兹力求半径、实际出射位置和切向速度，记录 `magnetic_enter` 与 `magnetic_exit`。 |
-| `movable_arc` | `radiusM`、`grooveMassKg`、可选 `exitDirection`（-1/1）；球质量读顶层 `massKg`，`initial.speedMps: 0`。 | 四分之一光滑槽静置光滑地面可自由滑动：水平动量守恒 + 机械能守恒，RK4 积分槽内过程；离槽球速 `√(2gRM/(M+m))`、槽速反向 `m·v/M`，离槽后槽匀速外推。 |
+| `movable_arc` | `radiusM`、`grooveMassKg`、可选 `entryMode`（`"top"` 默认 / `"bottom"`）、`exitDirection`（-1/1，顶入）、`entryDirection`（-1/1，底入）、`criticalTopRelativeRest`（底入恰好在槽顶相对静止）、`entryGapM`（底入前已知间距）；球质量读顶层 `massKg` 或多体 `bodies`。顶入首段须 `initial.speedMps: 0`（非零报 `PRECONDITION_CONFLICT`）；底入须正速率入槽（或由 `criticalTopRelativeRest: true` 反求）。 | 四分之一光滑槽静置光滑地面可自由滑动：水平动量守恒 + 机械能守恒。顶入 RK4 积分至离槽（球速 `√(2gRM/(M+m))`、槽速反向 `m·v/M`）；底入自适应积分至槽顶/转折点相对静止并对称返回槽底分离（返回球速 `(m−M)/(m+M)·v₀`、槽速 `2m/(m+M)·v₀`、槽底支持力 `mg + m v₀²/R`）。 |
 | `movable_semicircle` | `radiusM`、`grooveMassKg`、`direction`、`frictionless`、`groundFrictionless`，详情见 [可平动半圆轨道契约](MOVABLE_SEMICIRCLE.md)。 | 正速从底部切向进入初静止的可平动半圆内轨，取样同时包含滑块与轨道运动，记录实际到顶、提前失去接触或首个转折点。 |
 | `spring_pair` | `springConstantNpm`、`targetMassKg`（可 null）、`separationSpeedMps`（可 null）、可选 `gapM`；入射球质量读顶层 `massKg`。 | 弹簧不锚墙的弹性双球作用：匀速走完 gap → 压缩 → 共速（Ep 最大）→ 恢复原长分离。`targetMassKg` 缺而给 `separationSpeedMps` 时反求 m₂ = m₁(u+s)/(u−s)。末段。 |
+| `circular_orbit` | `gravitationalParameterM3s2`（中心天体引力常量乘质量 $GM$，正值）、`orbitalRadiusM`（轨道半径 $r$）或互斥的 `altitudeM` + `centralBodyRadiusM`（$r = R + h$，给离地高度时必须提供中心天体半径）、可选 `direction`（`"ccw"` 默认逆时针 / `"cw"` 顺时针）、`initialAngleDeg`（默认 0°）、`orbits`（默认 1 圈）。无需顶层 `gravityMps2` 或 `massKg`。 | 固定中心天体与低质量单卫星圆周轨道运动：计算 $v = \sqrt{GM/r}$、$T = 2\pi\sqrt{r^3/(GM)}$、向心加速度 $a_c = GM/r^2$，完整播放指定圈数并输出轨道方向、速率与半径。椭圆轨道与霍曼转移不在本版范围。 |
 
 `horizontal_slide.end` 原有 `distance/stop` 两种互斥分支保持兼容。指定距离时，库比较到达目标与因摩擦停止两个事件。停止更早时返回 `stop_before_target`，恰好同时发生时停止优先，返回 `stop_at_target`。只指定 `stop` 时，以停止为目标。光滑面上有正初速且要求因摩擦停止，返回可定位的前提冲突。
 

@@ -143,6 +143,24 @@ describe("默认观看节奏与统一取景", () => {
     expect(s.bodies?.one.position.x).toBeCloseTo(s.bodies!.two.position.x, 9);
   });
 
+  it("圆周轨道（5544.86 s 低轨卫星）默认时间加速至约 12 s/圈，保持真实物理周期与速率不变", () => {
+    const motion = load("circular-orbit.reading.json");
+    const pace = computeDefaultPace(motion);
+    expect(motion.durationSeconds).toBeCloseTo(5544.858, 2);
+    expect(pace).toBe(462);
+    const watchSeconds = motion.durationSeconds / pace;
+    expect(watchSeconds).toBeGreaterThanOrEqual(10);
+    expect(watchSeconds).toBeLessThanOrEqual(15);
+    expect(formatPace(pace)).toBe("462");
+    // 真实播放推进：6 s 现实时间越过半周事件（2772.43 s），12.1 s 到达整圈终点
+    const half = advancePlayback(0, 6.5, 1 * pace, motion.durationSeconds, motion.events);
+    expect(half.pause).toBe(true);
+    expect(half.time).toBeCloseTo(motion.durationSeconds / 2, 2);
+    const done = advancePlayback(half.time, 6.5, 1 * pace, motion.durationSeconds, motion.events);
+    expect(done.pause).toBe(true);
+    expect(done.time).toBeCloseTo(motion.durationSeconds, 2);
+  });
+
   it("fitViewport：横长 1D 场景占足横向宽度不受虚高限制，静止点与 2D 场景等比居中", () => {
     const horiz = fitViewport(900, 360, computeWorldBounds([{ x: 0, y: 0 }, { x: 12, y: 0 }]), { top: 40, right: 50, bottom: 40, left: 50 });
     expect(horiz.X(0)).toBeCloseTo(50, 6);

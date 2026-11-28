@@ -1,0 +1,9 @@
+{
+  "kind": "stage_plan", "schemaVersion": 1,
+  "gravityMps2": 10, "massKg": 3, "initial": {"speedMps": 0},
+  "stages": [
+    {"kind": "constant_force_1d", "netForceXN": null, "end": {"kind": "distance", "distanceM": 8}, "kinematics": {"finalSpeedMps": 4}},
+    {"kind": "lossless_turn", "lossless": true},
+    {"kind": "incline_slide", "angleDeg": 30, "lengthM": 12, "resistanceN": null, "trig": {"sin": 0.5}, "kinematics": {"elapsedSeconds": 6}}
+  ]
+}

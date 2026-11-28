@@ -18,6 +18,15 @@ function drawingData(motion:Motion){
   for(const p of motion.stageGeometry?.pendulums??[]){points.push({x:p.pivot.xM,y:p.pivot.yM},{x:p.lowestPoint.xM,y:p.lowestPoint.yM});if(p.peg)points.push({x:p.peg.xM,y:p.peg.yM},{x:p.peg.xM,y:p.peg.yM+p.peg.effectiveLengthM});}
   if(motion.stageGeometry?.conveyor){const cv=motion.stageGeometry.conveyor;points.push({x:cv.minXM,y:0},{x:cv.maxXM,y:0});}
   if(motion.stageGeometry?.pulley){const pl=motion.stageGeometry.pulley;points.push({x:pl.pulley.xM,y:pl.pulley.yM},{x:pl.body1Start.xM,y:pl.body1Start.yM},{x:pl.body2Start.xM,y:pl.body2Start.yM});if(pl.groundYM!=null)points.push({x:pl.body2Start.xM,y:pl.groundYM});}
+  if(motion.stageGeometry?.multiBodyMovableArc){
+    const ma=motion.stageGeometry.multiBodyMovableArc;
+    const d=ma.entryDirection,R=ma.radiusM;
+    points.push({x:ma.entryXM,y:ma.entryYM},{x:ma.entryXM+d*R*1.15,y:ma.entryYM+R},{x:ma.exitGrooveXM,y:ma.entryYM},{x:ma.exitGrooveXM+d*R*1.15,y:ma.entryYM+R});
+  }
+  if(motion.stageGeometry?.upstreamSpring){
+    const us=motion.stageGeometry.upstreamSpring;
+    points.push({x:us.xM-0.7,y:0},{x:us.xM,y:0});
+  }
   if(motion.stageGeometry?.switchableEM){const em=motion.stageGeometry.switchableEM;for(const c of em.circles){points.push({x:c.center.xM-c.radiusM,y:c.center.yM-c.radiusM},{x:c.center.xM+c.radiusM,y:c.center.yM+c.radiusM});}points.push({x:em.tangency.xM,y:em.tangency.yM},{x:em.switchOffX,y:0});for(const lm of motion.stageGeometry.landmarks??[])points.push({x:lm.position.xM,y:lm.position.yM});}
   if(motion.stageGeometry?.magneticReencounter){const mr=motion.stageGeometry.magneticReencounter;for(const c of mr.circles){points.push({x:c.center.xM-c.radiusM,y:c.center.yM-c.radiusM},{x:c.center.xM+c.radiusM,y:c.center.yM+c.radiusM});}points.push({x:mr.contact.xM,y:mr.contact.yM});for(const lm of motion.stageGeometry.landmarks??[])points.push({x:lm.position.xM,y:lm.position.yM});}
   for(const tr of motion.stageGeometry?.bodyTracks??[]){if(tr.horizontal){points.push({x:tr.horizontal.start.xM,y:tr.horizontal.start.yM});if(tr.horizontal.plannedEnd)points.push({x:tr.horizontal.plannedEnd.xM,y:tr.horizontal.plannedEnd.yM});}if(tr.projectile?.landingPlane)points.push({x:tr.projectile.launch.xM,y:tr.projectile.landingPlane.yM});}
@@ -235,6 +244,58 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
       reqs.push({text:'O',color:SOFT,cx:X(p.lowestPoint.xM)+13,by:Y(p.lowestPoint.yM)+18,dir:1});
     }
   }
+  if(motion.stageGeometry?.upstreamSpring){
+    const us=motion.stageGeometry.upstreamSpring;
+    const y0=Y(0),tipX=X(us.xM)-6,wallX=Math.max(12,tipX-Math.max(32,Math.min(54,0.45*S)));
+    ctx.save();
+    ctx.strokeStyle=us.schematic?SOFT:INK;ctx.lineWidth=1.4;
+    if(us.schematic)ctx.setLineDash([4,3]);
+    // 左侧固定墙与预压弹簧示意
+    ctx.beginPath();ctx.moveTo(wallX,y0-24);ctx.lineTo(wallX,y0+4);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(wallX,y0-6);
+    for(let i=1;i<=10;i++)ctx.lineTo(wallX+(tipX-wallX)*i/10,y0-6+(i%2?-4.5:4.5));
+    ctx.lineTo(tipX,y0-6);ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+    const label=us.elasticEnergyJ!=null?`预压弹簧${us.schematic?'（示意）':''} Ep=${us.elasticEnergyJ.toFixed(2)} J`:'预压弹簧（示意）';
+    reqs.push({text:label,color:SOFT,cx:(wallX+tipX)/2,by:y0-28,dir:-1});
+  }
+  if(motion.stageGeometry?.multiBodyMovableArc){
+    const ma=motion.stageGeometry.multiBodyMovableArc;
+    const gs=motion.movableArcAt?.(time)??{grooveXM:ma.entryXM,grooveVX:0,normalForceN:0};
+    const d=ma.entryDirection,R=ma.radiusM,cx=gs.grooveXM,y0=ma.entryYM;
+    const backX=cx+d*R*1.12;
+    ctx.save();
+    // 光滑水平地面
+    ctx.strokeStyle=INK;ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(gx1,Y(y0));ctx.lineTo(gx2,Y(y0));ctx.stroke();
+    ctx.strokeStyle=HAIR;ctx.lineWidth=1;
+    for(let hx=gx1+8;hx<gx2;hx+=14){ctx.beginPath();ctx.moveTo(hx,Y(y0));ctx.lineTo(hx-5,Y(y0)+5);ctx.stroke();}
+    // 可移动四分之一圆弧槽实体块（随 cx 整体平动）
+    ctx.beginPath();
+    ctx.moveTo(X(cx),Y(y0));
+    for(let i=0;i<=28;i++){
+      const phi=(Math.PI/2)*(i/28);
+      ctx.lineTo(X(cx+d*R*Math.sin(phi)),Y(y0+R*(1-Math.cos(phi))));
+    }
+    ctx.lineTo(X(backX),Y(y0+R));
+    ctx.lineTo(X(backX),Y(y0));
+    ctx.closePath();
+    ctx.fillStyle='#efefeb';ctx.fill();
+    ctx.strokeStyle=INK;ctx.lineWidth=1.8;ctx.stroke();
+    ctx.restore();
+    occupied.push({x:Math.min(X(cx),X(backX)),y:Y(y0+R),w:Math.abs(X(backX)-X(cx)),h:Math.abs(Y(y0)-Y(y0+R))});
+    reqs.push({text:`槽 C (M=${ma.grooveMassKg} kg · v=${signed(gs.grooveVX)} m/s)`,color:SOFT,cx:X(cx+d*R*0.65),by:Y(y0)+18,dir:1});
+    if(motion.stageGeometry?.scaleMode==='normalized'){
+      const badge=narrow?'归一化：m=R=g=1':'归一化标度：m = R = g = 1（质量比不变）';
+      const bw=ctx.measureText(badge).width+14;
+      ctx.save();
+      ctx.fillStyle='rgba(251,251,249,0.88)';ctx.fillRect(W-bw-10,8,bw,20);
+      ctx.fillStyle=SOFT;ctx.textAlign='right';ctx.fillText(badge,W-17,22);
+      ctx.restore();
+      occupied.push({x:W-bw-10,y:8,w:bw,h:20});
+    }
+  }
   if(motion.stageGeometry?.plank){
     const pg=motion.stageGeometry.plank,pb=snapshot.bodies?.[pg.plankBodyId];
     if(pb){
@@ -376,13 +437,16 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
   }
   for(const[id,body]of Object.entries(snapshot.bodies??{})){
     const x=X(body.position.x),y=Y(body.position.y),i=data.ids.indexOf(id),speed=Math.hypot(body.velocity.x,body.velocity.y);
+    const posUnknown=Boolean(body.positionUndetermined);
     block(x,y,id===(tracked??motion.primaryBodyId)?14:(i===0?5:8)+3);
-    ctx.save();ctx.strokeStyle=color(id);ctx.fillStyle=color(id);ctx.lineWidth=2;
+    ctx.save();ctx.strokeStyle=posUnknown?SOFT:color(id);ctx.fillStyle=posUnknown?SOFT:color(id);ctx.lineWidth=2;
     if(id===(tracked??motion.primaryBodyId)){ctx.beginPath();ctx.arc(x,y,12,0,2*Math.PI);ctx.strokeStyle=HAIR;ctx.stroke();ctx.strokeStyle=color(id);}
-    ctx.beginPath();ctx.arc(x,y,i===0?5:8,0,2*Math.PI);if(i===0)ctx.fill();else ctx.stroke();
+    if(posUnknown)ctx.setLineDash([3,3]);
+    ctx.beginPath();ctx.arc(x,y,i===0?5:8,0,2*Math.PI);if(i===0&&!posUnknown)ctx.fill();else ctx.stroke();
+    ctx.setLineDash([]);
     if(speed>.01){const ux=body.velocity.x/speed,uy=-body.velocity.y/speed,len=Math.min(53,24+speed*5);const ex=Math.max(10,Math.min(W-10,x+ux*len)),ey=Math.max(10,Math.min(H-10,y+uy*len)),a=Math.atan2(ey-y,ex-x);ctx.beginPath();ctx.moveTo(x+ux*12,y+uy*12);ctx.lineTo(ex,ey);ctx.moveTo(ex-7*Math.cos(a-.45),ey-7*Math.sin(a-.45));ctx.lineTo(ex,ey);ctx.lineTo(ex-7*Math.cos(a+.45),ey-7*Math.sin(a+.45));ctx.stroke();}
     const name=id.length>12?id.slice(0,11)+'…':id;
-    vel.push({text:`${name}: v = ${formatSpeed(speed)} m/s`,color:color(id),cx:x,by:y-19,dir:-1,leader:{x,y}});
+    vel.push({text:posUnknown?`${name}: v = ${formatSpeed(speed)} m/s（间距未知 · 仅速度确定）`:`${name}: v = ${formatSpeed(speed)} m/s`,color:posUnknown?SOFT:color(id),cx:x,by:y-19,dir:-1,leader:{x,y}});
     ctx.restore();
   }
   const rects=occupied.slice();
@@ -409,9 +473,11 @@ export function MultiBodyReadouts({motion,time,isPlaying=false}:{motion:Motion;t
   const mr=motion.stageGeometry?.magneticReencounter;
   const emStatus=em?(time<em.offSeconds-1e-9?'电场开 · 磁场开':time<em.restoreSeconds-1e-9?'电场开 · 磁场撤去（匀速直线漂移）':'电场开 · 磁场已恢复（两轨迹外切，非碰撞）'):null;
   return <figcaption id="multi-body-readouts" className={'multi-body-readouts'+(ids.some(id=>id.length>16)?' has-long-ids':'')+(horizontal?' has-horizontal-states':'')} aria-live={isPlaying?'off':'polite'}>
-    {ids.map((id,i)=>{const b=sample.bodies![id];return <span className="body-body-value" key={id} data-body-id={id}><i className="body-swatch" style={{background:i===0?INK:TARGET}}/>{id}：v = {formatSpeed(Math.hypot(b.velocity.x,b.velocity.y))} m/s；{bodyStatusText[b.status]}{b.groupId?' · 粘连':''}{(horizontal||!!em||!!mr)&&<><br/>x = {signed(b.position.x)}，y = {signed(b.position.y)} m<br/>vₓ = {signed(b.velocity.x)}，vᵧ = {signed(b.velocity.y)} m/s</>}</span>;})}
+    {ids.map((id,i)=>{const b=sample.bodies![id];return <span className="body-body-value" key={id} data-body-id={id}><i className="body-swatch" style={{background:i===0?INK:TARGET}}/>{id}：v = {formatSpeed(Math.hypot(b.velocity.x,b.velocity.y))} m/s；{bodyStatusText[b.status]}{b.groupId?' · 粘连':''}{(horizontal||!!em||!!mr)&&<><br/>{b.positionUndetermined?'x 未知（碰后到槽底间距未定）':`x = ${signed(b.position.x)}，y = ${signed(b.position.y)} m`}<br/>vₓ = {signed(b.velocity.x)}，vᵧ = {signed(b.velocity.y)} m/s</>}</span>;})}
+    {!!motion.playbackGaps?.length&&<span className="body-constraint">播放时间缺口：{motion.playbackGaps[0].reason}</span>}
     {emStatus&&<span className="body-constraint">场区状态：{emStatus}{em?.scaleMode==='normalized'?' · 归一化标度（m=q=L=v₀=1）':''}</span>}
     {mr&&<span className="body-constraint">匀强磁场（{mr.fieldDirection==='into_page'?'垂直纸面向里':'垂直纸面向外'}）· 共 {mr.collisionCount} 次正碰{mr.scaleMode==='normalized'?' · 归一化标度（m=q=B=a=1）':''}</span>}
+    {motion.stageGeometry?.multiBodyMovableArc&&(()=>{const ma=motion.stageGeometry!.multiBodyMovableArc!,gs=motion.movableArcAt?.(time),norm=motion.stageGeometry?.scaleMode==='normalized';return <span className="body-constraint">可移动圆弧槽 C（M = {ma.grooveMassKg}{norm?' m':' kg'}，R = {ma.radiusM}{norm?' R':' m'}）：x = {signed(gs?.grooveXM??ma.entryXM)}，v = {signed(gs?.grooveVX??0)}{gs?.normalForceN!=null&&gs.normalForceN>0?`，支持力 N = ${gs.normalForceN.toFixed(2)}${norm?' mg':' N'}`:''}{ma.bottomReturnNormalForceN!=null?`（返回槽底 N = ${ma.bottomReturnNormalForceN.toFixed(2)}${norm?' mg':' N'}）`:''}{norm?' · 归一化标度（m = R = g = 1）':''}</span>;})()}
     {Object.values(sample.constraints??{}).map(c=>{
       const pendGeo=motion.stageGeometry?.pendulums?.find(p=>p.constraintId===c.constraintId);
       const pegActive=pendGeo?.peg&&Math.abs(c.pivot.xM-pendGeo.pivot.xM)>1e-6;

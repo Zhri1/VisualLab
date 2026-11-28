@@ -19,6 +19,7 @@ const STAGE_LABELS: Record<StageKind, string> = {
   movable_arc: "可移动圆弧槽",
   movable_semicircle: "可平动半圆轨道",
   spring_pair: "自由弹簧双球",
+  circular_orbit: "圆周轨道运动",
 };
 
 const STAGE_KINDS = Object.keys(STAGE_LABELS) as StageKind[];
@@ -91,6 +92,13 @@ const NUMBER_FIELDS: Partial<Record<StageKind, NumberMeta[]>> = {
   vertical_arc: [
     { key: "radiusM", label: "圆弧半径 R", unit: "m", step: 0.05, hint: "质点轨迹半径，大于 0" },
     { key: "endAngleDeg", label: "圆弧端点角 φ", unit: "°", step: 1, hint: "从最低点量起，0° < φ ≤ 180°" },
+  ],
+  circular_orbit: [
+    { key: "gravitationalParameterM3s2", label: "引力参数 GM", unit: "m³/s²", step: 1e12, hint: "中心天体 G·M（如地球约 3.986e14）" },
+    { key: "orbitalRadiusM", label: "轨道半径 r", unit: "m", step: 1e5, hint: "与离地高度 h 二选一" },
+    { key: "centralBodyRadiusM", label: "中心天体半径 R", unit: "m", step: 1e5, hint: "给离地高度时必填" },
+    { key: "altitudeM", label: "轨道高度 h（可选）", unit: "m", step: 1e4, hint: "r = R + h" },
+    { key: "orbits", label: "观察圈数", unit: "圈", step: 0.5 },
   ],
 };
 
@@ -242,7 +250,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
     const oldEnd = stage.end && typeof stage.end === "object" ? stage.end as Record<string, unknown> : {};
     setStage(index, {
       ...stage,
-      end: raw === "distance_from_stage_start" ? { kind: raw, stageIndex: index - 1, distanceM: oldEnd.distanceM ?? null } : raw === "distance" ? { kind: "distance", distanceM: oldEnd.distanceM ?? null } : { kind: "stop" },
+      end: raw === "distance_from_stage_start" ? { kind: raw, stageIndex: index - 1, distanceM: oldEnd.distanceM ?? null } : raw === "distance" ? { kind: "distance", distanceM: oldEnd.distanceM ?? null } : raw === "speed" ? {kind:"speed",speedMps:oldEnd.speedMps ?? null} : { kind: "stop" },
     });
   };
   const setDistance = (index: number, raw: string) => {
@@ -372,6 +380,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
               <table className="cond-table">
                 <tbody>
                   {[...(NUMBER_FIELDS[kind] ?? []), ...(kind === "spring_contact" && isRoughSpring(stage) ? ROUGH_SPRING_FIELDS : [])]
+                    .filter((meta) => !(kind === "incline_slide" && meta.key === "kineticFrictionCoefficient" && "resistanceN" in stage))
                     .filter((meta) => !(kind === "vertical_arc" && meta.key === "endAngleDeg" && Object.prototype.hasOwnProperty.call(stage, "path")))
                     .filter((meta) => !(kind === "incline_slide" && meta.key === "staticFrictionCoefficient" && stage.direction !== "up" && !("staticFrictionCoefficient" in stage)))
                     .map((meta) => numberRow({
@@ -380,6 +389,10 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                     value: stage[meta.key],
                     onChange: (raw) => setStageNumber(index, meta.key, raw),
                   }))}
+                  {kind === "vertical_arc" && "horizontalSpanM" in stage && numberRow({key:"horizontalSpanM",label:"圆弧水平投影",unit:"m",path:`/stages/${index}/horizontalSpanM`,value:stage.horizontalSpanM,onChange:raw=>setStageNumber(index,"horizontalSpanM",raw)})}
+                  {kind === "incline_slide" && "resistanceN" in stage && numberRow({key:"resistanceN",label:"沿坡恒定阻力",unit:"N",path:`/stages/${index}/resistanceN`,value:stage.resistanceN,onChange:raw=>setStageNumber(index,"resistanceN",raw)})}
+                  {stage.kinematics && typeof stage.kinematics === "object" ? Object.entries(stage.kinematics).map(([key,value])=>numberRow({key:`kin-${key}`,label:({durationSeconds:"题给本段用时",elapsedSeconds:"题给累计用时",displacementM:"题给本段位移",finalSpeedMps:"题给末速度"} as Record<string,string>)[key] ?? key,unit:key.endsWith("Seconds") ? "s" : key.endsWith("Mps") ? "m/s" : "m",path:`/stages/${index}/kinematics/${key}`,value,onChange:raw=>setStage(index,{...stage,kinematics:{...(stage.kinematics as Record<string,unknown>),[key]:asNumber(raw)}})})) : null}
+                  {stage.trig && typeof stage.trig === "object" ? Object.entries(stage.trig).map(([key,value])=>numberRow({key:`trig-${key}`,label:`题给 ${key}θ`,unit:"",path:`/stages/${index}/trig/${key}`,value,onChange:raw=>setStage(index,{...stage,trig:{...(stage.trig as Record<string,unknown>),[key]:asNumber(raw)}})})) : null}
                   {kind === "incline_slide" && (
                     <tr data-field-path={`/stages/${index}/direction`}>
                       <td className="name">斜面运动方向</td>
@@ -427,10 +440,11 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                           <option value="">待确认</option><option value="inside">内侧（单轨）</option><option value="rod">轻杆 / 双轨</option><option value="outside">外侧（暂不支持）</option>
                         </select></td><td />
                       </tr>
-                      {factRow(index, "frictionless", "圆轨道光滑")}
+                      {stage.entryOnly === true ? <tr><td colSpan={3}>仅观察刚入弧状态，不推演弧内过程</td></tr> : factRow(index, "frictionless", "圆轨道光滑")}
                     </>
                   )}
                   {kind === "projectile" && (() => {
+                    const reversal=stage.reversal && typeof stage.reversal === "object" ? stage.reversal as Record<string,unknown> : null;
                     const fromIncline = draft.stages[index - 1]?.kind === "incline_slide";
                     const fixed = "landingPlaneYM" in stage || (!("dropHeightM" in stage) && draft.stages[index - 1]?.kind === "vertical_arc");
                     const key = fixed ? "landingPlaneYM" : "dropHeightM";
@@ -442,7 +456,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                       onChange(updateStagePlanProjectileHeight(draft, index, key, asNumber(raw)));
                     };
                     return <>
-                      <tr data-field-path={`/stages/${index}`}><td className="name">落地基准</td><td className="val">
+                      <tr data-field-path={`/stages/${index}`}><td className="name">{reversal ? "触球高度基准" : "落地基准"}</td><td className="val">
                         <select className="stage-select" aria-label={`阶段 ${index + 1} 落地基准`} value={fixed ? "plane" : "drop"}
                           onChange={(event) => {
                             const next = { ...stage }; delete next.dropHeightM; delete next.landingPlaneYM;
@@ -450,9 +464,13 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                           }}>
                           <option value="drop">相对发射点的落差</option><option value="plane">固定世界高度</option>
                         </select></td><td /></tr>
-                      {numberRow({ key, label: fixed ? "落地平面高度 y" : fromIncline ? "檐口到地面高度 h" : "落地平面落差 h", unit: "m", step: .05,
+                      {numberRow({ key, label: reversal ? fixed ? "触球平面高度 y" : "发射点到触球点落差" : fixed ? "落地平面高度 y" : fromIncline ? "檐口到地面高度 h" : "落地平面落差 h", unit: "m", step: .05,
                         hint: fromIncline ? fixed ? "以檐口为(0,0)，地面y≤0" : "从檐口量到地面，不从坡顶量高度" : fixed ? "与场景共用坐标原点；圆弧后必须固定地面" : "非负落差，圆弧后请切换为固定高度",
                         path: `/stages/${index}/${key}`, value: stage[key], onChange: setProjectileHeight })}
+                      {reversal && <>
+                        <tr><td className="name">触球速度条件</td><td colSpan={2}>总速度等大反向，两个分量同时取反</td></tr>
+                        <tr><td className="name">反向观察终点</td><td className="val"><select aria-label={`阶段 ${index+1} 反向观察终点`} className="stage-select" value={String(reversal.stopAt ?? "")} onChange={e=>setStage(index,{...stage,reversal:{...reversal,stopAt:e.target.value}})}><option value="after_impulse">碰后瞬间</option><option value="first_apex">反向后首个最高点</option></select></td><td/></tr>
+                      </>}
                       {bounce && (
                         <>
                           {numberRow({ key: "normalRestitution", label: "竖直恢复系数 e", unit: "", step: 0.05, hint: "0 ≤ e ≤ 1，vy+ = −e·vy−",
@@ -463,6 +481,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                       )}
                     </>;
                   })()}
+                  {kind === "horizontal_slide" && !!stage.end && typeof stage.end === "object" && "speedMps" in stage.end && numberRow({key:"speedMps",label:"目标末速率",unit:"m/s",path:`/stages/${index}/end/speedMps`,value:stage.end.speedMps,onChange:raw=>setStage(index,{...stage,end:{kind:"speed",speedMps:asNumber(raw)}})})}
                   {kind === "horizontal_slide" && (
                     <>
                       <tr data-field-path={`/stages/${index}/end`}>
@@ -478,6 +497,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                             <option value="">待确认</option>
                             <option value="distance">指定距离</option>
                             {draft.stages[index - 1]?.kind === "spring_release" && <option value="distance_from_stage_start">从释放点A量总距离AB</option>}
+                            <option value="speed">指定末速率</option>
                             <option value="stop">减速至停止</option>
                           </select>
                         </td>
@@ -642,16 +662,19 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                               const raw = event.target.value;
                               if (!raw) setStage(index, { ...stage, end: null });
                               else if (raw === "stop") setStage(index, { ...stage, end: { kind: "stop" } });
+                              else if (raw === "distance") setStage(index, {...stage,end:{kind:"distance",distanceM:stage.end && typeof stage.end === "object" && "distanceM" in stage.end ? stage.end.distanceM : null}});
                               else setStage(index, { ...stage, end: { kind: "duration", durationSeconds: stage.end && typeof stage.end === "object" && "durationSeconds" in stage.end ? stage.end.durationSeconds : null } });
                             }}
                           >
                             <option value="">待确认</option>
                             <option value="duration">指定作用时间</option>
+                            <option value="distance">指定距离</option>
                             <option value="stop">减速至静止</option>
                           </select>
                         </td>
                         <td />
                       </tr>
+                      {stage.end && typeof stage.end === "object" && "kind" in stage.end && stage.end.kind === "distance" ? numberRow({key:"distanceM",label:"常力段距离",unit:"m",path:`/stages/${index}/end/distanceM`,value:"distanceM" in stage.end ? stage.end.distanceM : null,onChange:raw=>setStage(index,{...stage,end:{kind:"distance",distanceM:asNumber(raw)}})}) : null}
                       {((stage.end && typeof stage.end === "object" && "kind" in stage.end && stage.end.kind === "duration")
                         || missingKeys.includes(`/stages/${index}/end/durationSeconds`)) && numberRow({
                         key: "durationSeconds", label: "作用时长 t", unit: "s", step: 0.1,

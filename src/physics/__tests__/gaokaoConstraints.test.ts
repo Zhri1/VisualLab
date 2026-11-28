@@ -5,9 +5,13 @@ import {
   deriveArcRadiusFromDrop,
   deriveCriticalArcTopRadius,
   deriveProjectileTangentDrop,
+  deriveProjectileTangentLaunchSpeed,
   resolveGaokaoImplicitParams,
   type GaokaoPlanDraftInput,
 } from "../gaokaoConstraints.ts";
+import { validateStagePlan } from "../stagePlan.ts";
+import { assembleStageScene, buildStageMotion } from "../stageMotion.ts";
+import { buildPlanResponse } from "../../api/validate.ts";
 
 describe("deriveProjectileTangentDrop", () => {
   it("平抛切向进入 -53° 正向圆弧：精确数值与来源记录正确", () => {
@@ -484,5 +488,372 @@ describe("resolveGaokaoImplicitParams", () => {
     if (!res.ok) return;
     expect(res.calculations).toEqual([]);
     expect(res.consumedConstraintIndices).toEqual([]);
+  });
+});
+
+describe("deriveProjectileTangentLaunchSpeed（已知落差与切向入弧反求水平出射速度）", () => {
+  it("图 1 参数（H=1.8m, g=10, -37° 正向）与图 2 参数（H=0.8m, g=10, -53° 正向）精确反求 vx", () => {
+    const f1 = deriveProjectileTangentLaunchSpeed({
+      dropHeightM: 1.8,
+      gravityMps2: 10,
+      nextArcStartAngleDeg: -37,
+      nextArcDirection: "positive",
+    });
+    expect(f1.ok).toBe(true);
+    if (f1.ok) {
+      const expectedVx = 6 / Math.tan((37 * Math.PI) / 180);
+      expect(f1.entryVyMps).toBeCloseTo(-6, 12);
+      expect(f1.flightSeconds).toBeCloseTo(0.6, 12);
+      expect(f1.vxMps).toBeCloseTo(expectedVx, 10);
+      expect(f1.vxMps).toBeCloseTo(7.96227, 4);
+      expect(f1.calculation.rule).toBe("tangent_to_next_arc_launch_vx");
+    }
+
+    const f2 = deriveProjectileTangentLaunchSpeed({
+      dropHeightM: 0.8,
+      gravityMps2: 10,
+      nextArcStartAngleDeg: -53,
+      nextArcDirection: "positive",
+    });
+    expect(f2.ok).toBe(true);
+    if (f2.ok) {
+      const expectedVx = 4 / Math.tan((53 * Math.PI) / 180);
+      expect(f2.entryVyMps).toBeCloseTo(-4, 12);
+      expect(f2.flightSeconds).toBeCloseTo(0.4, 12);
+      expect(f2.vxMps).toBeCloseTo(expectedVx, 10);
+      expect(f2.vxMps).toBeCloseTo(3.01422, 4);
+    }
+  });
+
+  it("支持镜像向左平抛（+53° 负向）与合成变式（45°、H=1.25m 得精确 vx=5 m/s）", () => {
+    const mirror = deriveProjectileTangentLaunchSpeed({
+      dropHeightM: 0.8,
+      gravityMps2: 10,
+      nextArcStartAngleDeg: 53,
+      nextArcDirection: "negative",
+    });
+    expect(mirror.ok).toBe(true);
+    if (mirror.ok) {
+      expect(mirror.vxMps).toBeCloseTo(-4 / Math.tan((53 * Math.PI) / 180), 10);
+      expect(mirror.entryVyMps).toBeCloseTo(-4, 12);
+    }
+
+    const synth = deriveProjectileTangentLaunchSpeed({
+      dropHeightM: 1.25,
+      gravityMps2: 10,
+      nextArcStartAngleDeg: -45,
+      nextArcDirection: "positive",
+    });
+    expect(synth.ok).toBe(true);
+    if (synth.ok) {
+      expect(synth.vxMps).toBeCloseTo(5, 12);
+      expect(synth.entryVyMps).toBeCloseTo(-5, 12);
+      expect(synth.flightSeconds).toBeCloseTo(0.5, 12);
+    }
+  });
+
+  it("拒绝竖直入口、水平入口、切线向上与非正落差", () => {
+    const vert = deriveProjectileTangentLaunchSpeed({
+      dropHeightM: 1,
+      gravityMps2: 10,
+      nextArcStartAngleDeg: -90,
+      nextArcDirection: "positive",
+    });
+    expect(vert.ok).toBe(false);
+    if (!vert.ok) expect(vert.code).toBe("PRECONDITION_CONFLICT");
+
+    const horiz = deriveProjectileTangentLaunchSpeed({
+      dropHeightM: 1,
+      gravityMps2: 10,
+      nextArcStartAngleDeg: 0,
+      nextArcDirection: "positive",
+    });
+    expect(horiz.ok).toBe(false);
+    if (!horiz.ok) expect(horiz.code).toBe("PRECONDITION_CONFLICT");
+
+    const upward = deriveProjectileTangentLaunchSpeed({
+      dropHeightM: 1,
+      gravityMps2: 10,
+      nextArcStartAngleDeg: 37,
+      nextArcDirection: "positive",
+    });
+    expect(upward.ok).toBe(false);
+    if (!upward.ok) expect(upward.code).toBe("PRECONDITION_CONFLICT");
+
+    const zeroDrop = deriveProjectileTangentLaunchSpeed({
+      dropHeightM: 0,
+      gravityMps2: 10,
+      nextArcStartAngleDeg: -37,
+      nextArcDirection: "positive",
+    });
+    expect(zeroDrop.ok).toBe(false);
+    if (!zeroDrop.ok) expect(zeroDrop.code).toBe("RANGE");
+  });
+});
+
+describe("第一阶段端到端验收：图 1、图 2 与合成变式", () => {
+  it("图 1（semicircle-projectile-tangent-arc）：反求 vA≈8 m/s、vB≈10 m/s 并完整运行三段", () => {
+    const raw = JSON.parse(
+      readFileSync(resolve(process.cwd(), "fixtures/semicircle-projectile-tangent-arc.reading.json"), "utf8"),
+    );
+    const val = validateStagePlan(raw);
+    expect(val.ok).toBe(true);
+    if (!val.ok) return;
+
+    const vAExpected = 6 / Math.tan((37 * Math.PI) / 180);
+    const vBExpected = Math.hypot(vAExpected, 6);
+    expect((val.reading.initial as { speedMps: number }).speedMps).toBeCloseTo(vBExpected, 8);
+    expect(val.reading.derivedCalculations?.map((c) => c.quantity)).toEqual([
+      "projectile_launch_vx",
+      "arc_entry_speed",
+    ]);
+
+    const scene = assembleStageScene(val.reading);
+    expect(scene.ok).toBe(true);
+    if (!scene.ok) return;
+    const built = buildStageMotion(scene.scene);
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+
+    expect(built.motion.segments).toHaveLength(3);
+    const launchEv = built.motion.events.find((e) => e.kind === "projectile_launch")!;
+    expect(launchEv).toBeDefined();
+    expect(launchEv.velocityAfter.vxMps).toBeCloseTo(vAExpected, 4);
+    expect(Math.abs(launchEv.velocityAfter.vyMps)).toBeLessThan(1e-6);
+    // A 点压力 FA = m vA²/R - mg ≈ 60.44 N
+    const atA = built.motion.sampleAt(launchEv.timeSeconds - 1e-6);
+    expect(atA.constraint?.normalForceN).toBeCloseTo((vAExpected * vAExpected) / 0.9 - 10, 2);
+    // C 点切向入弧（stageIndex=2 的 arc_enter 事件），验证入弧速度与支持力 FC = m vC²/r + mg cos37°
+    const enterC = built.motion.events.find((e) => e.stageIndex === 2 && e.kind === "arc_enter")!;
+    expect(enterC).toBeDefined();
+    expect(enterC.velocityBefore.vxMps).toBeCloseTo(vAExpected, 4);
+    expect(enterC.velocityBefore.vyMps).toBeCloseTo(-6, 4);
+    const atC = built.motion.sampleAt(enterC.timeSeconds + 1e-6);
+    const expectedFc = (vAExpected * vAExpected + 36) / 0.5 + 10 * Math.cos((37 * Math.PI) / 180);
+    expect(atC.constraint?.normalForceN).toBeCloseTo(expectedFc, 1);
+  });
+
+  it("图 1 第 4 问独立临界分支：恰好从 A 点飞出（vA=3 m/s, vB=√45 m/s）落地距 B 为 1.8 m", () => {
+    const plan = {
+      kind: "stage_plan",
+      schemaVersion: 1,
+      gravityMps2: 10,
+      massKg: 1,
+      initial: { speedMps: Math.sqrt(45) },
+      stages: [
+        {
+          kind: "vertical_arc",
+          radiusM: 0.9,
+          side: "inside",
+          frictionless: true,
+          path: { startAngleDeg: 0, direction: "negative", end: { kind: "physical_endpoint", sweepAngleDeg: 180 } },
+        },
+        { kind: "projectile", landingPlaneYM: 0 },
+      ],
+    };
+    const val = validateStagePlan(plan);
+    expect(val.ok).toBe(true);
+    if (!val.ok) return;
+    const scene = assembleStageScene(val.reading);
+    expect(scene.ok).toBe(true);
+    if (!scene.ok) return;
+    const built = buildStageMotion(scene.scene);
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const endSample = built.motion.sampleAt(built.motion.durationSeconds);
+    expect(endSample.xM).toBeCloseTo(1.8, 4);
+    expect(endSample.yM).toBeCloseTo(0, 4);
+  });
+
+  it("图 2（spring-projectile-arc-incline）：反求 vx≈3 m/s、Ep≈4.5 J，以 suffix 从桌缘精确播放至上坡折返", () => {
+    const raw = JSON.parse(
+      readFileSync(resolve(process.cwd(), "fixtures/spring-projectile-arc-incline.reading.json"), "utf8"),
+    );
+    const val = validateStagePlan(raw);
+    expect(val.ok).toBe(true);
+    if (!val.ok) return;
+
+    const vxExpected = 4 / Math.tan((53 * Math.PI) / 180);
+    const epExpected = 0.5 * 1 * vxExpected * vxExpected;
+    expect(val.playback?.mode).toBe("suffix");
+    expect(val.playback?.startStageIndex).toBe(1);
+    expect(val.playback?.vxMps).toBeCloseTo(vxExpected, 8);
+    expect(val.reading.energy?.elasticEnergyJ).toBeCloseTo(epExpected, 8);
+    expect(val.reading.energy?.origin).toBe("tangent_to_next_arc");
+    expect(val.reading.derivedCalculations?.map((c) => c.quantity)).toEqual([
+      "projectile_launch_vx",
+      "initial_elastic_energy",
+    ]);
+
+    const scene = assembleStageScene(val.reading);
+    expect(scene.ok).toBe(true);
+    if (!scene.ok) return;
+    const built = buildStageMotion(scene.scene);
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+
+    expect(built.motion.timing?.mode).toBe("suffix");
+    expect(built.motion.segments.length).toBeGreaterThanOrEqual(3);
+    const at0 = built.motion.sampleAt(0);
+    expect(at0.vxMps).toBeCloseTo(vxExpected, 6);
+    expect(at0.vyMps).toBeCloseTo(0, 6);
+  });
+
+  it("合成变式：改动落差、半径与入口角后反求同步更新，且过约束时仍报冲突", () => {
+    const variant = {
+      kind: "stage_plan",
+      schemaVersion: 1,
+      gravityMps2: 10,
+      massKg: 2,
+      initial: { speedMps: 0 },
+      stages: [
+        {
+          kind: "spring_release",
+          springConstantNpm: null,
+          initialCompressionM: null,
+          kineticFrictionCoefficient: 0,
+          unattached: true,
+          slidesAfterRelease: true,
+        },
+        { kind: "projectile", dropHeightM: 1.25, end: { kind: "tangent_to_next_arc" } },
+        {
+          kind: "vertical_arc",
+          radiusM: 0.8,
+          side: "inside",
+          frictionless: true,
+          path: { startAngleDeg: -45, direction: "positive", end: { kind: "physical_endpoint", sweepAngleDeg: 45 } },
+        },
+      ],
+    };
+    const val = validateStagePlan(variant);
+    expect(val.ok).toBe(true);
+    if (!val.ok) return;
+    // H=1.25, g=10 => vy=-5; -45° => vx=5; m=2 => Ep = 0.5*2*25 = 25 J
+    expect(val.playback?.vxMps).toBeCloseTo(5, 10);
+    expect(val.reading.energy?.elasticEnergyJ).toBeCloseTo(25, 10);
+
+    // 过约束：同时显式给 energy 与 dropHeightM + tangent_to_next_arc 须报互斥冲突
+    const overConstrained = {
+      ...variant,
+      energy: { stageIndex: 0, elasticEnergyJ: 25, origin: "given" },
+    };
+    const bad = validateStagePlan(overConstrained);
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.fieldErrors.some((e) => e.code === "PRECONDITION_CONFLICT")).toBe(true);
+  });
+
+  it("API 回包再编辑重算：图1改 stages[0].radiusM 0.9→1、图2改 stages[1].dropHeightM 0.8→1.2、改切线角与显式覆写冲突", () => {
+    // 1) 图1：buildPlanResponse → 编辑 stages[0].radiusM: 0.9 → 1.0 → 重算 vx ≈ 8.393 m/s
+    const fig1Raw = JSON.parse(readFileSync(resolve(process.cwd(), "fixtures/semicircle-projectile-tangent-arc.reading.json"), "utf8"));
+    const fig1Api = buildPlanResponse(fig1Raw);
+    expect(fig1Api.status).toBe("ok");
+    if (fig1Api.status !== "ok") return;
+    const fig1Edited = structuredClone(fig1Api.reading) as Record<string, any>;
+    fig1Edited.stages[0].radiusM = 1.0;
+    const fig1Rebuilt = assembleStageScene(fig1Edited);
+    expect(fig1Rebuilt.ok).toBe(true);
+    if (fig1Rebuilt.ok) {
+      const expectedVx = Math.sqrt(2 * 10 * 2.0) * (Math.cos((37 * Math.PI) / 180) / Math.sin((37 * Math.PI) / 180));
+      const launchEv = fig1Rebuilt.scene.motion.events.find((e) => e.kind === "projectile_launch");
+      expect(launchEv?.velocityAfter.vxMps).toBeCloseTo(expectedVx, 3);
+      expect(expectedVx).toBeCloseTo(8.393, 2);
+    }
+
+    // 2) 图1：改后段入口切线角 -37° → -53° 也能重新反求
+    const fig1AngleEdited = structuredClone(fig1Api.reading) as Record<string, any>;
+    fig1AngleEdited.stages[2].path.startAngleDeg = -53;
+    const fig1AngleRebuilt = assembleStageScene(fig1AngleEdited);
+    expect(fig1AngleRebuilt.ok).toBe(true);
+
+    // 3) 图1：用户显式覆写 initial.speedMps = 12 时不再被反求覆写，若不满足切线则报明确冲突
+    const fig1Override = structuredClone(fig1Api.reading) as Record<string, any>;
+    fig1Override.initial.speedMps = 12;
+    const fig1OverrideRes = assembleStageScene(fig1Override);
+    expect(fig1OverrideRes.ok).toBe(false);
+    if (!fig1OverrideRes.ok) {
+      expect(fig1OverrideRes.fieldErrors.some((e) => e.path === "/stages/2/path")).toBe(true);
+    }
+
+    // 4) 图2：buildPlanResponse → 编辑 stages[1].dropHeightM: 0.8 → 1.2 → 重算 vx ≈ 3.692 m/s、Ep ≈ 6.814 J
+    const fig2Raw = JSON.parse(readFileSync(resolve(process.cwd(), "fixtures/spring-projectile-arc-incline.reading.json"), "utf8"));
+    const fig2Api = buildPlanResponse(fig2Raw);
+    expect(fig2Api.status).toBe("ok");
+    if (fig2Api.status !== "ok") return;
+    const fig2Edited = structuredClone(fig2Api.reading) as Record<string, any>;
+    fig2Edited.stages[1].dropHeightM = 1.2;
+    const fig2Rebuilt = assembleStageScene(fig2Edited);
+    expect(fig2Rebuilt.ok).toBe(true);
+    if (fig2Rebuilt.ok) {
+      const expectedVx = Math.sqrt(2 * 10 * 1.2) * (Math.cos((53 * Math.PI) / 180) / Math.sin((53 * Math.PI) / 180));
+      const expectedEp = 0.5 * 1.0 * expectedVx * expectedVx;
+      expect(fig2Rebuilt.scene.motion.sampleAt(0).vxMps).toBeCloseTo(expectedVx, 3);
+      expect(expectedVx).toBeCloseTo(3.692, 2);
+      expect(fig2Rebuilt.scene.motion.calculations?.find((c) => c.quantity === "initial_elastic_energy")?.value).toBeCloseTo(expectedEp, 3);
+      expect(expectedEp).toBeCloseTo(6.814, 2);
+    }
+
+    // 5) 图2：改切线角 -53° → -37° 也能重新反求
+    const fig2AngleEdited = structuredClone(fig2Api.reading) as Record<string, any>;
+    fig2AngleEdited.stages[2].path.startAngleDeg = -37;
+    const fig2AngleRebuilt = assembleStageScene(fig2AngleEdited);
+    expect(fig2AngleRebuilt.ok).toBe(true);
+
+    // 6) 图2：用户显式改写 energy（origin="user"）时不再被反求覆盖，不自洽时报切线冲突
+    const fig2Override = structuredClone(fig2Api.reading) as Record<string, any>;
+    fig2Override.energy = { stageIndex: 0, elasticEnergyJ: 12, origin: "user" };
+    const fig2OverrideRes = assembleStageScene(fig2Override);
+    expect(fig2OverrideRes.ok).toBe(false);
+    if (!fig2OverrideRes.ok) {
+      expect(fig2OverrideRes.fieldErrors.some((e) => e.path === "/stages/2/path")).toBe(true);
+    }
+
+    // 7) 旧回包（无 derivedCalculations、无 end）保持原有严格校验行为
+    const legacyReading = structuredClone(fig1Api.reading) as Record<string, any>;
+    delete legacyReading.derivedCalculations;
+    legacyReading.stages[0].radiusM = 1.0;
+    const legacyRes = assembleStageScene(legacyReading);
+    expect(legacyRes.ok).toBe(false);
+  });
+
+  it("镜像与新角度变式（0°/positive/180° 向左平抛切向入 +45°/negative/45° 圆弧）：接续无跳位且反求正确", () => {
+    const mirror = {
+      kind: "stage_plan",
+      schemaVersion: 1,
+      gravityMps2: 10,
+      massKg: 1,
+      initial: { speedMps: null },
+      stages: [
+        {
+          kind: "vertical_arc",
+          radiusM: 0.8,
+          side: "inside",
+          frictionless: true,
+          path: { startAngleDeg: 0, direction: "positive", end: { kind: "physical_endpoint", sweepAngleDeg: 180 } },
+        },
+        {
+          kind: "projectile",
+          landingPlaneYM: 0,
+          end: { kind: "tangent_to_next_arc" },
+        },
+        {
+          kind: "vertical_arc",
+          radiusM: 0.5,
+          side: "inside",
+          frictionless: true,
+          path: { startAngleDeg: 45, direction: "negative", end: { kind: "physical_endpoint", sweepAngleDeg: 45 } },
+        },
+      ],
+    };
+    const built = assembleStageScene(mirror);
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    // H = 2R = 1.6 m => vyEntry = -sqrt(32), +45°/negative => vx = -sqrt(32)
+    const launchEv = built.scene.motion.events.find((e) => e.kind === "projectile_launch")!;
+    expect(launchEv.velocityAfter.vxMps).toBeCloseTo(-Math.sqrt(32), 4);
+    const arcEnter2 = built.scene.motion.events.find((e) => e.kind === "arc_enter" && e.stageIndex === 2)!;
+    expect(arcEnter2).toBeDefined();
+    const beforeEnter = built.scene.motion.sampleAt(arcEnter2.timeSeconds - 1e-6);
+    const afterEnter = built.scene.motion.sampleAt(arcEnter2.timeSeconds + 1e-6);
+    expect(Math.hypot(afterEnter.xM - beforeEnter.xM, afterEnter.yM - beforeEnter.yM)).toBeLessThan(1e-3);
   });
 });

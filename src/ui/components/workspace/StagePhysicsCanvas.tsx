@@ -419,6 +419,10 @@ export function stageWorldBounds(motion: Motion): WorldBounds {
     points.push({ x: g.springRelease.start.xM, y: g.springRelease.start.yM }, { x: g.springRelease.naturalContact.xM, y: g.springRelease.naturalContact.yM });
     if (g.springRelease.anchor) points.push({ x: g.springRelease.anchor.xM, y: g.springRelease.anchor.yM });
   }
+  if (g.circularOrbit) {
+    const r = g.circularOrbit.orbitalRadiusM;
+    points.push({ x: -r * 1.15, y: -r * 1.15 }, { x: r * 1.15, y: r * 1.15 });
+  }
   if (g.schematic?.horizontal) {
     points.push({ x: g.schematic.horizontal.start.xM, y: g.schematic.horizontal.start.yM });
     if (g.schematic.horizontal.plannedEnd) points.push({ x: g.schematic.horizontal.plannedEnd.xM, y: g.schematic.horizontal.plannedEnd.yM });
@@ -625,30 +629,116 @@ export function drawStageScene(
       ctx.fillText("桌沿", X(hor.plannedEnd.xM) + (goesLeft ? -7 : 7), Y(hor.plannedEnd.yM) - 5);
     }
   }
+  if (g.circularOrbit) {
+    const orb = g.circularOrbit;
+    const cx = X(orb.center.xM);
+    const cy = Y(orb.center.yM);
+    const rPx = orb.orbitalRadiusM * S;
+    const bodyRPx = orb.centralBodyRadiusM
+      ? Math.max(8, Math.min(rPx * 0.85, orb.centralBodyRadiusM * S))
+      : Math.max(12, Math.min(26, rPx * 0.22));
+    ctx.save();
+    // 完整圆周轨道（浅虚线底 + 方向箭头）
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 1.6;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, rPx, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // 在 90° 与 270° 处画绕行方向小箭头
+    const dirSign = orb.direction === "ccw" ? 1 : -1;
+    for (const deg of [90, 270]) {
+      const th = (deg * Math.PI) / 180;
+      const ax = cx + rPx * Math.cos(th);
+      const ay = cy - rPx * Math.sin(th);
+      const tx = -dirSign * Math.sin(th);
+      const ty = -dirSign * Math.cos(th);
+      ctx.strokeStyle = SOFT;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(ax - tx * 6 - ty * 4, ay - ty * 6 + tx * 4);
+      ctx.lineTo(ax, ay);
+      ctx.lineTo(ax - tx * 6 + ty * 4, ay - ty * 6 - tx * 4);
+      ctx.stroke();
+    }
+    // 半径连线 r（中心天体到卫星当前位置）
+    const sx = X(sample.position.x);
+    const sy = Y(sample.position.y);
+    ctx.strokeStyle = HAIR;
+    ctx.lineWidth = 1.2;
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(sx, sy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = SOFT;
+    ctx.font = `500 12px ${SANS}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillText("r", (cx + sx) / 2, (cy + sy) / 2 - 4);
+    // 固定中心天体
+    ctx.fillStyle = "#e7e5df";
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(cx, cy, bodyRPx, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = INK;
+    ctx.font = `600 12px ${SANS}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(orb.centralBodyLabel ?? "M", cx, cy);
+    ctx.restore();
+  }
   if (g.movableArc) {
     const ma = g.movableArc;
-    const gs = motion.movableArcAt?.(time) ?? { grooveXM: ma.entryXM + ma.exitDirection * ma.radiusM, grooveVX: 0 };
-    // grooveXM 为槽圆心横坐标：初始圆心 = entryXM + s·R。
-    const d = gs.grooveXM - (ma.entryXM + ma.exitDirection * ma.radiusM);
-    const cx = ma.entryXM + ma.exitDirection * ma.radiusM + d;
+    const isBottom = ma.entryMode === "bottom";
+    const gs = motion.movableArcAt?.(time) ?? { grooveXM: isBottom ? ma.entryXM : ma.entryXM + ma.exitDirection * ma.radiusM, grooveVX: 0 };
     ctx.strokeStyle = INK; ctx.lineWidth = 1.6;
     ctx.beginPath(); ctx.moveTo(X(worldBounds.minX), Y(0)); ctx.lineTo(X(worldBounds.maxX), Y(0)); ctx.stroke();
     ctx.strokeStyle = HAIR; ctx.lineWidth = 1;
     for (let x = worldBounds.minX + 0.15; x < worldBounds.maxX; x += 0.25) {
       ctx.beginPath(); ctx.moveTo(X(x), Y(0)); ctx.lineTo(X(x - 0.12), Y(0) + 6); ctx.stroke();
     }
-    ctx.strokeStyle = INK; ctx.lineWidth = 2;
-    ctx.beginPath();
-    for (let i = 0; i <= 24; i += 1) {
-      const th = (Math.PI / 2) * (i / 24);
-      const px = cx - ma.exitDirection * ma.radiusM * Math.cos(th);
-      const py = ma.entryYM - ma.radiusM * Math.sin(th);
-      if (i === 0) ctx.moveTo(X(px), Y(py)); else ctx.lineTo(X(px), Y(py));
+    if (isBottom) {
+      const dir = ma.entryDirection ?? 1;
+      const cx = gs.grooveXM;
+      const y0 = ma.entryYM;
+      const R = ma.radiusM;
+      const backX = cx + dir * R * 1.12;
+      ctx.beginPath();
+      ctx.moveTo(X(cx), Y(y0));
+      for (let i = 0; i <= 28; i += 1) {
+        const phi = (Math.PI / 2) * (i / 28);
+        ctx.lineTo(X(cx + dir * R * Math.sin(phi)), Y(y0 + R * (1 - Math.cos(phi))));
+      }
+      ctx.lineTo(X(backX), Y(y0 + R));
+      ctx.lineTo(X(backX), Y(y0));
+      ctx.closePath();
+      ctx.fillStyle = FILL; ctx.fill();
+      ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = SOFT; ctx.font = `500 12px ${SANS}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+      ctx.fillText(`M = ${ma.grooveMassKg} kg`, X(cx + dir * R * 0.55), Y(0) - 6);
+    } else {
+      // grooveXM 为槽圆心横坐标：初始圆心 = entryXM + s·R。
+      const d = gs.grooveXM - (ma.entryXM + ma.exitDirection * ma.radiusM);
+      const cx = ma.entryXM + ma.exitDirection * ma.radiusM + d;
+      ctx.strokeStyle = INK; ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i <= 24; i += 1) {
+        const th = (Math.PI / 2) * (i / 24);
+        const px = cx - ma.exitDirection * ma.radiusM * Math.cos(th);
+        const py = ma.entryYM - ma.radiusM * Math.sin(th);
+        if (i === 0) ctx.moveTo(X(px), Y(py)); else ctx.lineTo(X(px), Y(py));
+      }
+      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(X(cx - ma.exitDirection * ma.radiusM), Y(ma.entryYM)); ctx.lineTo(X(cx - ma.exitDirection * ma.radiusM), Y(0)); ctx.stroke();
+      ctx.fillStyle = SOFT; ctx.font = `500 12px ${SANS}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+      ctx.fillText(`M = ${ma.grooveMassKg} kg`, X(cx - ma.exitDirection * ma.radiusM * 0.4), Y(0) - 6);
     }
-    ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(X(cx - ma.exitDirection * ma.radiusM), Y(ma.entryYM)); ctx.lineTo(X(cx - ma.exitDirection * ma.radiusM), Y(0)); ctx.stroke();
-    ctx.fillStyle = SOFT; ctx.font = `500 12px ${SANS}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-    ctx.fillText(`M = ${ma.grooveMassKg} kg`, X(cx - ma.exitDirection * ma.radiusM * 0.4), Y(0) - 6);
   }
   if (g.springPair) {
     const pair = g.springPair;
@@ -876,7 +966,7 @@ export function drawStageScene(
     ctx.restore();
     const fullCircle = arcExplicit && Math.abs(Math.abs(arc.endAngleDeg - (arc.startAngleDeg ?? 0)) - 360) < 1e-9;
     if (verticalArcs.length === 1 || isCurrentArc) {
-      const radiusRad = (!arcExplicit || fullCircle ? 90 : ((arc.startAngleDeg ?? 0) + arc.endAngleDeg) / 2) * Math.PI / 180;
+      const radiusRad = (!arcExplicit || fullCircle ? (arc.endAngleDeg < 0 ? -90 : 90) : ((arc.startAngleDeg ?? 0) + arc.endAngleDeg) / 2) * Math.PI / 180;
       const radEndX = arc.center.xM + arc.radiusM * Math.sin(radiusRad);
       const radEndY = arc.center.yM - arc.radiusM * Math.cos(radiusRad);
       ctx.save(); ctx.setLineDash([3, 4]); ctx.strokeStyle = HAIR; ctx.lineWidth = 1;
@@ -919,8 +1009,10 @@ export function drawStageScene(
     const floorY = proj.landingPlane.yM;
     const projEndX = projSeg ? motion.sampleAt(projSeg.endSeconds).position.x : last.position.x;
     const isIntermediateProj = proj.stageIndex >= 0 && !!motion.stagePlan && proj.stageIndex + 1 < motion.stagePlan.stages.length;
+    const projectileStage=motion.stagePlan?.stages[proj.stageIndex>=0 ? proj.stageIndex : 0];
+    const isReversal=projectileStage?.kind === "projectile" && !!projectileStage.reversal;
     ctx.save();
-    if (isIntermediateProj) {
+    if (isIntermediateProj || isReversal) {
       ctx.setLineDash([3, 4]);
       ctx.strokeStyle = HAIR;
       ctx.lineWidth = 1.1;
@@ -953,6 +1045,14 @@ export function drawStageScene(
     }
     ctx.stroke();
     ctx.restore();
+    const reversalEv=motion.events.find(e=>e.eventKind==="velocity_reversal" && (proj.stageIndex<0 || e.stageIndex===proj.stageIndex));
+    if (reversalEv?.position) {
+      ctx.save();ctx.fillStyle="#b42318";ctx.font=`11px ${SANS}`;ctx.textAlign="center";ctx.textBaseline="top";
+      ctx.beginPath();ctx.arc(X(reversalEv.position.x),Y(reversalEv.position.y),3.5,0,2*Math.PI);ctx.fill();
+      const label=`触球点 · 冲量 ${reversalEv.impulseNs?.magnitudeNs.toFixed(2) ?? ""} N·s`;
+      const halfWidth=ctx.measureText(label).width/2;
+      ctx.fillText(label,Math.max(halfWidth+8,Math.min(W-halfWidth-8,X(reversalEv.position.x))),Y(reversalEv.position.y)+7);ctx.restore();
+    }
     const bounceEv = motion.events.find((e) => e.eventKind === "ground_bounce" && (proj.stageIndex < 0 || e.stageIndex === proj.stageIndex));
     const bounceApexEv = motion.events.find((e) => e.eventKind === "bounce_apex" && (proj.stageIndex < 0 || e.stageIndex === proj.stageIndex));
     if (bounceEv?.position) {
@@ -1258,6 +1358,18 @@ export function drawStageScene(
   }
   if (motion.timing?.mode === "suffix" && !g.schematic?.horizontal) {
     hudLines.push(`仅从${motion.timing.anchor.label}起算 · 前段未计时`);
+  }
+  if (g.circularOrbit) {
+    const orb = g.circularOrbit;
+    const fmt = (n: number) => (Math.abs(n) >= 1e5 || (Math.abs(n) > 0 && Math.abs(n) < 1e-2) ? n.toExponential(3) : n.toFixed(2));
+    const accelNote = orb.periodSeconds > 15 ? ` · 默认时间加速约 ${Math.round(orb.periodSeconds / 12)}×（物理量不变）` : "";
+    hudLines.push(
+      `圆周轨道（${orb.direction === "ccw" ? "逆时针" : "顺时针"}）· r = ${fmt(orb.orbitalRadiusM)} m`,
+      `v = ${fmt(orb.orbitalSpeedMps)} m/s · T = ${fmt(orb.periodSeconds)} s${accelNote}`,
+    );
+  }
+  if (motion.playbackGaps?.length && !g.conveyor && !g.movableSemicircle) {
+    hudLines.push("含未知阻力/耗时缺口 · 虚线段仅作示意，不计入耗时");
   }
   let placedHudRect: HudRect | null = null;
   if (hudLines.length > 0) {

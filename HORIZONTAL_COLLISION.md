@@ -104,3 +104,16 @@ collision事件新增可选collision元数据：`{ mode, normalXM, momentumBefor
 独立脚本`node scripts/check-horizontal-collision-contract.mjs`只校对解析数值与输入，不导入生产求解器；不代表新入口已支持。实现阶段须新增标准npm test覆盖的公开入口用例，验收上述分支、镜像/交换ID、相向/追及、初位同点方向缺项、摩擦停止同刻接触、零相对速度、正负超界、第二次接触边界、落地先于另一轨道、已有约束与粘连唯一张力及缺项往返。碰撞±1e-7s用1e-10量级位置/速度绝对误差核对，碰撞精确帧另测原子状态。
 
 本契约先单独PR审核。随后B先实现分区求最早接触、collide1D复用及轨道装配，再接Adapter/画布/编辑器/Skill和Node/Qoder同源校验；正常图文handler可mock上游但须注明，工作区走正常首页与播放器。旧摆碰撞、圆弧、斜抛、预压与incline_spring全量回归。由规划会话合并，不部署。
+
+## 6. 增量扩展：底入可移动四分之一圆弧槽与上游预压弹簧接续
+
+- `parallel_motion` 碰后轨道新增 `movable_arc`（`entryMode: "bottom"`）阶段，与 `horizontal_slide`、`projectile`、`pendulum_swing` 并列，沿同一物理时钟同步取样。碰后接触位置、带符号水平速度和槽约束状态（`grooveXM`、`grooveVX`、`normalForceN`、`angleDeg`）直接由 `collision_1d` 传入。
+- 底入四分之一光滑圆弧槽（半径 $R$、槽质量 $M$、球质量 $m$、光滑水平地面）：
+  - 无量纲能量 $e = \frac{M}{m+M}\frac{v_0^2}{gR}$。
+  - 当 $e \le 2$ 时，球沿槽上升至最大角 $\phi_{\max} = 2\arcsin(\sqrt{e}/2) \le \pi/2$ 与槽共速 $v_{\text{cm}} = \frac{m}{m+M}v_0$（相对静止，事件 `movable_arc_top`），随后对称下滑返回槽底并分离（事件 `movable_arc_return_exit`）：球速 $v_{B2} = \frac{m-M}{m+M}v_0$，槽速 $v_{C2} = \frac{2m}{m+M}v_0$，返回槽底瞬间法向力 $N_{\text{bottom}} = mg + m\frac{v_0^2}{R}$。
+  - 临界条件 `criticalTopRelativeRest: true` 对应 $e = 2$，即 $v_0 = \sqrt{\frac{2(m+M)}{M}gR}$。
+- 上游预压弹簧（`horizontal_approach.upstreamSpring`）与槽底间距（`entryGapM`）：
+  - 若题面给出 `springConstantNpm`、`initialCompressionM`、初位以及明确的 `entryGapM`（`0` 表示碰撞即在槽底，正值表示已知自由滑行距离），则完整按同一物理时钟求解（并正常检查碰后二次接触边界）；
+  - 若题面未给弹簧劲度系数 $k$、初始压缩量 $x_0$、物体初位或碰撞点到槽底的水平间距（`entryGapM: null` 或在含未知上游弹簧的题中省略），但给出弹性正碰（静止靶球）及 `criticalTopRelativeRest: true`，则确定性反求 $v_{B1}$、碰前入射速 $v_{A0} = \frac{m_A+m_B}{2m_A}v_{B1}$ 及弹簧弹性势能 $E_p = \frac{1}{2}m_A v_{A0}^2$，并在规范化回包中保留 `entryGapM: null` 而不静默认作 `0`；
+  - 未知 `entryGapM` 时以 `playback.mode = "suffix"` 并在碰撞瞬时结果与底入圆弧槽之间输出显式 `playbackGaps` 播放时间缺口与 `movable_arc_gap` 事件：碰撞时刻保留两物体精确碰后速度，槽内后缀从 B 进入槽底起计时，另一物体 A 仅展示确定的匀速速度而不编造相对槽的实时坐标或后续二次相遇，API 规范化回包再次装配时该缺口与后缀说明保持不丢失。
+- **全符号归一化标度（`scaleMode: "normalized"`）**：当题面仅给出质量比（如 $2m:m:4m$）及符号半径 $R$、重力加速度 $g$ 而无具体 SI 数值时，支持顶层 `scaleMode: "normalized"`（默认标度 $m = R = g = 1$，保留真实质量比与 `entryGapM: null` 播放缺口）；`scaleMode` 随校验、API 回包、再次装配及画布/读数完整保留并显式标注，物理量数值即对应以 $m, R, g$ 为基准的无量纲系数（如 $E_p = \frac{45}{32}mgR = 1.40625$、返底压力 $N = 3.5mg = 3.5$）。
