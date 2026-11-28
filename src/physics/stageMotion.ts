@@ -265,9 +265,31 @@ function turn(start: MotionSample, nextStage?: SingleStage): Run {
 function constantForce(stage: Extract<Stage, { kind: "constant_force_1d" }>, start: MotionSample, mass: number, geometry: StageGeometry, hasNext: boolean): Run {
   const ax = stage.netForceXN / mass;
   const v0 = start.vxMps;
-  const duration = stage.end.kind === "duration" ? stage.end.durationSeconds : v0 === 0 ? 0 : -v0 / ax;
+  let duration: number;
+  let stopBeforeTarget = false;
+  if (stage.end.kind === "duration") {
+    duration = stage.end.durationSeconds;
+  } else if (stage.end.kind === "distance") {
+    const dir = v0 !== 0 ? Math.sign(v0) : Math.sign(ax);
+    const vAlong = dir * v0;
+    const aAlong = dir * ax;
+    const dist = stage.end.distanceM;
+    if (aAlong === 0) {
+      duration = vAlong > 0 ? dist / vAlong : 0;
+    } else {
+      const disc = vAlong * vAlong + 2 * aAlong * dist;
+      if (disc < 0) {
+        duration = -vAlong / aAlong;
+        stopBeforeTarget = true;
+      } else {
+        duration = (-vAlong + Math.sqrt(disc)) / aAlong;
+      }
+    }
+  } else {
+    duration = v0 === 0 ? 0 : -v0 / ax;
+  }
   const sampleAt = (time: number) => linearState(start.xM, start.yM, v0, 0, ax, 0, time);
-  const end = stage.end.kind === "stop"
+  const end = stage.end.kind === "stop" || stopBeforeTarget
     ? moving(start.xM + v0 * duration + 0.5 * ax * duration * duration, start.yM, 0)
     : moving(start.xM + v0 * duration + 0.5 * ax * duration * duration, start.yM, v0 + ax * duration);
   const xs = [start.xM, end.xM];
@@ -288,14 +310,16 @@ function constantForce(stage: Extract<Stage, { kind: "constant_force_1d" }>, sta
     maxXM: Math.max(...xs, prevTrack ? prevTrack.maxXM : -Infinity),
     yM: start.yM,
   };
-  if (stage.end.kind === "stop") {
+  if (stage.end.kind === "stop" || stopBeforeTarget) {
     events.push(event("stop", duration, end, end, "减速至静止", `速度降为零，位置 x = ${end.xM.toFixed(4)} m。`));
+  } else if (stage.end.kind === "distance") {
+    events.push(event("reach_target", duration, end, end, "到达常力段末端", `沿合力方向移动 ${stage.end.distanceM.toFixed(2)} m，历时 ${duration.toFixed(2)} s，到达 x = ${end.xM.toFixed(4)} m，速度 vₓ = ${end.vxMps.toFixed(4)} m/s。`));
   } else {
     events.push(event("force_segment_end", duration, end, end, "常力段结束", `经过 ${duration.toFixed(2)} s，位置 x = ${end.xM.toFixed(4)} m，速度 vₓ = ${end.vxMps.toFixed(4)} m/s。`));
   }
   return {
     duration, end,
-    reason: stage.end.kind === "stop" && !hasNext ? "stopped" : undefined,
+    reason: stopBeforeTarget ? "stop_before_target" : stage.end.kind === "stop" && !hasNext ? "stopped" : undefined,
     events,
     sampleAt,
   };
@@ -592,8 +616,9 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   const eventStates: MotionSample[] = [];
   const runs: { start: number; end: number; run: Run; stageIndex: number; heatBase: number }[] = [];
   const conveyorEvals: Array<{ start: number; end: number; evalAt: (timeSeconds: number) => ConveyorReading }> = [];
-  let movableArcEval: ((timeSeconds: number) => { grooveXM: number; grooveVX: number }) | null = null;
+  let movableArcEval: ((timeSeconds: number) => { grooveXM: number; grooveVX: number; normalForceN?: number; angleDeg?: number; relativeSpeedMps?: number }) | null = null;
   let movableSemicircleEval: ((timeSeconds: number) => MovableSemicircleReading) | null = null;
+  const extraCalcs: NonNullable<StageMotion["calculations"]> = [];
   const playbackGaps: NonNullable<StageMotion["playbackGaps"]> = [];
   let springPairEval: ((timeSeconds: number) => { x2M: number; vx2Mps: number; compressionM: number }) | null = null;
   let lastMovableArcGrooveVX: number | null = null;
@@ -636,7 +661,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       }
     }
     if (stage.kind === "vertical_arc") {
-      if (!stage.path) {
+      if (!stage.path && stage.frictionless !== false) {
         if (prevKind === "vertical_arc") {
           if (incomingSpeed > 0 && (state.vxMps < 0 || Math.abs(state.vyMps) / incomingSpeed > TANGENT_TOL_RAD)) {
             return failure("圆弧入口需要水平向右的切向速度。", "/stages/" + index, "PRECONDITION_CONFLICT");
@@ -922,7 +947,68 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       case "spring_contact": run = "kineticFrictionCoefficient" in stage ? roughSpring(stage, state, plan.massKg!, plan.gravityMps2!, geometry, index, hasNext) : spring(stage, state, plan.massKg!, geometry, index, hasNext); break;
       case "spring_release": run = release(stage, state, plan.massKg!, plan.gravityMps2 ?? 0, geometry, hasNext); break;
       case "projectile": run = projectile(stage, state, plan.gravityMps2!, geometry, plan.stages[index - 1]?.kind, hasNext, index); break;
-      case "vertical_arc": run = arc(stage, state, plan.gravityMps2!, plan.massKg!, geometry, index, plan.stages[index + 1]?.kind); break;
+      case "vertical_arc": {
+        if (stage.frictionless === false) {
+          if (state.vyMps !== 0 || state.vxMps === 0) {
+            return failure("未知阻力圆弧段需要非零水平切向速度入口。", "/stages/" + index, "PRECONDITION_CONFLICT");
+          }
+          const m = plan.massKg!;
+          const g = plan.gravityMps2!;
+          const R = stage.radiusM;
+          const dir = Math.sign(state.vxMps) as 1 | -1;
+          const vEntry = Math.abs(state.vxMps);
+          const nEntry = m * (g + (vEntry * vEntry) / R);
+          const phiRad = (stage.endAngleDeg * Math.PI) / 180;
+          const deltaH = R * (1 - Math.cos(phiRad));
+          const vExit = stage.knownExit.kind === "critical_top" ? Math.sqrt(g * R) : stage.knownExit.speedMps;
+          const nExit = stage.knownExit.kind === "critical_top" ? 0 : m * ((vExit * vExit) / R + g * Math.cos(phiRad));
+          const dragWorkJ = 0.5 * m * vExit * vExit - 0.5 * m * vEntry * vEntry + m * g * deltaH;
+          if (dragWorkJ > 1e-9) {
+            return failure("按动能定理该圆弧段机械能反而增加，阻力不可能做正功，请核对入口速度与出口条件。", "/stages/" + index + "/knownExit", "PRECONDITION_CONFLICT");
+          }
+          const exitPos = { xM: state.xM + dir * R * Math.sin(phiRad), yM: state.yM + deltaH };
+          const exitVx = dir * vExit * Math.cos(phiRad);
+          const exitVy = vExit * Math.sin(phiRad);
+          const endSample = moving(exitPos.xM, exitPos.yM, Math.abs(exitVx) < 1e-12 ? 0 : exitVx, Math.abs(exitVy) < 1e-12 ? 0 : exitVy);
+          const gapReason = `圆弧段阻力规律未知，仅能由动能定理求得阻力总功 W_f = ${dragWorkJ.toFixed(2)} J（入口支持力 N = ${nEntry.toFixed(2)} N，出口速率 v = ${vExit.toFixed(2)} m/s），无法确定该段耗时与逐点运动，此处为播放时间缺口。`;
+          playbackGaps.push({ stageIndex: index, timeSeconds: time, reason: gapReason });
+          geometry.schematic = {
+            ...geometry.schematic,
+            stageIndices: [...(geometry.schematic?.stageIndices ?? []), index],
+            verticalArc: {
+              entry: point(state),
+              center: { xM: state.xM, yM: state.yM + R },
+              radiusM: R,
+              startAngleDeg: 0,
+              endAngleDeg: dir * stage.endAngleDeg,
+              plannedEnd: exitPos,
+            },
+            reason: gapReason,
+          };
+          extraCalcs.push(
+            { quantity: "arc_entry_normal_force", value: nEntry, unit: "N", source: "derived", rule: "centripetal_at_bottom", inputPaths: ["/massKg", "/gravityMps2", `/stages/${index}/radiusM`] },
+            { quantity: "arc_exit_speed", value: vExit, unit: "m/s", source: "derived", rule: stage.knownExit.kind === "critical_top" ? "critical_arc_top" : "known_exit_speed", inputPaths: ["/gravityMps2", `/stages/${index}/radiusM`, `/stages/${index}/knownExit`] },
+            { quantity: "arc_drag_work", value: dragWorkJ, unit: "J", source: "derived", rule: "work_energy_theorem", inputPaths: ["/massKg", "/gravityMps2", `/stages/${index}`] },
+          );
+          run = {
+            duration: 0,
+            end: endSample,
+            reason: hasNext ? undefined : "prefix_end",
+            events: [
+              {
+                ...event("arc_unknown_drag_gap", 0, state, endSample, "圆弧段阻力未知（播放时间缺口）", gapReason),
+                position: exitPos,
+                normalForceBeforeN: nEntry,
+                normalForceAfterN: nExit,
+              },
+            ],
+            sampleAt: () => ({ ...endSample }),
+          };
+        } else {
+          run = arc(stage, state, plan.gravityMps2!, plan.massKg!, geometry, index, plan.stages[index + 1]?.kind);
+        }
+        break;
+      }
     } } catch (error) { if (error instanceof RangeError) return failure(error.message,'/stages/'+index+((error as {field?:string}).field??'')); throw error; }
     if (!run.heatAt && plan.massKg !== undefined) {
       const m = plan.massKg, g = plan.gravityMps2 ?? 0, origin = state, finished = run;
@@ -979,6 +1065,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   const calculations: NonNullable<StageMotion["calculations"]> = [
     ...(plan.energy ? [{ quantity: "initial_elastic_energy", value: plan.energy.elasticEnergyJ, unit: "J", source: (plan.energy.origin === "given" || plan.energy.origin === "user" ? plan.energy.origin : "derived") as "given" | "user" | "derived", rule: plan.energy.origin, inputPaths: ["/energy"] }] : []),
     ...(plan.derivedCalculations ?? []).map((c) => ({ quantity: c.quantity, value: c.value, unit: c.unit, source: c.source, rule: c.rule, inputPaths: c.inputPaths })),
+    ...extraCalcs,
   ];
   if (scope) for (const e of events) {
     if (e.kind !== "spring_release_end" && e.kind !== "arc_enter") continue;

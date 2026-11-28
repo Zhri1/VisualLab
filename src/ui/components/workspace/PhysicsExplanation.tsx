@@ -80,7 +80,7 @@ export function PhysicsExplanation({ motion, time }: Props) {
             阶段 {segIndex}<span className="slash">/</span>{motion.segments.length}
           </span>
           {recent && <span className="event-flag">关键事件</span>}
-          {!!motion.playbackGaps?.length && <span className="event-flag">含省略未知匀速段</span>}
+          {!!motion.playbackGaps?.length && <span className="event-flag">{motion.playbackGaps.some((g) => g.reason.includes("阻力")) ? "含未知阻力播放缺口" : "含省略未知匀速段"}</span>}
         </div>
         <p className="stage-name">{recent?.label ?? seg?.name ?? "运动结束"}</p>
         <p className="stage-desc">

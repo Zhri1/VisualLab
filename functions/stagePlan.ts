@@ -22,7 +22,7 @@ export type SingleStage =
   | { kind: "incline_slide"; direction?: "down" | "up"; lengthM?: number | null; angleDeg: number; kineticFrictionCoefficient: number; staticFrictionCoefficient?: number | null; slidesAfterRelease?: boolean | null }
   | { kind: "lossless_turn"; lossless: true }
   | { kind: "horizontal_slide"; kineticFrictionCoefficient: number; end: { kind: "distance"; distanceM: number } | { kind: "stop" } | { kind: "distance_from_stage_start"; stageIndex: number; distanceM: number } }
-  | { kind: "constant_force_1d"; netForceXN: number; end: { kind: "duration"; durationSeconds: number } | { kind: "stop" } }
+  | { kind: "constant_force_1d"; netForceXN: number; end: { kind: "duration"; durationSeconds: number } | { kind: "distance"; distanceM: number } | { kind: "stop" }; startLabel?: string; endLabel?: string }
   | import("./conveyorBelt.ts").ConveyorBeltStage
   | import("./magneticDeflection.ts").MagneticDeflectionStage
   | import("./movableArc.ts").MovableArcStage
@@ -31,7 +31,8 @@ export type SingleStage =
   | { kind: "spring_release"; springConstantNpm: number | null; initialCompressionM: number | null; kineticFrictionCoefficient: number; unattached: true; slidesAfterRelease: boolean; releaseCompleteByM?: number | null }
   | { kind: "spring_contact"; springConstantNpm: number; frictionless: true; unattached: true; kineticFrictionCoefficient?: never; staticFrictionCoefficient?: never; reboundAtMaxCompression?: never }
   | { kind: "spring_contact"; springConstantNpm: number; kineticFrictionCoefficient: number; staticFrictionCoefficient?: number | null; reboundAtMaxCompression?: boolean | null; unattached: true; frictionless?: never }
-  | { kind: "vertical_arc"; radiusM: number; verticalDropM?: number; endAngleDeg?: number; path?: ExplicitArcPath; side: "inside" | "rod"; frictionless: true; startLabel?: string; endLabel?: string }
+  | { kind: "vertical_arc"; radiusM: number; verticalDropM?: number; endAngleDeg?: number; path?: ExplicitArcPath; side: "inside" | "rod"; frictionless: true; dragLaw?: never; knownExit?: never; startLabel?: string; endLabel?: string }
+  | { kind: "vertical_arc"; radiusM: number; endAngleDeg: number; path?: undefined; side: "inside" | "rod"; frictionless: false; dragLaw: "unknown"; knownExit: { kind: "critical_top" } | { kind: "speed"; speedMps: number }; startLabel?: string; endLabel?: string }
   | ({ kind: "projectile"; startLabel?: string; endLabel?: string; bounce?: ProjectileBounce } & ({ dropHeightM: number; landingPlaneYM?: never; end?: never } | { landingPlaneYM: number; dropHeightM?: never; end?: never } | { end: { kind: "tangent_to_next_arc" }; dropHeightM?: number; landingPlaneYM?: never }));
 export type Stage = SingleStage | BodyStage | SwitchableEMStage | MagneticReencounterStage;
 
@@ -330,7 +331,28 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
           } else p.end = null;
         } else stage.path = null;
       }
-      fact(stage, "frictionless", path + "/frictionless");
+      if (source.frictionless === false && (source.dragLaw != null || source.knownExit != null)) {
+        stage.frictionless = false;
+        if (source.dragLaw == null) { stage.dragLaw = null; missingKeys.push(path + "/dragLaw"); }
+        else if (source.dragLaw !== "unknown") issue(path + "/dragLaw", "UNSUPPORTED", "非光滑圆弧目前仅支持声明 dragLaw=\"unknown\"（阻力规律未知，按动能定理与播放缺口处理）。");
+        else stage.dragLaw = "unknown";
+        if (source.knownExit == null) { stage.knownExit = null; missingKeys.push(path + "/knownExit"); }
+        else if (!record(source.knownExit)) issue(path + "/knownExit", "TYPE", "knownExit 须为对象。");
+        else if (source.knownExit.kind == null) { stage.knownExit = { ...source.knownExit, kind: null }; missingKeys.push(path + "/knownExit/kind"); }
+        else if (source.knownExit.kind === "critical_top") {
+          stage.knownExit = { kind: "critical_top" };
+          if (source.endAngleDeg !== 180) issue(path + "/endAngleDeg", "PRECONDITION_CONFLICT", "最高点临界条件要求半圆轨道 endAngleDeg = 180。");
+          if (source.side != null && source.side !== "inside") issue(path + "/side", "PRECONDITION_CONFLICT", "最高点临界条件（v = √(gR)）仅适用于内侧轨道（inside）。");
+        } else if (source.knownExit.kind === "speed") {
+          const ke: Record<string, unknown> = { kind: "speed" };
+          numberField(source.knownExit, ke, "speedMps", path + "/knownExit/speedMps", positive);
+          stage.knownExit = ke;
+        } else {
+          issue(path + "/knownExit/kind", "UNSUPPORTED", "knownExit.kind 仅支持 critical_top 或 speed。");
+        }
+      } else {
+        fact(stage, "frictionless", path + "/frictionless");
+      }
       if (source.side == null) { stage.side = null; missingKeys.push(path + "/side"); }
       else if (typeof source.side !== "string") issue(path + "/side", "TYPE", "轨道内外侧须为字符串。");
       else if (source.side !== "inside" && source.side !== "rod") issue(path + "/side", "UNSUPPORTED", "当前只支持竖直圆弧内侧（inside）或轻杆/双轨（rod）。");
@@ -678,6 +700,8 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
       else if (typeof source.end.kind !== "string") issue(path + "/end/kind", "TYPE", "结束条件种类须为字符串。");
       else if (source.end.kind === "duration") {
         numberField(source.end, stage.end as Record<string, unknown>, "durationSeconds", path + "/end/durationSeconds", positive);
+      } else if (source.end.kind === "distance") {
+        numberField(source.end, stage.end as Record<string, unknown>, "distanceM", path + "/end/distanceM", positive);
       } else if (source.end.kind !== "stop") {
         issue(path + "/end/kind", "UNSUPPORTED", "未登记的常力段结束条件。");
       }

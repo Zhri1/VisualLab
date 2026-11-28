@@ -898,7 +898,7 @@ export function drawStageScene(
     ctx.restore();
     const fullCircle = arcExplicit && Math.abs(Math.abs(arc.endAngleDeg - (arc.startAngleDeg ?? 0)) - 360) < 1e-9;
     if (verticalArcs.length === 1 || isCurrentArc) {
-      const radiusRad = (!arcExplicit || fullCircle ? 90 : ((arc.startAngleDeg ?? 0) + arc.endAngleDeg) / 2) * Math.PI / 180;
+      const radiusRad = (!arcExplicit || fullCircle ? (arc.endAngleDeg < 0 ? -90 : 90) : ((arc.startAngleDeg ?? 0) + arc.endAngleDeg) / 2) * Math.PI / 180;
       const radEndX = arc.center.xM + arc.radiusM * Math.sin(radiusRad);
       const radEndY = arc.center.yM - arc.radiusM * Math.cos(radiusRad);
       ctx.save(); ctx.setLineDash([3, 4]); ctx.strokeStyle = HAIR; ctx.lineWidth = 1;
@@ -1280,6 +1280,9 @@ export function drawStageScene(
   }
   if (motion.timing?.mode === "suffix" && !g.schematic?.horizontal) {
     hudLines.push(`仅从${motion.timing.anchor.label}起算 · 前段未计时`);
+  }
+  if (motion.playbackGaps?.length && !g.conveyor && !g.movableSemicircle) {
+    hudLines.push("含未知阻力/耗时缺口 · 虚线段仅作示意，不计入耗时");
   }
   let placedHudRect: HudRect | null = null;
   if (hudLines.length > 0) {
