@@ -444,6 +444,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                     </>
                   )}
                   {kind === "projectile" && (() => {
+                    const reversal=stage.reversal && typeof stage.reversal === "object" ? stage.reversal as Record<string,unknown> : null;
                     const fromIncline = draft.stages[index - 1]?.kind === "incline_slide";
                     const fixed = "landingPlaneYM" in stage || (!("dropHeightM" in stage) && draft.stages[index - 1]?.kind === "vertical_arc");
                     const key = fixed ? "landingPlaneYM" : "dropHeightM";
@@ -455,7 +456,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                       onChange(updateStagePlanProjectileHeight(draft, index, key, asNumber(raw)));
                     };
                     return <>
-                      <tr data-field-path={`/stages/${index}`}><td className="name">落地基准</td><td className="val">
+                      <tr data-field-path={`/stages/${index}`}><td className="name">{reversal ? "触球高度基准" : "落地基准"}</td><td className="val">
                         <select className="stage-select" aria-label={`阶段 ${index + 1} 落地基准`} value={fixed ? "plane" : "drop"}
                           onChange={(event) => {
                             const next = { ...stage }; delete next.dropHeightM; delete next.landingPlaneYM;
@@ -463,9 +464,13 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                           }}>
                           <option value="drop">相对发射点的落差</option><option value="plane">固定世界高度</option>
                         </select></td><td /></tr>
-                      {numberRow({ key, label: fixed ? "落地平面高度 y" : fromIncline ? "檐口到地面高度 h" : "落地平面落差 h", unit: "m", step: .05,
+                      {numberRow({ key, label: reversal ? fixed ? "触球平面高度 y" : "发射点到触球点落差" : fixed ? "落地平面高度 y" : fromIncline ? "檐口到地面高度 h" : "落地平面落差 h", unit: "m", step: .05,
                         hint: fromIncline ? fixed ? "以檐口为(0,0)，地面y≤0" : "从檐口量到地面，不从坡顶量高度" : fixed ? "与场景共用坐标原点；圆弧后必须固定地面" : "非负落差，圆弧后请切换为固定高度",
                         path: `/stages/${index}/${key}`, value: stage[key], onChange: setProjectileHeight })}
+                      {reversal && <>
+                        <tr><td className="name">触球速度条件</td><td colSpan={2}>总速度等大反向，两个分量同时取反</td></tr>
+                        <tr><td className="name">反向观察终点</td><td className="val"><select aria-label={`阶段 ${index+1} 反向观察终点`} className="stage-select" value={String(reversal.stopAt ?? "")} onChange={e=>setStage(index,{...stage,reversal:{...reversal,stopAt:e.target.value}})}><option value="after_impulse">碰后瞬间</option><option value="first_apex">反向后首个最高点</option></select></td><td/></tr>
+                      </>}
                       {bounce && (
                         <>
                           {numberRow({ key: "normalRestitution", label: "竖直恢复系数 e", unit: "", step: 0.05, hint: "0 ≤ e ≤ 1，vy+ = −e·vy−",

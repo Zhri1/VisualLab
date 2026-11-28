@@ -1009,8 +1009,10 @@ export function drawStageScene(
     const floorY = proj.landingPlane.yM;
     const projEndX = projSeg ? motion.sampleAt(projSeg.endSeconds).position.x : last.position.x;
     const isIntermediateProj = proj.stageIndex >= 0 && !!motion.stagePlan && proj.stageIndex + 1 < motion.stagePlan.stages.length;
+    const projectileStage=motion.stagePlan?.stages[proj.stageIndex>=0 ? proj.stageIndex : 0];
+    const isReversal=projectileStage?.kind === "projectile" && !!projectileStage.reversal;
     ctx.save();
-    if (isIntermediateProj) {
+    if (isIntermediateProj || isReversal) {
       ctx.setLineDash([3, 4]);
       ctx.strokeStyle = HAIR;
       ctx.lineWidth = 1.1;
@@ -1043,6 +1045,14 @@ export function drawStageScene(
     }
     ctx.stroke();
     ctx.restore();
+    const reversalEv=motion.events.find(e=>e.eventKind==="velocity_reversal" && (proj.stageIndex<0 || e.stageIndex===proj.stageIndex));
+    if (reversalEv?.position) {
+      ctx.save();ctx.fillStyle="#b42318";ctx.font=`11px ${SANS}`;ctx.textAlign="center";ctx.textBaseline="top";
+      ctx.beginPath();ctx.arc(X(reversalEv.position.x),Y(reversalEv.position.y),3.5,0,2*Math.PI);ctx.fill();
+      const label=`触球点 · 冲量 ${reversalEv.impulseNs?.magnitudeNs.toFixed(2) ?? ""} N·s`;
+      const halfWidth=ctx.measureText(label).width/2;
+      ctx.fillText(label,Math.max(halfWidth+8,Math.min(W-halfWidth-8,X(reversalEv.position.x))),Y(reversalEv.position.y)+7);ctx.restore();
+    }
     const bounceEv = motion.events.find((e) => e.eventKind === "ground_bounce" && (proj.stageIndex < 0 || e.stageIndex === proj.stageIndex));
     const bounceApexEv = motion.events.find((e) => e.eventKind === "bounce_apex" && (proj.stageIndex < 0 || e.stageIndex === proj.stageIndex));
     if (bounceEv?.position) {

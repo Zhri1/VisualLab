@@ -154,6 +154,7 @@ export interface MotionEvent {
   /** 与画面同步的一句原理说明 */
   caption: string;
   segment: SegmentKind;
+  impulseNs?: import("../physics/stageMotion").ImpulseNs;
   velocityBefore?: Vec2;
   velocityAfter?: Vec2;
   position?: Vec2;

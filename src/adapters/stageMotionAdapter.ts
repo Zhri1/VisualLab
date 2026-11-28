@@ -138,6 +138,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
       caption: event.explanation,
       detail: event.explanation,
       segment: segmentKind(owner?.kind ?? plan?.stages[event.stageIndex]?.kind ?? fallback),
+      ...(event.impulseNs ? {impulseNs:event.impulseNs} : {}),
       velocityBefore: vec(event.velocityBefore.vxMps, event.velocityBefore.vyMps),
       velocityAfter: vec(event.velocityAfter.vxMps, event.velocityAfter.vyMps),
       ...(event.position ? { position: vec(event.position.xM, event.position.yM), normalForceBeforeN: event.normalForceBeforeN, normalForceAfterN: event.normalForceAfterN } : {}),

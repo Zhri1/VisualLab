@@ -35,7 +35,7 @@ export type SingleStage =
   | { kind: "spring_contact"; springConstantNpm: number; kineticFrictionCoefficient: number; staticFrictionCoefficient?: number | null; reboundAtMaxCompression?: boolean | null; unattached: true; frictionless?: never }
   | { kind: "vertical_arc"; radiusM: number; verticalDropM?: number; endAngleDeg?: number; path?: ExplicitArcPath; side: "inside" | "rod"; frictionless: true; dragLaw?: never; knownExit?: never; startLabel?: string; endLabel?: string }
   | { kind: "vertical_arc"; radiusM: number; endAngleDeg: number; path?: undefined; side: "inside" | "rod"; frictionless: false; dragLaw: "unknown"; knownExit: { kind: "critical_top" } | { kind: "speed"; speedMps: number }; startLabel?: string; endLabel?: string }
-  | ({ kind: "projectile"; startLabel?: string; endLabel?: string; bounce?: ProjectileBounce } & ({ dropHeightM: number; landingPlaneYM?: never; end?: never } | { landingPlaneYM: number; dropHeightM?: never; end?: never } | { end: { kind: "tangent_to_next_arc" }; dropHeightM?: number; landingPlaneYM?: never }));
+  | ({ kind: "projectile"; startLabel?: string; endLabel?: string; bounce?: ProjectileBounce; reversal?: {kind:"equal_speed_opposite";stopAt:"after_impulse"|"first_apex"} } & ({ dropHeightM: number; landingPlaneYM?: never; end?: never } | { landingPlaneYM: number; dropHeightM?: never; end?: never } | { end: { kind: "tangent_to_next_arc" }; dropHeightM?: number; landingPlaneYM?: never }));
 export type Stage = SingleStage | BodyStage | SwitchableEMStage | MagneticReencounterStage;
 
 export type ResolvedStagePlan = {
@@ -247,7 +247,7 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
   }
   const needsGravity = stages.some((stage) => stage.kind === "incline_slide" || stage.kind === "projectile" || stage.kind === "vertical_arc" || stage.kind === "conveyor_belt" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || (stage.kind === "spring_contact" && Object.prototype.hasOwnProperty.call(stage, "kineticFrictionCoefficient"))
     || ((stage.kind === "horizontal_slide" || stage.kind === "spring_release") && typeof stage.kineticFrictionCoefficient === "number" && stage.kineticFrictionCoefficient > 0));
-  const needsMass = stages.some((stage) => stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "constant_force_1d" || (stage.kind === "incline_slide" && "resistanceN" in stage) || stage.kind === "magnetic_deflection" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair");
+  const needsMass = stages.some((stage) => stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "constant_force_1d" || (stage.kind === "incline_slide" && "resistanceN" in stage) || (stage.kind === "projectile" && stage.reversal != null) || stage.kind === "magnetic_deflection" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair");
   if (scaleMode === "normalized" && needsGravity && input.gravityMps2 == null) draft.gravityMps2 = 1;
   else numberField(input, draft, "gravityMps2", "/gravityMps2", positive, needsGravity);
   if (scaleMode === "normalized" && needsMass && input.massKg == null) draft.massKg = 1;
@@ -403,6 +403,17 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
         typeof priorDerivedDrop?.value === "number" &&
         Math.abs(source.dropHeightM - priorDerivedDrop.value) <= 1e-9 * Math.max(1, Math.abs(priorDerivedDrop.value));
       const hasManualDropValue = hasDropValue && !isUneditedDerivedDrop;
+      if (source.reversal != null) {
+        if (!record(source.reversal)) issue(path+"/reversal", "TYPE", "速度反向条件须为对象。");
+        else {
+          stage.reversal={...source.reversal};
+          if (source.reversal.kind == null) missingKeys.push(path+"/reversal/kind");
+          else if (source.reversal.kind !== "equal_speed_opposite") issue(path+"/reversal/kind", "UNSUPPORTED", "仅支持题面明确总速度等速反向。");
+          if (source.reversal.stopAt == null) missingKeys.push(path+"/reversal/stopAt");
+          else if (!["after_impulse","first_apex"].includes(String(source.reversal.stopAt))) issue(path+"/reversal/stopAt", "UNSUPPORTED", "反向后只支持碰后瞬间或首个最高点。");
+          if (source.bounce != null || hasEnd || i !== stages.length-1) issue(path+"/reversal", "PRECONDITION_CONFLICT", "瞬时反向仅用于终段，与水平面反弹和切向入弧互斥。");
+        }
+      }
       let bounce: Record<string, unknown> | undefined;
       if (source.bounce != null) {
         if (!record(source.bounce)) {

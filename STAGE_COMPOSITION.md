@@ -54,6 +54,12 @@
 
 题设 `kinematics`、`trig` 与派生 `derivedCalculations` 随 API 回包保留。再次装配时对尚未被手动覆写的派生字段重新反求，改过的字段作为新给定约束校验，不默默覆盖。新增推导规则 `uniform_acceleration`，保留输入 JSON Pointer。
 
+### 2.1 抛体在指定高度等速反向
+
+`projectile` 可附 `reversal: { kind: "equal_speed_opposite", stopAt: "after_impulse" | "first_apex" }`，仅用于题面明确瞬时作用前后**总速度**大小相等、方向相反的条件。不得用于只反转竖直分量、一般球拍碰撞或任意恢复系数。它与 `bounce`、切向入弧 `end` 互斥，须为末段，顶层质量必填。原互斥的 `dropHeightM` / `landingPlaneYM` 在此表示触球平面，必须在实际到达该高度且竖直速度向下时触发；不得当作落地事件。
+
+事件 `velocity_reversal` 位置连续，`velocityAfter = -velocityBefore`，精确时刻取碰后态。事件及播放器保留 `impulseNs: { jxNs, jyNs, magnitudeNs } = m(vAfter-vBefore)`；同时输出派生冲量读数。`after_impulse` 精确结束于碰后，适用于题目只问触球距离、碰前速度与冲量；仅题目明确观察反向后最高点时选 `first_apex`，继续同一重力抛体到最高点并发 `apex`。两种结束均用 `prefix_end`，不擅自继续落地或虚构下一次接球。碰撞持续时间未给，输出总冲量，不编造平均作用力。
+
 B 从 `src/physics/index.ts` 导出纯函数 `validateStagePlan(input: unknown)`，供 C 校验模型回包，也供 `assembleScene` 复用。同一份验收样例在 Node 服务和 Qoder 云函数中应得到一致的结果。
 
 ```ts

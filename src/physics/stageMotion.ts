@@ -52,7 +52,9 @@ export type StageGeometry = BodyGeometry & {
   positionReference: "front_bottom" | "particle";
 };
 export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "bounce_apex" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'pendulum_peg_top' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit' | 'magnetic_exit' | 'movable_arc_exit' | 'movable_arc_return_exit' | 'movable_arc_top_exit' | 'movable_semicircle_top' | 'movable_semicircle_turn' | 'spring_pair_separate' | 'orbit_complete';
+export type ImpulseNs = {jxNs:number;jyNs:number;magnitudeNs:number};
 export type StageEvent = {
+  impulseNs?: ImpulseNs;
   collision?: import('./horizontalTypes.ts').CollisionValues;
   bodyIds?: string[]; stagePath?: string;
   bodyStatesBefore?: BodySnapshot['bodies']; bodyStatesAfter?: BodySnapshot['bodies'];
@@ -96,7 +98,7 @@ export type EnergyReading = {
   priorFrictionKnown: boolean;
 };
 export type StageScene = { kind: "stage_scene"; reading: ResolvedStagePlan; geometry: StageGeometry; motion: StageMotion };
-type EventState = { kind: string; time: number; before: MotionSample; after: MotionSample; label: string; explanation: string;
+type EventState = { impulseNs?: ImpulseNs; kind: string; time: number; before: MotionSample; after: MotionSample; label: string; explanation: string;
   position?: Point; normalForceBeforeN?: number; normalForceAfterN?: number; conveyorExitEdge?: ConveyorEdge;
   conveyorFrictionWorkJ?: number; conveyorSlipDistanceM?: number };
 type Run = {
@@ -507,7 +509,7 @@ function arc(stage: Extract<Stage, { kind: "vertical_arc" }>, start: MotionSampl
   return { ...solved, events, reason: canContinue ? undefined : "arc_detached" };
 }
 
-function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: MotionSample, gravity: number, geometry: StageGeometry, from: StageKind | undefined, hasNext: boolean, stageIndex: number): Run {
+function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: MotionSample, gravity: number, geometry: StageGeometry, from: StageKind | undefined, hasNext: boolean, stageIndex: number, mass?: number): Run {
   const planeYM = stage.landingPlaneYM ?? start.yM - stage.dropHeightM!;
   const t1 = landingTime(start.yM - planeYM, start.vyMps, gravity);
   const projectileGeo = { launch: point(start), landingPlane: { yM: planeYM } };
@@ -530,6 +532,17 @@ function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: Motion
   if (hasNext) {
     events.push(event("reach_target", t1, impact, impact, "到达接续点", "抛体到达目标高度并沿当前速度切向进入下一阶段。"));
     return { duration: t1, end: impact, reason: undefined, events, sampleAt: flight1 };
+  }
+  if (stage.reversal) {
+    if (impact.vyMps >= 0) throw Object.assign(new RangeError("等速反向需在向下到达指定触球高度时发生。"),{field:"/reversal"});
+    const post = moving(impact.xM, impact.yM, -impact.vxMps, -impact.vyMps);
+    const impulseNs={jxNs:mass!*(post.vxMps-impact.vxMps),jyNs:mass!*(post.vyMps-impact.vyMps),magnitudeNs:2*mass!*Math.hypot(impact.vxMps,impact.vyMps)};
+    events.push({...event("velocity_reversal",t1,impact,post,"触球后等速反向",`总速度从 (${impact.vxMps.toFixed(4)}, ${impact.vyMps.toFixed(4)}) 反向为 (${post.vxMps.toFixed(4)}, ${post.vyMps.toFixed(4)}) m/s；总冲量 ${impulseNs.magnitudeNs.toFixed(4)} N·s。位置连续，未给接触时间，不计算平均作用力。`),position:point(impact),impulseNs});
+    const t2=stage.reversal.stopAt === "first_apex" ? post.vyMps/gravity : 0;
+    const after=(t:number)=>linearState(post.xM,post.yM,post.vxMps,post.vyMps,0,-gravity,t);
+    const end=t2>0 ? {...after(t2),vyMps:0} : post;
+    if (t2>0) events.push({...event("apex",t1+t2,end,end,"反向后最高点","反向后仅受重力运动至首个最高点，竖直速度为零，保留反向水平速度。"),position:point(end)});
+    return {duration:t1+t2,end,reason:"prefix_end",events,sampleAt:(t)=>t<t1 ? flight1(t) : after(t-t1)};
   }
   if (stage.bounce) {
     const e = stage.bounce.normalRestitution;
@@ -570,6 +583,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   if (first?.kind === 'magnetic_reencounter') return computeMagneticReencounterMotion(first);
   if (plan.bodies) return computeMultiBodyMotion(plan, scope);
   const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage, i) => stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "magnetic_deflection" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair" || stage.kind === "circular_orbit"
+    || stage.kind === "projectile" && stage.reversal !== undefined
     || stage.kind === "incline_slide" && plan.stages[i + 1]?.kind === "projectile") ? "particle" : "front_bottom", ...(plan.scaleMode ? { scaleMode: plan.scaleMode } : {}) };
   let state = "speedMps" in plan.initial ? moving(0, 0, plan.initial.speedMps) : "vxMps" in plan.initial ? moving(0, 0, plan.initial.vxMps, "vyMps" in plan.initial ? plan.initial.vyMps : 0) : moving(0,0,"tangentialSpeedMps" in plan.initial ? plan.initial.tangentialSpeedMps : 0);
   // 可移动槽顶入时槽顶比地面高 R：初态抬到槽顶，离槽时恰好落回地面 y=0；底入时从地面切向入槽。
@@ -637,6 +651,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       timeSeconds: startTime + item.time, order,
       velocityBefore: velocity(item.before), velocityAfter: velocity(item.after),
       label: item.label, explanation: item.explanation,
+      ...(item.impulseNs ? {impulseNs:item.impulseNs} : {}),
       ...(item.position ? { position: item.position, normalForceBeforeN: item.normalForceBeforeN, normalForceAfterN: item.normalForceAfterN } : {}),
       ...(item.conveyorExitEdge ? { conveyorExitEdge: item.conveyorExitEdge } : {}),
       ...(item.conveyorFrictionWorkJ !== undefined ? { conveyorFrictionWorkJ: item.conveyorFrictionWorkJ } : {}),
@@ -982,7 +997,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       }
       case "spring_contact": run = "kineticFrictionCoefficient" in stage ? roughSpring(stage, state, plan.massKg!, plan.gravityMps2!, geometry, index, hasNext) : spring(stage, state, plan.massKg!, geometry, index, hasNext); break;
       case "spring_release": run = release(stage, state, plan.massKg!, plan.gravityMps2 ?? 0, geometry, hasNext); break;
-      case "projectile": run = projectile(stage, state, plan.gravityMps2!, geometry, plan.stages[index - 1]?.kind, hasNext, index); break;
+      case "projectile": run = projectile(stage, state, plan.gravityMps2!, geometry, plan.stages[index - 1]?.kind, hasNext, index, plan.massKg); break;
       case "vertical_arc": {
         if (stage.frictionless === false) {
           if (state.vyMps !== 0 || state.vxMps === 0) {
@@ -1103,6 +1118,9 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     ...(plan.derivedCalculations ?? []).map((c) => ({ quantity: c.quantity, value: c.value, unit: c.unit, source: c.source, rule: c.rule, inputPaths: c.inputPaths })),
     ...extraCalcs,
   ];
+  for (const e of events) if (e.impulseNs) {
+    for (const [quantity,value] of Object.entries(e.impulseNs)) calculations.push({quantity:`reversal_${quantity}`,value,unit:"N·s",source:"derived",rule:"momentum_impulse",inputPaths:["/massKg",`/stages/${e.stageIndex}/reversal`,"/initial"]});
+  }
   if (scope) for (const e of events) {
     if (e.kind !== "spring_release_end" && e.kind !== "arc_enter") continue;
     const inputPaths = ["/massKg", "/gravityMps2"];
