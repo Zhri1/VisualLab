@@ -425,6 +425,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - **恒力水平段定距结束**：`constant_force_1d` 支持 `end: { kind: "distance", distanceM: 距离 }`（带符号 `netForceXN` 表示合力方向，如向左推为负值），可用于光滑水平恒力加速后接圆弧。
 - **未知阻力圆弧段（播放时间缺口）**：若题面明确圆弧段存在阻力（或要求求「阻力所做的功」），且未给出阻力随位置/速度的规律，仅给出出口状态（如「恰好通过最高点」），则**绝不能**把该 `vertical_arc` 标成 `frictionless: true` 假装光滑，也不能编造摩擦因数或耗时；应输出：
   `{"kind":"vertical_arc","radiusM":R,"endAngleDeg":180,"side":"inside","frictionless":false,"dragLaw":"unknown","knownExit":{"kind":"critical_top"}}`（或 `knownExit: {"kind":"speed","speedMps":v}`）。物理库会精确播放前段和后段平抛，将该圆弧标为虚线示意与 `playbackGaps` 播放缺口，并用动能定理求总阻力功 $W_f$。
+- **圆周轨道运动（`circular_orbit`）**：固定中心天体 + 低质量单卫星做圆周轨道运动（不含椭圆轨道或霍曼转移）。无需顶层 `gravityMps2` 或 `massKg`，提取 `gravitationalParameterM3s2`（$GM$，若题面给 $gR^2$ 可在 `assumptions` 说明换算为 $GM$）、`orbitalRadiusM`（轨道半径 $r$）或互斥的 `centralBodyRadiusM` + `altitudeM`（给离地高度 $h$ 时必须提取中心天体半径 $R$，缺 $R$ 时置 `null`）、可选 `direction`（`"ccw"` / `"cw"`）、`orbits`（默认 `1`）。速度与周期由物理库按 $v=\sqrt{GM/r}$、$T=2\pi\sqrt{r^3/(GM)}$ 计算，识别层不代算。
 
 - **后继段省略 `path.center`**：显式 `vertical_arc.path` 作为后继段时**应省略 `center`**，由物理库按前段出口世界坐标、入口角与半径自动反算衔接圆心，避免手算世界圆心出错；首段也可省略 `center`（默认入口在 `(0, 0)`）。
 - **平抛/斜抛切向入弧**：题面写「恰好沿切线滑入圆弧」时：若已知初速、未知落差，`projectile` 只写 `end: { "kind": "tangent_to_next_arc" }`（不写 `dropHeightM`/`landingPlaneYM`）；若已知正落差（或圆弧后固定 `landingPlaneYM`）且平抛初速/前段圆弧初速/预压弹簧势能待求，则保留该 `dropHeightM`（或 `landingPlaneYM`）并同时写 `end: { "kind": "tangent_to_next_arc" }`，将待求的 `initial.vxMps` / `initial.speedMps` / 弹簧 `k, c` 填 `null`，由物理库反求水平出射速度并反传前段能量。

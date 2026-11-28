@@ -19,6 +19,7 @@ const STAGE_LABELS: Record<StageKind, string> = {
   movable_arc: "可移动圆弧槽",
   movable_semicircle: "可平动半圆轨道",
   spring_pair: "自由弹簧双球",
+  circular_orbit: "圆周轨道运动",
 };
 
 const STAGE_KINDS = Object.keys(STAGE_LABELS) as StageKind[];
@@ -91,6 +92,13 @@ const NUMBER_FIELDS: Partial<Record<StageKind, NumberMeta[]>> = {
   vertical_arc: [
     { key: "radiusM", label: "圆弧半径 R", unit: "m", step: 0.05, hint: "质点轨迹半径，大于 0" },
     { key: "endAngleDeg", label: "圆弧端点角 φ", unit: "°", step: 1, hint: "从最低点量起，0° < φ ≤ 180°" },
+  ],
+  circular_orbit: [
+    { key: "gravitationalParameterM3s2", label: "引力参数 GM", unit: "m³/s²", step: 1e12, hint: "中心天体 G·M（如地球约 3.986e14）" },
+    { key: "orbitalRadiusM", label: "轨道半径 r", unit: "m", step: 1e5, hint: "与离地高度 h 二选一" },
+    { key: "centralBodyRadiusM", label: "中心天体半径 R", unit: "m", step: 1e5, hint: "给离地高度时必填" },
+    { key: "altitudeM", label: "轨道高度 h（可选）", unit: "m", step: 1e4, hint: "r = R + h" },
+    { key: "orbits", label: "观察圈数", unit: "圈", step: 0.5 },
   ],
 };
 

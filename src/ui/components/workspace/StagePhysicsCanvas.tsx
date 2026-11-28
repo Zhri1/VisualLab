@@ -419,6 +419,10 @@ export function stageWorldBounds(motion: Motion): WorldBounds {
     points.push({ x: g.springRelease.start.xM, y: g.springRelease.start.yM }, { x: g.springRelease.naturalContact.xM, y: g.springRelease.naturalContact.yM });
     if (g.springRelease.anchor) points.push({ x: g.springRelease.anchor.xM, y: g.springRelease.anchor.yM });
   }
+  if (g.circularOrbit) {
+    const r = g.circularOrbit.orbitalRadiusM;
+    points.push({ x: -r * 1.15, y: -r * 1.15 }, { x: r * 1.15, y: r * 1.15 });
+  }
   if (g.schematic?.horizontal) {
     points.push({ x: g.schematic.horizontal.start.xM, y: g.schematic.horizontal.start.yM });
     if (g.schematic.horizontal.plannedEnd) points.push({ x: g.schematic.horizontal.plannedEnd.xM, y: g.schematic.horizontal.plannedEnd.yM });
@@ -624,6 +628,70 @@ export function drawStageScene(
       ctx.textBaseline = "bottom";
       ctx.fillText("桌沿", X(hor.plannedEnd.xM) + (goesLeft ? -7 : 7), Y(hor.plannedEnd.yM) - 5);
     }
+  }
+  if (g.circularOrbit) {
+    const orb = g.circularOrbit;
+    const cx = X(orb.center.xM);
+    const cy = Y(orb.center.yM);
+    const rPx = orb.orbitalRadiusM * S;
+    const bodyRPx = orb.centralBodyRadiusM
+      ? Math.max(8, Math.min(rPx * 0.85, orb.centralBodyRadiusM * S))
+      : Math.max(12, Math.min(26, rPx * 0.22));
+    ctx.save();
+    // 完整圆周轨道（浅虚线底 + 方向箭头）
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 1.6;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, rPx, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // 在 90° 与 270° 处画绕行方向小箭头
+    const dirSign = orb.direction === "ccw" ? 1 : -1;
+    for (const deg of [90, 270]) {
+      const th = (deg * Math.PI) / 180;
+      const ax = cx + rPx * Math.cos(th);
+      const ay = cy - rPx * Math.sin(th);
+      const tx = -dirSign * Math.sin(th);
+      const ty = -dirSign * Math.cos(th);
+      ctx.strokeStyle = SOFT;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(ax - tx * 6 - ty * 4, ay - ty * 6 + tx * 4);
+      ctx.lineTo(ax, ay);
+      ctx.lineTo(ax - tx * 6 + ty * 4, ay - ty * 6 - tx * 4);
+      ctx.stroke();
+    }
+    // 半径连线 r（中心天体到卫星当前位置）
+    const sx = X(sample.position.x);
+    const sy = Y(sample.position.y);
+    ctx.strokeStyle = HAIR;
+    ctx.lineWidth = 1.2;
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(sx, sy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = SOFT;
+    ctx.font = `500 12px ${SANS}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillText("r", (cx + sx) / 2, (cy + sy) / 2 - 4);
+    // 固定中心天体
+    ctx.fillStyle = "#e7e5df";
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(cx, cy, bodyRPx, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = INK;
+    ctx.font = `600 12px ${SANS}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(orb.centralBodyLabel ?? "M", cx, cy);
+    ctx.restore();
   }
   if (g.movableArc) {
     const ma = g.movableArc;
@@ -1280,6 +1348,14 @@ export function drawStageScene(
   }
   if (motion.timing?.mode === "suffix" && !g.schematic?.horizontal) {
     hudLines.push(`仅从${motion.timing.anchor.label}起算 · 前段未计时`);
+  }
+  if (g.circularOrbit) {
+    const orb = g.circularOrbit;
+    const fmt = (n: number) => (Math.abs(n) >= 1e5 || (Math.abs(n) > 0 && Math.abs(n) < 1e-2) ? n.toExponential(3) : n.toFixed(2));
+    hudLines.push(
+      `圆周轨道（${orb.direction === "ccw" ? "逆时针" : "顺时针"}）· r = ${fmt(orb.orbitalRadiusM)} m`,
+      `v = ${fmt(orb.orbitalSpeedMps)} m/s · T = ${fmt(orb.periodSeconds)} s`,
+    );
   }
   if (motion.playbackGaps?.length && !g.conveyor && !g.movableSemicircle) {
     hudLines.push("含未知阻力/耗时缺口 · 虚线段仅作示意，不计入耗时");

@@ -26,6 +26,8 @@ export type { HorizontalInitial, InitialBody, HorizontalApproach, HorizontalColl
 export type { BlockPlankStage, PostCommonForce, PlankGeometry } from './blockPlankTypes.ts';
 export type { PulleyStage, PulleySurface, PulleyGeometry } from './pulleyTypes.ts';
 export type { ConveyorBeltStage, ConveyorBeltSegment, ConveyorEdge, ConveyorReading, ConveyorGeometry } from './conveyorBelt.ts';
+export { solveCircularOrbit, resolveOrbitalRadiusM } from './circularOrbit.ts';
+export type { CircularOrbitStage, CircularOrbitGeometry, CircularOrbitSample, CircularOrbitSolution } from './circularOrbit.ts';
 export { solveMovableArc, solveMovableArcBottom, movableArcCriticalEntrySpeed } from './movableArc.ts';
 export type { MovableArcStage, MovableArcSample, MovableArcSolution } from './movableArc.ts';
 export { solveSpringPair } from './springPair.ts';

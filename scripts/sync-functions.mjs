@@ -48,6 +48,7 @@ const FILES = [
   { from: "src/physics/switchableEMCollision.ts", to: "functions/switchableEMCollision.ts" },
   { from: "src/physics/magneticReencounter.ts", to: "functions/magneticReencounter.ts" },
   { from: "src/physics/movableArc.ts", to: "functions/movableArc.ts" },
+  { from: "src/physics/circularOrbit.ts", to: "functions/circularOrbit.ts" },
   { from: "src/physics/movableSemicircle.ts", to: "functions/movableSemicircle.ts" },
   { from: "src/physics/springPair.ts", to: "functions/springPair.ts" },
   { from: "src/physics/stagePlan.ts", to: "functions/stagePlan.ts" },

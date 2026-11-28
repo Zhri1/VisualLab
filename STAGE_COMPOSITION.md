@@ -99,6 +99,7 @@ Node 服务与 Qoder 云函数识别新题时使用同一张映射表。
 | `movable_arc` | `radiusM`、`grooveMassKg`、可选 `entryMode`（`"top"` 默认 / `"bottom"`）、`exitDirection`（-1/1，顶入）、`entryDirection`（-1/1，底入）、`criticalTopRelativeRest`（底入恰好在槽顶相对静止）、`entryGapM`（底入前已知间距）；球质量读顶层 `massKg` 或多体 `bodies`。顶入首段须 `initial.speedMps: 0`（非零报 `PRECONDITION_CONFLICT`）；底入须正速率入槽（或由 `criticalTopRelativeRest: true` 反求）。 | 四分之一光滑槽静置光滑地面可自由滑动：水平动量守恒 + 机械能守恒。顶入 RK4 积分至离槽（球速 `√(2gRM/(M+m))`、槽速反向 `m·v/M`）；底入自适应积分至槽顶/转折点相对静止并对称返回槽底分离（返回球速 `(m−M)/(m+M)·v₀`、槽速 `2m/(m+M)·v₀`、槽底支持力 `mg + m v₀²/R`）。 |
 | `movable_semicircle` | `radiusM`、`grooveMassKg`、`direction`、`frictionless`、`groundFrictionless`，详情见 [可平动半圆轨道契约](MOVABLE_SEMICIRCLE.md)。 | 正速从底部切向进入初静止的可平动半圆内轨，取样同时包含滑块与轨道运动，记录实际到顶、提前失去接触或首个转折点。 |
 | `spring_pair` | `springConstantNpm`、`targetMassKg`（可 null）、`separationSpeedMps`（可 null）、可选 `gapM`；入射球质量读顶层 `massKg`。 | 弹簧不锚墙的弹性双球作用：匀速走完 gap → 压缩 → 共速（Ep 最大）→ 恢复原长分离。`targetMassKg` 缺而给 `separationSpeedMps` 时反求 m₂ = m₁(u+s)/(u−s)。末段。 |
+| `circular_orbit` | `gravitationalParameterM3s2`（中心天体引力常量乘质量 $GM$，正值）、`orbitalRadiusM`（轨道半径 $r$）或互斥的 `altitudeM` + `centralBodyRadiusM`（$r = R + h$，给离地高度时必须提供中心天体半径）、可选 `direction`（`"ccw"` 默认逆时针 / `"cw"` 顺时针）、`initialAngleDeg`（默认 0°）、`orbits`（默认 1 圈）。无需顶层 `gravityMps2` 或 `massKg`。 | 固定中心天体与低质量单卫星圆周轨道运动：计算 $v = \sqrt{GM/r}$、$T = 2\pi\sqrt{r^3/(GM)}$、向心加速度 $a_c = GM/r^2$，完整播放指定圈数并输出轨道方向、速率与半径。椭圆轨道与霍曼转移不在本版范围。 |
 
 `horizontal_slide.end` 原有 `distance/stop` 两种互斥分支保持兼容。指定距离时，库比较到达目标与因摩擦停止两个事件。停止更早时返回 `stop_before_target`，恰好同时发生时停止优先，返回 `stop_at_target`。只指定 `stop` 时，以停止为目标。光滑面上有正初速且要求因摩擦停止，返回可定位的前提冲突。
 

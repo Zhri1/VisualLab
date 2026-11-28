@@ -14,6 +14,7 @@ import { solveRoughSpring, type RoughSpring, type RoughSpringConflict } from "./
 import { solveConveyorBelt, type ConveyorEdge, type ConveyorGeometry, type ConveyorReading } from "./conveyorBelt.ts";
 import { solveMagneticDeflection, type MagneticGeometry } from "./magneticDeflection.ts";
 import { solveMovableArc, solveMovableArcBottom } from "./movableArc.ts";
+import { solveCircularOrbit, type CircularOrbitGeometry } from "./circularOrbit.ts";
 import { solveMovableSemicircle, type MovableSemicircleReading } from "./movableSemicircle.ts";
 import { solveSpringPair } from "./springPair.ts";
 
@@ -30,6 +31,7 @@ export type StageGeometry = BodyGeometry & {
   magneticReencounter?: MagneticReencounterGeometry;
   magnetics?: MagneticGeometry[];
   movableArc?: { stageIndex: number; radiusM: number; grooveMassKg: number; entryMode?: "top" | "bottom"; exitDirection: -1 | 1; entryDirection?: -1 | 1; entryXM: number; entryYM: number; exitTimeSeconds: number; exitGrooveXM: number; exitGrooveVX: number; bottomReturnNormalForceN?: number | null };
+  circularOrbit?: CircularOrbitGeometry;
   movableSemicircle?: {
     stageIndex: number; entry: Point; radiusM: number; grooveMassKg: number;
     direction: "right" | "left"; startLabel?: string; endLabel?: string;
@@ -48,7 +50,7 @@ export type StageGeometry = BodyGeometry & {
   blockSizeM: number;
   positionReference: "front_bottom" | "particle";
 };
-export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "bounce_apex" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'pendulum_peg_top' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit' | 'magnetic_exit' | 'movable_arc_exit' | 'movable_arc_return_exit' | 'movable_arc_top_exit' | 'movable_semicircle_top' | 'movable_semicircle_turn' | 'spring_pair_separate';
+export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "bounce_apex" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'pendulum_peg_top' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit' | 'magnetic_exit' | 'movable_arc_exit' | 'movable_arc_return_exit' | 'movable_arc_top_exit' | 'movable_semicircle_top' | 'movable_semicircle_turn' | 'spring_pair_separate' | 'orbit_complete';
 export type StageEvent = {
   collision?: import('./horizontalTypes.ts').CollisionValues;
   bodyIds?: string[]; stagePath?: string;
@@ -562,7 +564,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   if (first?.kind === 'switchable_em_collision') return computeSwitchableEMMotion(first);
   if (first?.kind === 'magnetic_reencounter') return computeMagneticReencounterMotion(first);
   if (plan.bodies) return computeMultiBodyMotion(plan, scope);
-  const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage, i) => stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "magnetic_deflection" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair"
+  const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage, i) => stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "magnetic_deflection" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair" || stage.kind === "circular_orbit"
     || stage.kind === "incline_slide" && plan.stages[i + 1]?.kind === "projectile") ? "particle" : "front_bottom", ...(plan.scaleMode ? { scaleMode: plan.scaleMode } : {}) };
   let state = "speedMps" in plan.initial ? moving(0, 0, plan.initial.speedMps) : "vxMps" in plan.initial ? moving(0, 0, plan.initial.vxMps, "vyMps" in plan.initial ? plan.initial.vyMps : 0) : moving(0,0,"tangentialSpeedMps" in plan.initial ? plan.initial.tangentialSpeedMps : 0);
   // 可移动槽顶入时槽顶比地面高 R：初态抬到槽顶，离槽时恰好落回地面 y=0；底入时从地面切向入槽。
@@ -639,7 +641,9 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   }
   const from = scope?.mode === "suffix" ? scope.startStageIndex : 0;
   const suffixAnchorLabel = target === undefined ? "桌缘" : "B";
-  append(event(scope?.mode === "state_only" ? "state_anchor" : scope?.mode === "suffix" ? "playback_start" : "release", 0, state, state, scope?.mode === "state_only" ? "已知状态" : scope?.mode === "suffix" ? `从${suffixAnchorLabel}开始计时` : "释放", scope?.reason ?? "从题设初态开始运动。"), scope?.mode === "state_only" ? scope.startStageIndex : from, 0);
+  if (first.kind !== "circular_orbit") {
+    append(event(scope?.mode === "state_only" ? "state_anchor" : scope?.mode === "suffix" ? "playback_start" : "release", 0, state, state, scope?.mode === "state_only" ? "已知状态" : scope?.mode === "suffix" ? `从${suffixAnchorLabel}开始计时` : "释放", scope?.reason ?? "从题设初态开始运动。"), scope?.mode === "state_only" ? scope.startStageIndex : from, 0);
+  }
   if (scope?.mode === "state_only") reason = scope.stopReason ?? "prefix_end";
   for (const [index, stage] of (plan.stages as SingleStage[]).entries()) {
     if (scope?.mode === "state_only") break;
@@ -861,6 +865,33 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
             { ...endEvent, position: point(endSample), normalForceBeforeN: endNormal, normalForceAfterN: endNormal },
           ],
           sampleAt: (dt) => solved.at(dt).sample,
+        };
+        break;
+      }
+      case "circular_orbit": {
+        const solved = solveCircularOrbit(stage, index);
+        geometry.circularOrbit = solved.geometry;
+        extraCalcs.push(
+          { quantity: "orbital_radius", value: solved.orbitalRadiusM, unit: "m", source: "derived", rule: "circular_orbit", inputPaths: [`/stages/${index}`] },
+          { quantity: "orbital_speed", value: solved.orbitalSpeedMps, unit: "m/s", source: "derived", rule: "v_sqrt_GM_over_r", inputPaths: [`/stages/${index}/gravitationalParameterM3s2`, `/stages/${index}`] },
+          { quantity: "orbital_period", value: solved.periodSeconds, unit: "s", source: "derived", rule: "T_2pi_sqrt_r3_over_GM", inputPaths: [`/stages/${index}/gravitationalParameterM3s2`, `/stages/${index}`] },
+          { quantity: "centripetal_acceleration", value: solved.centripetalAccelerationMps2, unit: "m/s²", source: "derived", rule: "a_GM_over_r2", inputPaths: [`/stages/${index}/gravitationalParameterM3s2`, `/stages/${index}`] },
+        );
+        const startS = solved.at(0);
+        const endS = solved.at(solved.durationSeconds);
+        state = moving(startS.xM, startS.yM, startS.vxMps, startS.vyMps);
+        run = {
+          duration: solved.durationSeconds,
+          end: moving(endS.xM, endS.yM, endS.vxMps, endS.vyMps),
+          reason: "orbit_complete",
+          events: solved.events.map((ev) => {
+            const st = moving(ev.sample.xM, ev.sample.yM, ev.sample.vxMps, ev.sample.vyMps);
+            return { ...event(ev.kind, ev.timeSeconds, st, st, ev.label, ev.explanation), position: { xM: ev.sample.xM, yM: ev.sample.yM } };
+          }),
+          sampleAt: (dt) => {
+            const r = solved.at(dt);
+            return moving(r.xM, r.yM, r.vxMps, r.vyMps);
+          },
         };
         break;
       }
