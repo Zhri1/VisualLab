@@ -1352,9 +1352,10 @@ export function drawStageScene(
   if (g.circularOrbit) {
     const orb = g.circularOrbit;
     const fmt = (n: number) => (Math.abs(n) >= 1e5 || (Math.abs(n) > 0 && Math.abs(n) < 1e-2) ? n.toExponential(3) : n.toFixed(2));
+    const accelNote = orb.periodSeconds > 15 ? ` · 默认时间加速约 ${Math.round(orb.periodSeconds / 12)}×（物理量不变）` : "";
     hudLines.push(
       `圆周轨道（${orb.direction === "ccw" ? "逆时针" : "顺时针"}）· r = ${fmt(orb.orbitalRadiusM)} m`,
-      `v = ${fmt(orb.orbitalSpeedMps)} m/s · T = ${fmt(orb.periodSeconds)} s`,
+      `v = ${fmt(orb.orbitalSpeedMps)} m/s · T = ${fmt(orb.periodSeconds)} s${accelNote}`,
     );
   }
   if (motion.playbackGaps?.length && !g.conveyor && !g.movableSemicircle) {
