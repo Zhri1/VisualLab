@@ -40,6 +40,20 @@
 
 ## 2. 校验与错误定位
 
+### 2.0 匀变速题设反求增量
+
+`constant_force_1d` 与 `incline_slide` 可带 `kinematics: { durationSeconds?, elapsedSeconds?, displacementM?, finalSpeedMps? }`，只记录题给数值。恒力段的位移和末速度是世界 x 带符号量；斜面为沿本段运动方向的非负量。时长必须正；已知初速度时，由位移+时长、末速度+时长或位移+末速度唯一反求加速度。无唯一解继续提示缺值，所有重复约束必须一致；不允许用跨越折返的斜面位移冒充单向过程。恒力合力由 F=ma 反求，题给施力不可直接填成合力。`elapsedSeconds` 表示从计划起点至本段终点的累计时间，仅在前段用时确定后相减得到本段时间，不得猜测。
+
+斜面可用 `resistanceN`（沿运动反方向的恒定阻力，非负，质量必填）替代 `kineticFrictionCoefficient`，两者互斥；未知阻力不假设为摩擦。缺 `resistanceN` 时必须显式写 `resistanceN: null` 才允许由运动约束反求。上滑摩擦反求用 a=-g(sinθ+μcosθ)。上滑至停点且题面明确返回时附 `returnsToEntry: true`；这确认能自行滑回，但不覆盖已给静摩擦矛盾。
+
+斜面可带 `trig: { sin?, cos? }` 表示题给三角函数近似值（至少一项，未给的分量仍用精确角度），范围 (0,1)，与角度偏差不超过 0.02，平方和偏差不超过 0.05。动力学统一使用原近似值；几何与速度方向使用角度精确值，速率模长和坐标接续连续。不填时保持精确计算。
+
+水平段另支持 `end: { kind: "speed", speedMps }`，末速率非负。摩擦减速可唯一到达较小速率；初末相等时立即结束（零位移），无摩擦而末速不同或末速超过初速报前提冲突。
+
+最低点入射的旧 `vertical_arc` 可带 `horizontalSpanM`（入口到端点的正水平投影），当 `0 < endAngleDeg < 90` 时由 `R = horizontalSpanM / sin(endAngleDeg)` 唯一反求 `radiusM`。可用段内 `trig: {sin}` 保留题给出口角正弦近似，校验范围同上；此处近似仅为投影反求依据，轨迹方向仍由角度确定。显式 `path`、`verticalDropM` 与该投影反求互斥；给定 R 与投影不一致报冲突。推导规则 `arc_radius_from_horizontal_span` 保留，编辑投影后重新装配重算。
+
+题设 `kinematics`、`trig` 与派生 `derivedCalculations` 随 API 回包保留。再次装配时对尚未被手动覆写的派生字段重新反求，改过的字段作为新给定约束校验，不默默覆盖。新增推导规则 `uniform_acceleration`，保留输入 JSON Pointer。
+
 B 从 `src/physics/index.ts` 导出纯函数 `validateStagePlan(input: unknown)`，供 C 校验模型回包，也供 `assembleScene` 复用。同一份验收样例在 Node 服务和 Qoder 云函数中应得到一致的结果。
 
 ```ts

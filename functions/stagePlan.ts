@@ -1,5 +1,6 @@
 // 由 scripts/sync-functions.mjs 从 src/physics/stagePlan.ts 复制生成，请勿手改。
 // 改动请改源文件后重新运行：node scripts/sync-functions.mjs
+import { resolveUniformConstraints, inclineTrig } from "./uniformConstraints.ts";
 import type {HorizontalInitial} from './horizontalTypes.ts';
 import { resolveSpringEnergy } from "./springEnergy.ts";
 import { resolveGaokaoImplicitParams, type DerivedCalculation } from "./gaokaoConstraints.ts";
@@ -19,9 +20,9 @@ export type ProjectileBounce = {
   apexHeightM?: number | null;
 };
 export type SingleStage =
-  | { kind: "incline_slide"; direction?: "down" | "up"; lengthM?: number | null; angleDeg: number; kineticFrictionCoefficient: number; staticFrictionCoefficient?: number | null; slidesAfterRelease?: boolean | null }
+  | { kind: "incline_slide"; direction?: "down" | "up"; lengthM?: number | null; angleDeg: number; kineticFrictionCoefficient: number; resistanceN?: number; trig?: { sin?: number; cos?: number }; returnsToEntry?: true; staticFrictionCoefficient?: number | null; slidesAfterRelease?: boolean | null }
   | { kind: "lossless_turn"; lossless: true }
-  | { kind: "horizontal_slide"; kineticFrictionCoefficient: number; end: { kind: "distance"; distanceM: number } | { kind: "stop" } | { kind: "distance_from_stage_start"; stageIndex: number; distanceM: number } }
+  | { kind: "horizontal_slide"; kineticFrictionCoefficient: number; end: { kind: "distance"; distanceM: number } | { kind: "stop" } | { kind: "speed"; speedMps: number } | { kind: "distance_from_stage_start"; stageIndex: number; distanceM: number } }
   | { kind: "constant_force_1d"; netForceXN: number; end: { kind: "duration"; durationSeconds: number } | { kind: "distance"; distanceM: number } | { kind: "stop" }; startLabel?: string; endLabel?: string }
   | import("./conveyorBelt.ts").ConveyorBeltStage
   | import("./magneticDeflection.ts").MagneticDeflectionStage
@@ -156,6 +157,10 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
   }
   // 仅整体结构未知时提前返回；局部kind缺失不吞掉其他已知阶段的问题。
   if (damaged || unsupported || missingKeys.some((path) => !/^\/stages\/\d+\/kind$/.test(path))) return result();
+  const uniform = resolveUniformConstraints(input);
+  input = uniform.input;
+  if (!record(input)) return result();
+  for (const e of uniform.errors) issue(e.path, e.code, e.message);
   const stages = input.stages as Array<Record<string, unknown> & { kind?: StageKind | null }>;
   if (!stages.some((stage) => stage.kind != null)) return result();
   const firstKind = stages[0].kind;
@@ -242,7 +247,7 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
   }
   const needsGravity = stages.some((stage) => stage.kind === "incline_slide" || stage.kind === "projectile" || stage.kind === "vertical_arc" || stage.kind === "conveyor_belt" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || (stage.kind === "spring_contact" && Object.prototype.hasOwnProperty.call(stage, "kineticFrictionCoefficient"))
     || ((stage.kind === "horizontal_slide" || stage.kind === "spring_release") && typeof stage.kineticFrictionCoefficient === "number" && stage.kineticFrictionCoefficient > 0));
-  const needsMass = stages.some((stage) => stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "constant_force_1d" || stage.kind === "magnetic_deflection" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair");
+  const needsMass = stages.some((stage) => stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "constant_force_1d" || (stage.kind === "incline_slide" && "resistanceN" in stage) || stage.kind === "magnetic_deflection" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair");
   if (scaleMode === "normalized" && needsGravity && input.gravityMps2 == null) draft.gravityMps2 = 1;
   else numberField(input, draft, "gravityMps2", "/gravityMps2", positive, needsGravity);
   if (scaleMode === "normalized" && needsMass && input.massKg == null) draft.massKg = 1;
@@ -286,9 +291,11 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
         numberField(source, stage, key, path + "/" + key, rule, false);
         continue;
       }
+      if (source.kind === "incline_slide" && key === "kineticFrictionCoefficient" && "resistanceN" in source) continue;
       numberField(source, stage, key, path + "/" + key, rule);
     }
     if (source.kind === "incline_slide") {
+      if ("resistanceN" in source) numberField(source, stage, "resistanceN", path + "/resistanceN", nonnegative);
       if (source.direction != null) {
         if (typeof source.direction !== "string") issue(path + "/direction", "TYPE", "斜面方向须为字符串。");
         else if (source.direction !== "down" && source.direction !== "up") issue(path + "/direction", "UNSUPPORTED", "斜面方向仅支持 down（下滑）或 up（上滑）。");
@@ -535,6 +542,9 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
           numberField(source.end, stage.end as Record<string, unknown>, "stageIndex", path + "/end/stageIndex", v => Number.isInteger(v) && v >= 0 && v < i);
           if (typeof source.end.stageIndex === "number" && (source.end.stageIndex !== i - 1 || stages[i - 1]?.kind !== "spring_release")) issue(path + "/end/stageIndex", "PRECONDITION_CONFLICT", "距离引用须指向紧邻的预压释放阶段。");
         }
+      }
+      else if (source.end.kind === "speed") {
+        numberField(source.end, stage.end as Record<string, unknown>, "speedMps", path + "/end/speedMps", nonnegative);
       }
       else if (source.end.kind === "scene_end" && bodyTrack) {
         if (i !== stages.length - 1) issue(path + "/end/kind", "PRECONDITION_CONFLICT", "跟随共同终点的水平段必须是轨道末段。");
@@ -797,11 +807,11 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
     && typeof first.angleDeg === "number" && first.angleDeg > 0 && first.angleDeg < 90
     && typeof first.kineticFrictionCoefficient === "number" && first.kineticFrictionCoefficient >= 0) {
     const angle = first.angleDeg * Math.PI / 180;
-    if (Math.sin(angle) - first.kineticFrictionCoefficient * Math.cos(angle) <= 0) {
+    if (inclineTrig(first as {angleDeg:number}).sin - first.kineticFrictionCoefficient * inclineTrig(first as {angleDeg:number}).cos <= 0) {
       issue("/stages/0/kineticFrictionCoefficient", "PRECONDITION_CONFLICT", "当前倾角与摩擦无法支持从静止开始下滑。");
     }
   }
-  let derivedCalculations: DerivedCalculation[] = [...bounceDerived];
+  let derivedCalculations: DerivedCalculation[] = [...bounceDerived, ...uniform.calculations];
   if (hasGaokaoImplicit) {
     const solved = resolveGaokaoImplicitParams({
       gravityMps2: draft.gravityMps2,
@@ -820,7 +830,7 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
       if (solved.energy) {
         draft.energy = solved.energy;
       }
-      derivedCalculations = [...bounceDerived, ...solved.calculations];
+      derivedCalculations = [...bounceDerived, ...uniform.calculations, ...solved.calculations];
     } else {
       for (const mk of solved.missingKeys) missingKeys.push(mk);
       for (const fe of solved.fieldErrors) issue(fe.path, fe.code, fe.message);
@@ -876,11 +886,16 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
         if (vx === 0 && force !== 0) { issue(`/stages/${i}/end`, 'PRECONDITION_CONFLICT', '初速度为零且合力非零，物体将加速离开静止而非停止。'); break; }
         if (vx !== 0 && (force === 0 || Math.sign(force) === Math.sign(vx))) { issue(`/stages/${i}/end`, 'PRECONDITION_CONFLICT', '合力方向与当前速度相同或为零，无法减速至零。'); break; }
         vx = 0;
-      } else {
+      } else if (end.kind === 'duration') {
         vx = vx + a * end.durationSeconds!;
+      } else {
+        const direction = Math.sign(vx || a), distance = (s.end as {distanceM:number}).distanceM;
+        const square = vx*vx+2*direction*a*distance;
+        vx = direction*Math.sqrt(Math.max(0,square));
       }
     }
   }
+  if (derivedCalculations.length) draft.derivedCalculations = derivedCalculations;
   if (missingKeys.length || fieldErrors.length) return result();
   const resolved: ResolvedStagePlan = {
     kind: "stage_plan", schemaVersion: 1,

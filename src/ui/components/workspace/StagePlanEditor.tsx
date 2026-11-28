@@ -250,7 +250,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
     const oldEnd = stage.end && typeof stage.end === "object" ? stage.end as Record<string, unknown> : {};
     setStage(index, {
       ...stage,
-      end: raw === "distance_from_stage_start" ? { kind: raw, stageIndex: index - 1, distanceM: oldEnd.distanceM ?? null } : raw === "distance" ? { kind: "distance", distanceM: oldEnd.distanceM ?? null } : { kind: "stop" },
+      end: raw === "distance_from_stage_start" ? { kind: raw, stageIndex: index - 1, distanceM: oldEnd.distanceM ?? null } : raw === "distance" ? { kind: "distance", distanceM: oldEnd.distanceM ?? null } : raw === "speed" ? {kind:"speed",speedMps:oldEnd.speedMps ?? null} : { kind: "stop" },
     });
   };
   const setDistance = (index: number, raw: string) => {
@@ -380,6 +380,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
               <table className="cond-table">
                 <tbody>
                   {[...(NUMBER_FIELDS[kind] ?? []), ...(kind === "spring_contact" && isRoughSpring(stage) ? ROUGH_SPRING_FIELDS : [])]
+                    .filter((meta) => !(kind === "incline_slide" && meta.key === "kineticFrictionCoefficient" && "resistanceN" in stage))
                     .filter((meta) => !(kind === "vertical_arc" && meta.key === "endAngleDeg" && Object.prototype.hasOwnProperty.call(stage, "path")))
                     .filter((meta) => !(kind === "incline_slide" && meta.key === "staticFrictionCoefficient" && stage.direction !== "up" && !("staticFrictionCoefficient" in stage)))
                     .map((meta) => numberRow({
@@ -388,6 +389,10 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                     value: stage[meta.key],
                     onChange: (raw) => setStageNumber(index, meta.key, raw),
                   }))}
+                  {kind === "vertical_arc" && "horizontalSpanM" in stage && numberRow({key:"horizontalSpanM",label:"圆弧水平投影",unit:"m",path:`/stages/${index}/horizontalSpanM`,value:stage.horizontalSpanM,onChange:raw=>setStageNumber(index,"horizontalSpanM",raw)})}
+                  {kind === "incline_slide" && "resistanceN" in stage && numberRow({key:"resistanceN",label:"沿坡恒定阻力",unit:"N",path:`/stages/${index}/resistanceN`,value:stage.resistanceN,onChange:raw=>setStageNumber(index,"resistanceN",raw)})}
+                  {stage.kinematics && typeof stage.kinematics === "object" ? Object.entries(stage.kinematics).map(([key,value])=>numberRow({key:`kin-${key}`,label:({durationSeconds:"题给本段用时",elapsedSeconds:"题给累计用时",displacementM:"题给本段位移",finalSpeedMps:"题给末速度"} as Record<string,string>)[key] ?? key,unit:key.endsWith("Seconds") ? "s" : key.endsWith("Mps") ? "m/s" : "m",path:`/stages/${index}/kinematics/${key}`,value,onChange:raw=>setStage(index,{...stage,kinematics:{...(stage.kinematics as Record<string,unknown>),[key]:asNumber(raw)}})})) : null}
+                  {stage.trig && typeof stage.trig === "object" ? Object.entries(stage.trig).map(([key,value])=>numberRow({key:`trig-${key}`,label:`题给 ${key}θ`,unit:"",path:`/stages/${index}/trig/${key}`,value,onChange:raw=>setStage(index,{...stage,trig:{...(stage.trig as Record<string,unknown>),[key]:asNumber(raw)}})})) : null}
                   {kind === "incline_slide" && (
                     <tr data-field-path={`/stages/${index}/direction`}>
                       <td className="name">斜面运动方向</td>
@@ -471,6 +476,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                       )}
                     </>;
                   })()}
+                  {kind === "horizontal_slide" && !!stage.end && typeof stage.end === "object" && "speedMps" in stage.end && numberRow({key:"speedMps",label:"目标末速率",unit:"m/s",path:`/stages/${index}/end/speedMps`,value:stage.end.speedMps,onChange:raw=>setStage(index,{...stage,end:{kind:"speed",speedMps:asNumber(raw)}})})}
                   {kind === "horizontal_slide" && (
                     <>
                       <tr data-field-path={`/stages/${index}/end`}>
@@ -486,6 +492,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                             <option value="">待确认</option>
                             <option value="distance">指定距离</option>
                             {draft.stages[index - 1]?.kind === "spring_release" && <option value="distance_from_stage_start">从释放点A量总距离AB</option>}
+                            <option value="speed">指定末速率</option>
                             <option value="stop">减速至停止</option>
                           </select>
                         </td>

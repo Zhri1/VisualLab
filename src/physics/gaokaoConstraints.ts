@@ -1,3 +1,4 @@
+import { inclineTrig } from "./uniformConstraints.ts";
 import { arcTrig } from "./circularArc.ts";
 
 export type ArcDirection = "positive" | "negative";
@@ -6,6 +7,7 @@ export type DerivedCalculation = {
   stageIndex: number;
   targetPath: string;
   quantity:
+    | "net_force" | "resistance" | "friction_coefficient"
     | "projectile_drop_height"
     | "arc_radius"
     | "critical_arc_top_radius"
@@ -13,9 +15,11 @@ export type DerivedCalculation = {
     | "arc_entry_speed"
     | "initial_elastic_energy";
   value: number;
-  unit: "m" | "m/s" | "J";
+  unit: "m" | "m/s" | "J" | "N" | "1";
   source: "derived";
   rule:
+    | "arc_radius_from_horizontal_span"
+    | "uniform_acceleration"
     | "tangent_to_next_arc"
     | "tangent_to_next_arc_launch_vx"
     | "energy_backprop_from_tangent_launch"
@@ -1456,7 +1460,8 @@ export function resolveGaokaoImplicitParams(
         stage.kineticFrictionCoefficient >= 0
       ) {
         const rad = (stage.angleDeg * Math.PI) / 180;
-        const a = g * (Math.sin(rad) - stage.kineticFrictionCoefficient * Math.cos(rad));
+        const trig = inclineTrig(stage as {angleDeg:number});
+        const a = g * (trig.sin - stage.kineticFrictionCoefficient * trig.cos);
         const vSq = state.speed * state.speed + 2 * a * stage.lengthM;
         if (vSq <= ZERO_TOL) {
           state = { vx: 0, vy: 0, speed: 0 };

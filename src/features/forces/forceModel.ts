@@ -1,3 +1,4 @@
+import { inclineTrig } from "../../physics/uniformConstraints";
 /**
  * 受力矢量模型：由同一份 motion 采样 + 阶段计划解析出各力箭头，
  * 不引入新物理假设，只把引擎已算出的量（N、T、kx、μN）画出来。
@@ -66,18 +67,20 @@ export function forcesAt(motion: Motion, time: number, decompose = false): Force
 
     if (kind === "incline_slide") {
       const theta = ((stage.angleDeg as number) ?? 37) * Math.PI / 180;
+      const dynamics = inclineTrig(stage as {angleDeg:number});
       const mu = (stage.kineticFrictionCoefficient as number) ?? 0;
+      const resistance = typeof stage.resistanceN === "number" ? stage.resistanceN : mu*mass*g*dynamics.cos;
       const nDir = { x: Math.sin(theta), y: Math.cos(theta) };
       const downDir = { x: Math.cos(theta), y: -Math.sin(theta) };
-      push({ bodyId: body.id, label: "N", kind: "normal", from: pos, dir: nDir, magnitudeN: mass * g * Math.cos(theta) });
-      if (speed > 1e-6 && mu > 0) {
-        push({ bodyId: body.id, label: "f", kind: "friction", from: pos, dir: { x: -vdir.x, y: -vdir.y }, magnitudeN: mu * mass * g * Math.cos(theta) });
+      push({ bodyId: body.id, label: "N", kind: "normal", from: pos, dir: nDir, magnitudeN: mass * g * dynamics.cos });
+      if (speed > 1e-6 && resistance > 0) {
+        push({ bodyId: body.id, label: typeof stage.resistanceN === "number" ? "阻力" : "f", kind: "friction", from: pos, dir: { x: -vdir.x, y: -vdir.y }, magnitudeN: resistance });
       } else if (speed <= 1e-6) {
-        push({ bodyId: body.id, label: "f静", kind: "friction", from: pos, dir: { x: -downDir.x, y: -downDir.y }, magnitudeN: mass * g * Math.sin(theta) });
+        push({ bodyId: body.id, label: "f静", kind: "friction", from: pos, dir: { x: -downDir.x, y: -downDir.y }, magnitudeN: mass * g * dynamics.sin });
       }
       if (decompose) {
-        push({ bodyId: body.id, label: "G∥", kind: "gravity", from: pos, dir: downDir, magnitudeN: mass * g * Math.sin(theta), dashed: true });
-        push({ bodyId: body.id, label: "G⊥", kind: "gravity", from: pos, dir: { x: -nDir.x, y: -nDir.y }, magnitudeN: mass * g * Math.cos(theta), dashed: true });
+        push({ bodyId: body.id, label: "G∥", kind: "gravity", from: pos, dir: downDir, magnitudeN: mass * g * dynamics.sin, dashed: true });
+        push({ bodyId: body.id, label: "G⊥", kind: "gravity", from: pos, dir: { x: -nDir.x, y: -nDir.y }, magnitudeN: mass * g * dynamics.cos, dashed: true });
       }
     } else if (kind === "horizontal_slide" || kind === "conveyor_belt" || kind === "constant_force_1d") {
       push({ bodyId: body.id, label: "N", kind: "normal", from: pos, dir: { x: 0, y: 1 }, magnitudeN: mass * g });

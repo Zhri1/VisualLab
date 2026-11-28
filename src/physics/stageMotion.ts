@@ -1,3 +1,4 @@
+import { inclineTrig } from "./uniformConstraints.ts";
 import { solveVerticalArc } from "./verticalArc.ts";
 import { circularEntry, circularGeometry, solveCircularArc } from './circularArc.ts';
 import type { StageSample as MotionSample, VerticalArcGeometry } from "./verticalArc.ts";
@@ -147,12 +148,14 @@ function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: Motion
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
   const speed = Math.hypot(start.vxMps, start.vyMps);
+  const dynamics = inclineTrig(stage);
+  const resistance = stage.resistanceN !== undefined ? stage.resistanceN / mass! : gravity * stage.kineticFrictionCoefficient * dynamics.cos;
 
   if (stage.direction === "up") {
     const horizDir = start.vxMps < -1e-9 ? -1 : 1;
     const ux = horizDir * cos;
     const uy = sin;
-    const aUp = gravity * (sin + stage.kineticFrictionCoefficient * cos);
+    const aUp = gravity * dynamics.sin + resistance;
     const sMax = speed > 0 ? (speed * speed) / (2 * aUp) : 0;
     const geoLen = stage.lengthM ?? Math.max(0.5, sMax * 1.25);
     const endPoint = { xM: start.xM + horizDir * geoLen * cos, yM: start.yM + geoLen * sin };
@@ -169,9 +172,7 @@ function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: Motion
       };
     }
 
-    const frictionForce = mass !== undefined && stage.kineticFrictionCoefficient > 0
-      ? stage.kineticFrictionCoefficient * mass * gravity * cos
-      : 0;
+    const frictionForce = mass !== undefined ? mass * resistance : 0;
 
     // 定长斜面只有正速到达坡顶才允许离开。
     const boundary = stage.lengthM == null ? undefined : travel(speed, -aUp, stage.lengthM);
@@ -193,8 +194,8 @@ function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: Motion
     const ascentDistance = boundary?.distance ?? sMax;
     const apexPos = atTop ? endPoint : { xM: start.xM + ascentDistance * ux, yM: start.yM + ascentDistance * uy };
     const apexState = moving(apexPos.xM, apexPos.yM, 0, 0);
-    const muS = stage.staticFrictionCoefficient ?? stage.kineticFrictionCoefficient;
-    if (sin <= muS * cos + 1e-9) {
+    const muS = stage.staticFrictionCoefficient ?? (stage.returnsToEntry ? 0 : stage.kineticFrictionCoefficient);
+    if (dynamics.sin <= muS * dynamics.cos + 1e-9) {
       return {
         duration: t1, end: apexState, reason: atTop && fliesFromEnd ? "stop_at_target" : "stopped",
         events: [event("stop", t1, apexState, apexState, "斜面最高点静止",
@@ -205,7 +206,7 @@ function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: Motion
     }
 
     // 最高点折返并沿原斜面滑回坡底
-    const aDown = gravity * (sin - stage.kineticFrictionCoefficient * cos);
+    const aDown = gravity * dynamics.sin - resistance;
     const t2 = Math.sqrt((2 * ascentDistance) / aDown);
     const vBack = aDown * t2;
     const end = moving(start.xM, start.yM, -horizDir * vBack * cos, -vBack * sin);
@@ -230,7 +231,7 @@ function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: Motion
   const horizDir = stageIndex > 0 && start.vxMps < -1e-9 ? -1 : 1;
   const dx = horizDir * cos;
   const dy = -sin;
-  const acceleration = gravity * (sin - stage.kineticFrictionCoefficient * cos);
+  const acceleration = gravity * dynamics.sin - resistance;
   const lengthM = stage.lengthM!;
   const boundary = travel(speed, acceleration, lengthM);
   const endPoint = stageIndex === 0 ? { xM: 0, yM: 0 } : { xM: start.xM + lengthM * dx, yM: start.yM + lengthM * dy };
@@ -254,12 +255,14 @@ function incline(stage: Extract<Stage, { kind: "incline_slide" }>, start: Motion
 function turn(start: MotionSample, nextStage?: SingleStage): Run {
   const speed = Math.hypot(start.vxMps, start.vyMps);
   const dir = start.vxMps < -1e-9 ? -1 : 1;
-  const end = moving(start.xM, start.yM, dir * speed, 0);
+  const slope = nextStage?.kind === "incline_slide" ? nextStage : null;
+  const angle = (slope?.angleDeg ?? 0)*Math.PI/180;
+  const end = moving(start.xM, start.yM, dir * speed * Math.cos(angle), slope ? (slope.direction === "up" ? 1 : -1)*speed*Math.sin(angle) : 0);
   const nextIsUpIncline = nextStage?.kind === "incline_slide" && nextStage.direction === "up";
   return {
     duration: 0, end,
     events: [event("lossless_turn", 0, start, end, "无损转向",
-      nextIsUpIncline ? "光滑过渡保持位置和速率，准备沿斜面上滑。" : `光滑过渡保持位置和速率，速度转为水平向${dir < 0 ? "左" : "右"}。`)],
+      slope ? `光滑过渡保持位置和速率，转为沿斜面${nextIsUpIncline ? "上滑" : "下滑"}的切线速度。` : `光滑过渡保持位置和速率，速度转为水平向${dir < 0 ? "左" : "右"}。`)],
     sampleAt: () => ({ ...end }),
   };
 }
@@ -331,11 +334,13 @@ function horizontal(stage: Extract<Stage, { kind: "horizontal_slide" }>, start: 
   const dir = start.vxMps < 0 ? -1 : 1;
   const speed = Math.abs(start.vxMps);
   const braking = stage.kineticFrictionCoefficient * gravity;
+  const targetDistance = stage.end.kind === "speed" ? (speed === stage.end.speedMps ? 0 : (speed * speed - stage.end.speedMps * stage.end.speedMps) / (2 * braking)) : null;
+  if (targetDistance !== null && (!Number.isFinite(targetDistance) || targetDistance < 0)) throw new RangeError("摩擦减速无法到达给定末速率。");
   const plannedEndXM = stage.end.kind === "stop"
     ? null
     : stage.end.kind === "distance_from_stage_start"
       ? stage.end.distanceM
-      : start.xM + dir * stage.end.distanceM;
+      : start.xM + dir * (stage.end.kind === "speed" ? targetDistance! : stage.end.distanceM);
   const horizontalGeo = {
     start: point(start),
     plannedEnd: plannedEndXM !== null ? { xM: plannedEndXM, yM: start.yM } : null,
@@ -344,8 +349,8 @@ function horizontal(stage: Extract<Stage, { kind: "horizontal_slide" }>, start: 
   (geometry.horizontals ??= []).push({ stageIndex, ...horizontalGeo });
   const distance = stage.end.kind === "stop" ? 0
     : stage.end.kind === "distance_from_stage_start" ? Math.max(0, stage.end.distanceM - start.xM)
-    : stage.end.distanceM;
-  const boundary = stage.end.kind !== "stop" ? travel(speed, -braking, distance) : {
+    : stage.end.kind === "speed" ? targetDistance! : stage.end.distanceM;
+  const boundary = stage.end.kind === "speed" && distance === 0 ? {duration:0,distance:0,speed,reason:undefined} : stage.end.kind !== "stop" ? travel(speed, -braking, distance) : {
     duration: speed === 0 ? 0 : speed / braking,
     distance: speed === 0 ? 0 : speed * speed / (2 * braking),
     speed: 0, reason: "stopped" as EndReason,
@@ -1043,7 +1048,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
     } } catch (error) { if (error instanceof RangeError) return failure(error.message,'/stages/'+index+((error as {field?:string}).field??'')); throw error; }
     if (!run.heatAt && plan.massKg !== undefined) {
       const m = plan.massKg, g = plan.gravityMps2 ?? 0, origin = state, finished = run;
-      const mu = stage.kind === "incline_slide" ? stage.kineticFrictionCoefficient * Math.cos(stage.angleDeg * Math.PI / 180)
+      const mu = stage.kind === "incline_slide" ? stage.resistanceN !== undefined ? stage.resistanceN / (m*g) : stage.kineticFrictionCoefficient * inclineTrig(stage).cos
         : stage.kind === "horizontal_slide" || stage.kind === "spring_release" ? stage.kineticFrictionCoefficient : 0;
       if (mu > 0) run.heatAt = (t) => { const s = finished.sampleAt(t); return mu * m * g * Math.hypot(s.xM - origin.xM, s.yM - origin.yM); };
     }
