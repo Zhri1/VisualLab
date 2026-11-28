@@ -52,6 +52,7 @@ const STAGE_TO_CATEGORIES: Record<string, FavoriteCategory[]> = {
   conveyor_belt: ["传送带与连接体"],
   pulley_system: ["传送带与连接体"],
   magnetic_deflection: ["电磁场"],
+  emf_rail: ["电磁场"],
   switchable_em_collision: ["碰撞与动量", "电磁场"],
   magnetic_reencounter: ["碰撞与动量", "电磁场"],
 };
@@ -76,6 +77,7 @@ const COLLISION_KINDS = new Set([
 
 const EM_KINDS = new Set([
   "magnetic_deflection",
+  "emf_rail",
   "switchable_em_collision",
   "magnetic_reencounter",
 ]);

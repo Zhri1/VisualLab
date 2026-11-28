@@ -113,7 +113,7 @@ export interface ResolvedConditions {
   springConstantNpm: number;
 }
 
-export type SegmentKind = "incline" | "horizontal" | "spring" | "projectile" | "vertical_arc" | 'pendulum' | 'movable_arc' | 'movable_semicircle' | 'spring_pair' | 'switchable_em' | 'circular_orbit' | 'field_scene';
+export type SegmentKind = "incline" | "horizontal" | "spring" | "projectile" | "vertical_arc" | 'pendulum' | 'movable_arc' | 'movable_semicircle' | 'spring_pair' | 'switchable_em' | 'circular_orbit' | 'emf_rail' | 'field_scene';
 export type BodyMotionSample = Omit<BodyState,'xM'|'yM'|'vxMps'|'vyMps'> & {position:Vec2;velocity:Vec2};
 
 export interface MotionSegment {
@@ -171,6 +171,8 @@ export interface MotionSample {
   velocity: Vec2;
   springCompressionM: number;
   constraint?: ArcConstraint;
+  /** 电磁感应导轨的瞬时电学量（仅 emf_rail 阶段提供）。 */
+  emfRail?: { emfV: number; currentA: number; ampereForceN: number };
 }
 
 export interface Motion {

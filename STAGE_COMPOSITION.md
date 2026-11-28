@@ -1,5 +1,7 @@
 # 运动阶段组合契约（供 A、B、C 联审）
 
+孤立双星共质心圆轨道、周期反求质量与质量分配见 [双星圆轨道契约](BINARY_CIRCULAR_ORBIT.md)。使用独立 `binary_circular_orbit`，不套碰撞入口或两个固定中心轨道。
+
 独立水平正碰的待联审扩展见 [HORIZONTAL_COLLISION.md](HORIZONTAL_COLLISION.md)：新增按bodyId给定的两物体初态和horizontal_approach，collision_1d增加horizontal_meeting接触来源；碰后复用并行轨道。不能把本文件旧单物体initial或摆的targetApproach套入新入口。
 
 本契约对应 [参赛规划](PROJECT_PLAN_FINAL.md) 的动态组合要求。B 维护校验、装配与运动接口，A 核对绘图、时间轴和编辑，C 核对识别、指令与两套后端的回包。三方先用第 5 节的开发样例联调，正式五道真题另选。
@@ -122,6 +124,7 @@ Node 服务与 Qoder 云函数识别新题时使用同一张映射表。
 | `movable_semicircle` | `radiusM`、`grooveMassKg`、`direction`、`frictionless`、`groundFrictionless`，详情见 [可平动半圆轨道契约](MOVABLE_SEMICIRCLE.md)。 | 正速从底部切向进入初静止的可平动半圆内轨，取样同时包含滑块与轨道运动，记录实际到顶、提前失去接触或首个转折点。 |
 | `spring_pair` | `springConstantNpm`、`targetMassKg`（可 null）、`separationSpeedMps`（可 null）、可选 `gapM`；入射球质量读顶层 `massKg`。 | 弹簧不锚墙的弹性双球作用：匀速走完 gap → 压缩 → 共速（Ep 最大）→ 恢复原长分离。`targetMassKg` 缺而给 `separationSpeedMps` 时反求 m₂ = m₁(u+s)/(u−s)。末段。 |
 | `circular_orbit` | `gravitationalParameterM3s2`（中心天体引力常量乘质量 $GM$，正值）、`orbitalRadiusM`（轨道半径 $r$）或互斥的 `altitudeM` + `centralBodyRadiusM`（$r = R + h$，给离地高度时必须提供中心天体半径）、可选 `direction`（`"ccw"` 默认逆时针 / `"cw"` 顺时针）、`initialAngleDeg`（默认 0°）、`orbits`（默认 1 圈）。无需顶层 `gravityMps2` 或 `massKg`。 | 固定中心天体与低质量单卫星圆周轨道运动：计算 $v = \sqrt{GM/r}$、$T = 2\pi\sqrt{r^3/(GM)}$、向心加速度 $a_c = GM/r^2$，完整播放指定圈数并输出轨道方向、速率与半径。椭圆轨道与霍曼转移不在本版范围。 |
+| `emf_rail` | `magneticTeslaB`（T，正值）、`railSpacingM`（m，正值）、`totalResistanceOhm`（Ω，正值）、`rodMassKg`（kg，正值）、`end`（`time` / `distance` / `speed` / `stop` / `terminal`），可选 `externalForceN`（默认 0）、`kineticFrictionCoefficient`（默认 0）、`gravityMps2`（默认 10）、`initialSpeedMps`（默认 0）、`fieldDirection`（`into_page` / `out_of_page`）。质量与重力写在段内，不用顶层 `massKg`、`gravityMps2`、`bodies`。详情见 [电磁感应导轨契约](EMF_RAIL.md)。 | 单棒在水平平行导轨上切割磁感线，按 $m\,dv/dt = F - \mu mg - B^2L^2v/R$ 的解析解求速度、位移、感应电动势、电流与安培力；输出 `emf_start`、`emf_terminal`、`emf_force_balance`、`emf_stop`、`emf_end` 事件与电荷量、焦耳热、收尾速度、特征时间四项派生量。 |
 | `field_scene` | `particles[]`（`id/massKg/chargeC/xM/yM/vxMps/vyMps`）、`regions[]`（`id` + 可空边界 `xMinM/xMaxM/yMinM/yMaxM` + 带符号 `magneticTeslaB`，向外为正、向里为负；null 待反求时配 `fieldDirection`）、`observers[]`（`cross_x/cross_y` 配 `atM` 与可选 `direction`；`enter_region/leave_region` 配 `regionId`）、`constraints[]`（`solveRegionId/observerId/kind/targetM|targetCos`）、可选 `durationSeconds/maxSeconds`。无需顶层 `massKg/initial/gravityMps2`。 | 开放组合接口：多粒子共钟执行，各区匀强磁场内解析圆周、过界时位置速度连续换场；观察事件解析求首次穿越时刻；未知 B 由观察量扫描+二分反求后正演复核。独立单段，不与其他阶段混用。 |
 
 `horizontal_slide.end` 原有 `distance/stop` 两种互斥分支保持兼容。指定距离时，库比较到达目标与因摩擦停止两个事件。停止更早时返回 `stop_before_target`，恰好同时发生时停止优先，返回 `stop_at_target`。只指定 `stop` 时，以停止为目标。光滑面上有正初速且要求因摩擦停止，返回可定位的前提冲突。
@@ -140,7 +143,7 @@ V1 支持斜面到坡底接无损转向，转向接水平滑动或弹簧，水�
 
 动量守恒扩展另允许 `movable_arc → spring_pair` 与 `movable_arc → horizontal_slide`（μ=0）；`spring_pair` 为末段。识别文案见 [vision-reading.v2 第17、18节](skills/vision-reading.v2.md)。「恰好不能再次滑上槽」一类临界条件写成 `separationSpeedMps`（= 槽速），由库反求靶球质量，识别端不代算答案。多体阶段的系统能量把槽与靶球计入，耗散按守恒校验而非单体质点初末差。
 
-开放组合接口 `field_scene` 把「AI 搭场景、物理库执行」落成契约：粒子数、各自初态、边界位置、各区磁场、观察事件与反求约束全是场景参数；改方向、改边界、加粒子只改 JSON。执行器对每颗粒子独立共钟推进：区内按 $R=mv/|q|B$、$\omega=|q|B/m$ 解析圆周，穿越区域边界时保留位置与速度换用新区磁场；`cross_x/cross_y` 观察用三角方程闭式求首次穿越时刻（与换界同刻发生时两者都记录）。反求按 constraints 声明顺序对 $|B|$ 对数扫描找变号括号后二分，命中观察量目标值后正演复核。识别文案见 [vision-reading.v2 第24节](skills/vision-reading.v2.md)。
+开放组合接口 `field_scene` 把「AI 搭场景、物理库执行」落成契约：粒子数、各自初态、边界位置、各区磁场、观察事件与反求约束全是场景参数；改方向、改边界、加粒子只改 JSON。执行器对每颗粒子独立共钟推进：区内按 $R=mv/|q|B$、$\omega=|q|B/m$ 解析圆周，穿越区域边界时保留位置与速度换用新区磁场；`cross_x/cross_y` 观察用三角方程闭式求首次穿越时刻（与换界同刻发生时两者都记录）。反求按 constraints 声明顺序对 $|B|$ 对数扫描找变号括号后二分，命中观察量目标值后正演复核。识别文案见 [vision-reading.v2 第25节](skills/vision-reading.v2.md)。
 
 ## 4. 装配结果、绘图与阶段修改
 
@@ -270,3 +273,5 @@ const nextPlan = {
 | 5. 原斜面弹簧 | 第 3 节 [规划书](PROJECT_PLAN_FINAL.md) 的原题和数值回归通过。原题约 2.2361 s 接触、2.3146 s 压缩最短，最大压缩量约 0.2012 m，脱离速率约 4.0249 m/s。 |
 
 对第 1、4 条读取斜面末端附近的 `t−ε`、`t` 和 `t+ε`。完整计划在 `t+ε` 进入减速，速度为 (6 − 2ε, 0) m/s。前缀计划在 `t+ε` 钳制到保留斜向速度的末帧。对第 2、3 条检查最后事件为 `stop`，越界取样仍为静止，播放列表与字幕中均无飞行和落地。A、C 联调时另测缺少整块 `end`、缺少距离以及距离非法这三种回包。
+
+[电磁感应导轨](EMF_RAIL.md) 登记单棒在**水平**平行导轨上切割垂直纸面匀强磁场的模型，可带沿导轨的恒定外力与动摩擦，按指数解给出速度、位移、电荷量与焦耳热。阶段只能单独出现，不与其他阶段串接；棒长取导轨间距 $L$，回路电阻取总电阻 $R$。双棒、倾斜/竖直导轨、转动的线框、含电容或电感的回路、绕端点转动的棒切割均不在本模型范围。识别文案见 [vision-reading.v2 第24节](skills/vision-reading.v2.md)。

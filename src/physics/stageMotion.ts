@@ -1,3 +1,4 @@
+import {computeBinaryCircularOrbitMotion, type BinaryCircularOrbitGeometry} from "./binaryCircularOrbitMotion.ts";
 import { inclineTrig } from "./uniformConstraints.ts";
 import { solveVerticalArc } from "./verticalArc.ts";
 import { circularEntry, circularGeometry, solveCircularArc } from './circularArc.ts';
@@ -17,6 +18,7 @@ import { solveConveyorBelt, type ConveyorEdge, type ConveyorGeometry, type Conve
 import { solveMagneticDeflection, type MagneticGeometry } from "./magneticDeflection.ts";
 import { solveMovableArc, solveMovableArcBottom } from "./movableArc.ts";
 import { solveCircularOrbit, type CircularOrbitGeometry } from "./circularOrbit.ts";
+import { computeEmfRailMotion } from "./emfRailMotion.ts";
 import { solveMovableSemicircle, type MovableSemicircleReading } from "./movableSemicircle.ts";
 import { solveSpringPair } from "./springPair.ts";
 
@@ -34,6 +36,8 @@ export type StageGeometry = BodyGeometry & {
   magnetics?: MagneticGeometry[];
   movableArc?: { stageIndex: number; radiusM: number; grooveMassKg: number; entryMode?: "top" | "bottom"; exitDirection: -1 | 1; entryDirection?: -1 | 1; entryXM: number; entryYM: number; exitTimeSeconds: number; exitGrooveXM: number; exitGrooveVX: number; bottomReturnNormalForceN?: number | null };
   circularOrbit?: CircularOrbitGeometry;
+  emfRail?: import("./emfRail.ts").EmfRailGeometry;
+  binaryCircularOrbit?: BinaryCircularOrbitGeometry;
   movableSemicircle?: {
     stageIndex: number; entry: Point; radiusM: number; grooveMassKg: number;
     direction: "right" | "left"; startLabel?: string; endLabel?: string;
@@ -54,7 +58,7 @@ export type StageGeometry = BodyGeometry & {
   blockSizeM: number;
   positionReference: "front_bottom" | "particle";
 };
-export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "bounce_apex" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'pendulum_peg_top' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit' | 'magnetic_exit' | 'movable_arc_exit' | 'movable_arc_return_exit' | 'movable_arc_top_exit' | 'movable_semicircle_top' | 'movable_semicircle_turn' | 'spring_pair_separate' | 'orbit_complete' | 'field_scene_complete';
+export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "bounce_apex" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'pendulum_peg_top' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit' | 'magnetic_exit' | 'movable_arc_exit' | 'movable_arc_return_exit' | 'movable_arc_top_exit' | 'movable_semicircle_top' | 'movable_semicircle_turn' | 'spring_pair_separate' | 'orbit_complete' | 'emf_end' | 'field_scene_complete';
 export type ImpulseNs = {jxNs:number;jyNs:number;magnitudeNs:number};
 export type StageEvent = {
   impulseNs?: ImpulseNs;
@@ -596,6 +600,8 @@ function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: Motion
 function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | StagePlanFailure {
   const first = plan.stages[0];
   if (first?.kind === 'field_scene') return computeFieldSceneMotion(first);
+  if (first?.kind === "emf_rail") return computeEmfRailMotion(first, plan.derivedCalculations);
+  if (first?.kind === "binary_circular_orbit") return computeBinaryCircularOrbitMotion(first,plan.derivedCalculations);
   if (first?.kind === 'switchable_em_collision') return computeSwitchableEMMotion(first);
   if (first?.kind === 'magnetic_reencounter') return computeMagneticReencounterMotion(first);
   if (plan.bodies) return computeMultiBodyMotion(plan, scope);
@@ -906,6 +912,8 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
         };
         break;
       }
+      case "binary_circular_orbit": return failure("双星圆轨道必须作为独立单阶段。", "/stages");
+      case "emf_rail": return failure("电磁感应导轨必须作为独立单阶段。", "/stages");
       case "circular_orbit": {
         const solved = solveCircularOrbit(stage, index);
         geometry.circularOrbit = solved.geometry;

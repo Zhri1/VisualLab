@@ -50,6 +50,31 @@ export function forcesAt(motion: Motion, time: number, decompose = false): Force
     const vdir = norm(vel.x, vel.y);
     const kind = stage?.kind;
 
+    if (kind === "binary_circular_orbit") {
+      const other=Object.values(sample.bodies ?? {}).find(b=>b!==sample.bodies?.[body.id ?? ""]);
+      if(other){const dx=other.position.x-pos.x,dy=other.position.y-pos.y,d=Math.hypot(dx,dy);const total=Number(stage.mass1Kg)+Number(stage.mass2Kg);const otherMass=total-mass;push({bodyId:body.id,label:"F引",kind:"gravity",from:pos,dir:norm(dx,dy),magnitudeN:Number(stage.gravitationalConstantM3KgS2)*mass*otherMass/(d*d)});}
+      continue;
+    }
+    if (kind === "emf_rail") {
+      // 电磁感应的质量与重力写在段内，顶层没有 massKg，必须按段取值。
+      const rodMass = Number(stage.rodMassKg) || 1;
+      const localG = Number(stage.gravityMps2) || 10;
+      const mu = Number(stage.kineticFrictionCoefficient) || 0;
+      const external = Number(stage.externalForceN) || 0;
+      push({ bodyId: body.id, label: "G", kind: "gravity", from: pos, dir: { x: 0, y: -1 }, magnitudeN: rodMass * localG });
+      push({ bodyId: body.id, label: "N", kind: "normal", from: pos, dir: { x: 0, y: 1 }, magnitudeN: rodMass * localG });
+      if (mu > 0 && speed > 1e-9) {
+        push({ bodyId: body.id, label: "f", kind: "friction", from: pos, dir: { x: -Math.sign(vel.x || 1), y: 0 }, magnitudeN: mu * rodMass * localG });
+      }
+      if (Math.abs(external) > 1e-9) {
+        push({ bodyId: body.id, label: "F", kind: "tension", from: pos, dir: { x: Math.sign(external), y: 0 }, magnitudeN: Math.abs(external) });
+      }
+      const ampere = sample.emfRail?.ampereForceN ?? 0;
+      if (Math.abs(ampere) > 1e-9) {
+        push({ bodyId: body.id, label: "F安", kind: "magnetic", from: pos, dir: { x: -Math.sign(vel.x || 1), y: 0 }, magnitudeN: Math.abs(ampere) });
+      }
+      continue;
+    }
     if (kind === "magnetic_deflection") {
       const rawQ = (stage.chargeC as number) ?? 0;
       const q = Math.abs(rawQ);

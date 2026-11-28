@@ -1,0 +1,21 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "initial": { "speedMps": 10 },
+  "stages": [
+    {
+      "kind": "emf_rail",
+      "magneticTeslaB": 0.5,
+      "railSpacingM": 1.0,
+      "totalResistanceOhm": 0.4,
+      "rodMassKg": 0.2,
+      "externalForceN": 0,
+      "kineticFrictionCoefficient": 0.1,
+      "gravityMps2": 10,
+      "initialSpeedMps": 10,
+      "fieldDirection": "into_page",
+      "end": { "kind": "stop" },
+      "startLabel": "v₀ = 10 m/s 滑上导轨"
+    }
+  ]
+}

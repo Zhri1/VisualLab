@@ -8,6 +8,8 @@ type Velocity = {
 
 export type MotionSample = Point & Velocity & {
   springCompressionM: number;
+  /** 电磁感应导轨的瞬时电学量（仅 emf_rail 阶段提供）。 */
+  emfRail?: { emfV: number; currentA: number; ampereForceN: number };
 };
 
 type MotionSegment = {

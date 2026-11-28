@@ -258,10 +258,12 @@ export function WorkspaceLayout({ ws }: Props) {
     movable_semicircle: "可平动半圆轨道",
     spring_pair: "弹簧双球",
     circular_orbit: "圆周轨道",
+    binary_circular_orbit: "双星圆轨道",
     spring_contact: "弹簧",
     projectile: "抛体",
     vertical_arc: "圆弧",
     magnetic_deflection: "匀强磁场偏转",
+    emf_rail: "电磁感应导轨",
     switchable_em_collision: "分区电磁场与正碰",
     magnetic_reencounter: "磁场双粒子正碰与再相遇",
     field_scene: "组合磁场场景",
@@ -379,7 +381,7 @@ export function WorkspaceLayout({ ws }: Props) {
           id="work-panel-player"
           role="tabpanel"
           aria-labelledby="work-tab-player"
-          className={'panel player-panel'+(motion?.primaryBodyId?' body-player-panel':'')+(isMobile && mobileTab !== "player" ? " is-tab-hidden" : "")}
+          className={'panel player-panel'+(motion?.stageGeometry?.binaryCircularOrbit?' binary-orbit-panel':'')+(motion?.primaryBodyId?' body-player-panel':'')+(isMobile && mobileTab !== "player" ? " is-tab-hidden" : "")}
         >
           {ws.notice && (
             <div className={`notice ${ws.notice.kind}`} style={{ marginBottom: 14 }}>

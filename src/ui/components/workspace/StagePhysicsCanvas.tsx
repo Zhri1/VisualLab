@@ -6,6 +6,7 @@ import { EnergyReadout, energyText, showsEnergy } from "./EnergyReadout";
 import { forcesAt } from "../../../features/forces/forceModel";
 import { drawForceArrows } from "../../../features/forces/drawForces";
 import { computeWorldBounds, fitViewport, type ViewportTransform, type WorldBounds } from "./canvasViewport";
+import { drawEmfRailScene } from "./emfRailRender";
 
 type DisplayArc = VerticalArcGeometry | NonNullable<NonNullable<StageGeometry["schematic"]>["verticalArc"]>;
 
@@ -431,6 +432,11 @@ export function stageWorldBounds(motion: Motion): WorldBounds {
     const r = g.circularOrbit.orbitalRadiusM;
     points.push({ x: -r * 1.15, y: -r * 1.15 }, { x: r * 1.15, y: r * 1.15 });
   }
+  if (g.emfRail) {
+    const e = g.emfRail;
+    const pad = Math.max(e.railSpacingM * 0.3, e.travelM * 0.05);
+    points.push({ x: -pad, y: -e.railSpacingM * 0.55 }, { x: e.travelM + pad, y: e.railSpacingM * 1.5 });
+  }
   if (g.schematic?.horizontal) {
     points.push({ x: g.schematic.horizontal.start.xM, y: g.schematic.horizontal.start.yM });
     if (g.schematic.horizontal.plannedEnd) points.push({ x: g.schematic.horizontal.plannedEnd.xM, y: g.schematic.horizontal.plannedEnd.yM });
@@ -618,6 +624,11 @@ export function drawStageScene(
     left: narrow ? 30 : 48,
   });
   const { S, X, Y } = vp;
+
+  if (g.emfRail) {
+    drawEmfRailScene(ctx, W, H, motion, time, vp, forceArrows);
+    return;
+  }
 
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = PAPER;
