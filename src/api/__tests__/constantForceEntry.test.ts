@@ -56,6 +56,11 @@ describe("常力与分段匀变速：Node 与 Qoder 真实图文入口（模拟�
     });
   }
 
+  it("未知后续弧内条件时，两端保留仅观察入弧状态", async () => {
+    const fixture=read("constant-force-entry-observation.reading.json");upstream.mockResolvedValueOnce(answer(fixture)).mockResolvedValueOnce(answer(fixture));
+    const a=await (await handlePlan(makeReq("http://local/api/animation/plan",false))).json(), b=await (await handler(makeReq("http://local/functions/v1/app",false))).json();
+    expect(a.status).toBe("ok");expect(b).toEqual(a);expect(a.reading.stages[1]).not.toHaveProperty("frictionless");const scene:any=assembleScene(a.reading);expect(scene.ok).toBe(true);expect(buildMotion(scene.scene).motion.durationSeconds).toBeCloseTo(4,9);
+  });
   it("合成匀变速约束两端保留推导依据，回包改值再装配", async () => {
     const fixture=read("uniform-constraints.reading.json");
     upstream.mockResolvedValueOnce(answer(fixture)).mockResolvedValueOnce(answer(fixture));

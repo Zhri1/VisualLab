@@ -36,7 +36,7 @@ export function forcesAt(motion: Motion, time: number, decompose = false): Force
   const plan = motion.stagePlan;
   const g = plan?.gravityMps2 ?? 10;
   const seg = segmentAt(motion.segments, time);
-  const stage = (plan?.stages?.[seg?.stageIndex ?? 0] ?? {}) as Record<string, unknown>;
+  const stage = (plan?.stages?.[sample.constraint?.stageIndex ?? seg?.stageIndex ?? 0] ?? {}) as Record<string, unknown>;
   const arrows: ForceArrow[] = [];
   const push = (a: Omit<ForceArrow, "color">) => arrows.push({ ...a, color: FORCE_COLORS[a.kind] });
 

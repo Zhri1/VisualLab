@@ -33,8 +33,9 @@ export type SingleStage =
   | { kind: "spring_release"; springConstantNpm: number | null; initialCompressionM: number | null; kineticFrictionCoefficient: number; unattached: true; slidesAfterRelease: boolean; releaseCompleteByM?: number | null }
   | { kind: "spring_contact"; springConstantNpm: number; frictionless: true; unattached: true; kineticFrictionCoefficient?: never; staticFrictionCoefficient?: never; reboundAtMaxCompression?: never }
   | { kind: "spring_contact"; springConstantNpm: number; kineticFrictionCoefficient: number; staticFrictionCoefficient?: number | null; reboundAtMaxCompression?: boolean | null; unattached: true; frictionless?: never }
-  | { kind: "vertical_arc"; radiusM: number; verticalDropM?: number; endAngleDeg?: number; path?: ExplicitArcPath; side: "inside" | "rod"; frictionless: true; dragLaw?: never; knownExit?: never; startLabel?: string; endLabel?: string }
-  | { kind: "vertical_arc"; radiusM: number; endAngleDeg: number; path?: undefined; side: "inside" | "rod"; frictionless: false; dragLaw: "unknown"; knownExit: { kind: "critical_top" } | { kind: "speed"; speedMps: number }; startLabel?: string; endLabel?: string }
+  | { kind: "vertical_arc"; entryOnly?: false; radiusM: number; verticalDropM?: number; endAngleDeg?: number; path?: ExplicitArcPath; side: "inside" | "rod"; frictionless: true; dragLaw?: never; knownExit?: never; startLabel?: string; endLabel?: string }
+  | { kind: "vertical_arc"; entryOnly?: false; radiusM: number; endAngleDeg: number; path?: undefined; side: "inside" | "rod"; frictionless: false; dragLaw: "unknown"; knownExit: { kind: "critical_top" } | { kind: "speed"; speedMps: number }; startLabel?: string; endLabel?: string }
+  | { kind:"vertical_arc"; entryOnly:true; radiusM:number; endAngleDeg?:number; side:"inside"|"rod"; frictionless?:boolean|null; path?:never; dragLaw?:never; knownExit?:never; startLabel?:string; endLabel?:string }
   | ({ kind: "projectile"; startLabel?: string; endLabel?: string; bounce?: ProjectileBounce; reversal?: {kind:"equal_speed_opposite";stopAt:"after_impulse"|"first_apex"} } & ({ dropHeightM: number; landingPlaneYM?: never; end?: never } | { landingPlaneYM: number; dropHeightM?: never; end?: never } | { end: { kind: "tangent_to_next_arc" }; dropHeightM?: number; landingPlaneYM?: never }));
 export type Stage = SingleStage | BodyStage | SwitchableEMStage | MagneticReencounterStage;
 
@@ -280,7 +281,7 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
     const stage = draft.stages[i];
     const path = "/stages/" + i;
     for (const [key, rule] of Object.entries(numericRules[source.kind])) {
-      if (source.kind === 'vertical_arc' && key === 'endAngleDeg' && Object.prototype.hasOwnProperty.call(source, 'path')) continue;
+      if (source.kind === 'vertical_arc' && key === 'endAngleDeg' && (Object.prototype.hasOwnProperty.call(source, 'path') || source.entryOnly === true && source.endAngleDeg == null)) continue;
       if (source.kind === 'vertical_arc' && key === 'radiusM' && source.radiusM == null
         && ((Object.prototype.hasOwnProperty.call(source, 'verticalDropM') && source.verticalDropM != null) || criticalTopIndices.has(i))) {
         stage.radiusM = null;
@@ -354,7 +355,11 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
           } else p.end = null;
         } else stage.path = null;
       }
-      if (source.frictionless === false && (source.dragLaw != null || source.knownExit != null)) {
+      if (source.entryOnly != null && typeof source.entryOnly !== "boolean") issue(path+"/entryOnly","TYPE","入口观察标记须为布尔值。");
+      if (source.entryOnly === true) {
+        if (i !== stages.length-1 || source.path != null || source.dragLaw != null || source.knownExit != null) issue(path+"/entryOnly","PRECONDITION_CONFLICT","入口瞬时观察仅支持最低点入射的终段，不能混写路径、出口或后缀。");
+        if (source.frictionless != null && typeof source.frictionless !== "boolean") issue(path+"/frictionless","TYPE","光滑事实须为布尔值或null。");
+      } else if (source.frictionless === false && (source.dragLaw != null || source.knownExit != null)) {
         stage.frictionless = false;
         if (source.dragLaw == null) { stage.dragLaw = null; missingKeys.push(path + "/dragLaw"); }
         else if (source.dragLaw !== "unknown") issue(path + "/dragLaw", "UNSUPPORTED", "非光滑圆弧目前仅支持声明 dragLaw=\"unknown\"（阻力规律未知，按动能定理与播放缺口处理）。");
@@ -376,7 +381,8 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
       } else {
         fact(stage, "frictionless", path + "/frictionless");
       }
-      if (source.side == null) { stage.side = null; missingKeys.push(path + "/side"); }
+      if (source.side == null && source.entryOnly === true) stage.side="inside";
+      else if (source.side == null) { stage.side = null; missingKeys.push(path + "/side"); }
       else if (typeof source.side !== "string") issue(path + "/side", "TYPE", "轨道内外侧须为字符串。");
       else if (source.side !== "inside" && source.side !== "rod") issue(path + "/side", "UNSUPPORTED", "当前只支持竖直圆弧内侧（inside）或轻杆/双轨（rod）。");
     }

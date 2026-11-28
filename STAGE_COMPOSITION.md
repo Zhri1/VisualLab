@@ -52,6 +52,8 @@
 
 最低点入射的旧 `vertical_arc` 可带 `horizontalSpanM`（入口到端点的正水平投影），当 `0 < endAngleDeg < 90` 时由 `R = horizontalSpanM / sin(endAngleDeg)` 唯一反求 `radiusM`。可用段内 `trig: {sin}` 保留题给出口角正弦近似，校验范围同上；此处近似仅为投影反求依据，轨迹方向仍由角度确定。显式 `path`、`verticalDropM` 与该投影反求互斥；给定 R 与投影不一致报冲突。推导规则 `arc_radius_from_horizontal_span` 保留，编辑投影后重新装配重算。
 
+仅询问最低点刚入弧的速度与支持力时，可在终段 `vertical_arc` 写 `entryOnly: true`。只继承实际入口状态，按 `N=m(g+v²/R)` 输出零时长 `arc_enter → arc_range_end`，以 `prefix_end` 结束，保留支持力。该最低点入口分支省略 `side` 时规范化为 `inside`；显式给定其他侧仍按原范围校验。不需要后续光滑事实或终点角；若题面有已知端点角仍可保留用于绘图及投影反求，但不得计算未给定后续力条件的弧内运动。该模式不支持显式 `path`、`dragLaw/knownExit` 或后缀；已给 `frictionless` 只保留事实，不参与瞬时法向方程。纯计算 `segments` 仍只含正时长阶段；播放器适配层另补零时长显示定位标记，使终帧的路段名、公式和受力使用入口状态，不增加物理用时。
+
 题设 `kinematics`、`trig` 与派生 `derivedCalculations` 随 API 回包保留。再次装配时对尚未被手动覆写的派生字段重新反求，改过的字段作为新给定约束校验，不默默覆盖。新增推导规则 `uniform_acceleration`，保留输入 JSON Pointer。
 
 ### 2.1 抛体在指定高度等速反向

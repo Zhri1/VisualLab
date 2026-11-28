@@ -1,3 +1,5 @@
+import {adaptStageMotion} from "../../adapters/stageMotionAdapter.ts";
+import {forcesAt} from "../../features/forces/forceModel.ts";
 import { describe, expect, it } from "vitest";
 import { assembleScene, buildMotion, validateStagePlan } from "../index.ts";
 const plan = (stages: any[], speed=0, mass=60) => ({kind:"stage_plan",schemaVersion:1,gravityMps2:10,massKg:mass,initial:{speedMps:speed},stages});
@@ -11,6 +13,15 @@ describe("通用匀变速题设反求",()=>{
     v.reading.stages[0].kinematics.displacementM=200;
     const edited:any=validateStagePlan(v.reading); expect(edited.ok).toBe(true); expect(edited.reading.stages[0].netForceXN).toBeCloseTo(240,9);
     expect(edited.reading.derivedCalculations[0].rule).toBe("uniform_acceleration");
+  });
+  it("只问入弧瞬时：不要求光滑事实或未知终点，不推演后续弧内过程",()=>{
+    const p:any=plan([force(),{kind:"vertical_arc",entryOnly:true,radiusM:160,side:"inside"}]);
+    const v:any=validateStagePlan(p);expect(v.ok).toBe(true);expect(v.reading.stages[1]).not.toHaveProperty("frictionless");
+    const m=run(v.reading);expect(m.durationSeconds).toBe(10);expect(m.segments).toHaveLength(1);expect(m.events.at(-1).kind).toBe("arc_range_end");expect(m.sampleAt(10).constraint.normalForceN).toBeCloseTo(984,9);expect(m.sampleAt(100).vxMps).toBeCloseTo(32,9);
+    const display=adaptStageMotion(m,v.reading);expect(display.segments[display.segments.length-1]?.formula).toBe("N = m(g + v²/R)");expect(forcesAt(display,10).find(f=>f.kind==="normal")?.magnitudeN).toBeCloseTo(984,9);
+    delete p.stages[1].side;expect(validateStagePlan(p).ok).toBe(true);
+    p.stages[1].frictionless=false;expect(validateStagePlan(p).ok).toBe(true);
+    p.stages.push({kind:"projectile",dropHeightM:1});expect(validateStagePlan(p).ok).toBe(false);
   });
   it("圆弧水平投影与题给正弦反求半径，改值保留依据",()=>{
     const p=plan([force(150,6),{kind:"vertical_arc",radiusM:null,horizontalSpanM:63,endAngleDeg:12,trig:{sin:.21},side:"inside",frictionless:true}]);

@@ -145,6 +145,10 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
     };
   });
 
+  // 瞬时入口只增加显示定位标记，物理 segments 仍只保留正时长运动。
+  const displaySegments=[...source.segments];
+  const finalStage=plan?.stages[source.termination.stageIndex];
+  if (finalStage?.kind === "vertical_arc" && finalStage.entryOnly) displaySegments.push({stageIndex:source.termination.stageIndex,kind:"vertical_arc",startSeconds:source.durationSeconds,endSeconds:source.durationSeconds});
   return {
     primaryBodyId:source.primaryBodyId,motionStatus:source.motionStatus,
     timing: source.timing,
@@ -154,7 +158,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
     stageGeometry: source.geometry,
     stagePlan: plan,
     durationSeconds: source.durationSeconds,
-    segments: source.segments.map((segment) => ({
+    segments: displaySegments.map((segment) => ({
       bodyIds:segment.bodyIds,stagePath:segment.stagePath,
       kind: segmentKind(segment.kind),
       stageKind: segment.kind,
@@ -162,6 +166,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
       startSeconds: segment.startSeconds,
       endSeconds: segment.endSeconds,
       ...segmentText[segment.kind],
+      ...(segment.kind==='vertical_arc' && (plan?.stages[segment.stageIndex] as {entryOnly?:boolean}|undefined)?.entryOnly ? {name:"刚进入圆弧",summary:"只计算最低点入弧瞬时的法向力，不推演未知弧内过程。",formula:"N = m(g + v²/R)"} : {}),
       ...(segment.kind==='spring_contact'&&plan?.stages[segment.stageIndex]&&'kineticFrictionCoefficient' in plan.stages[segment.stageIndex]?{
         name:'粗糙压缩与回弹',
         summary:'按实际运动方向计动摩擦；在最大压缩处用静摩擦上限或题给事实判断保持或回弹，回弹可能脱离或带残余压缩静止。',

@@ -440,7 +440,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                           <option value="">待确认</option><option value="inside">内侧（单轨）</option><option value="rod">轻杆 / 双轨</option><option value="outside">外侧（暂不支持）</option>
                         </select></td><td />
                       </tr>
-                      {factRow(index, "frictionless", "圆轨道光滑")}
+                      {stage.entryOnly === true ? <tr><td colSpan={3}>仅观察刚入弧状态，不推演弧内过程</td></tr> : factRow(index, "frictionless", "圆轨道光滑")}
                     </>
                   )}
                   {kind === "projectile" && (() => {
@@ -662,16 +662,19 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                               const raw = event.target.value;
                               if (!raw) setStage(index, { ...stage, end: null });
                               else if (raw === "stop") setStage(index, { ...stage, end: { kind: "stop" } });
+                              else if (raw === "distance") setStage(index, {...stage,end:{kind:"distance",distanceM:stage.end && typeof stage.end === "object" && "distanceM" in stage.end ? stage.end.distanceM : null}});
                               else setStage(index, { ...stage, end: { kind: "duration", durationSeconds: stage.end && typeof stage.end === "object" && "durationSeconds" in stage.end ? stage.end.durationSeconds : null } });
                             }}
                           >
                             <option value="">待确认</option>
                             <option value="duration">指定作用时间</option>
+                            <option value="distance">指定距离</option>
                             <option value="stop">减速至静止</option>
                           </select>
                         </td>
                         <td />
                       </tr>
+                      {stage.end && typeof stage.end === "object" && "kind" in stage.end && stage.end.kind === "distance" ? numberRow({key:"distanceM",label:"常力段距离",unit:"m",path:`/stages/${index}/end/distanceM`,value:"distanceM" in stage.end ? stage.end.distanceM : null,onChange:raw=>setStage(index,{...stage,end:{kind:"distance",distanceM:asNumber(raw)}})}) : null}
                       {((stage.end && typeof stage.end === "object" && "kind" in stage.end && stage.end.kind === "duration")
                         || missingKeys.includes(`/stages/${index}/end/durationSeconds`)) && numberRow({
                         key: "durationSeconds", label: "作用时长 t", unit: "s", step: 0.1,

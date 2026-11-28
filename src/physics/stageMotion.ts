@@ -449,6 +449,17 @@ function spring(stage: Extract<Stage, { kind: "spring_contact" }>, start: Motion
 const CRITICAL_ROD_OBSERVATION = "物体仍受轻杆或双轨约束，有限时间内只会趋近最高点。最高点的速度极限为零，观察末帧保留当时的速度和约束力。";
 
 function arc(stage: Extract<Stage, { kind: "vertical_arc" }>, start: MotionSample, gravity: number, mass: number, geometry: StageGeometry, index: number, nextKind: StageKind | undefined): Run {
+  if (stage.entryOnly) {
+    const radius=stage.radiusM, normal=mass*(gravity+start.vxMps*start.vxMps/radius);
+    const phi=(stage.endAngleDeg ?? 0)*Math.PI/180;
+    const shape:VerticalArcGeometry={stageIndex:index,entry:point(start),center:{xM:start.xM,yM:start.yM+radius},radiusM:radius,startAngleDeg:0,endAngleDeg:stage.endAngleDeg ?? 0,plannedEnd:{xM:start.xM+radius*Math.sin(phi),yM:start.yM+radius*(1-Math.cos(phi))},side:stage.side,direction:"positive",endMode:"observation",actualExit:{position:point(start),angleDeg:0,reason:"range_end"}};
+    geometry.verticalArc=shape;(geometry.verticalArcs ??=[]).push(shape);
+    const entry:MotionSample={...start,constraint:{kind:"vertical_arc",stageIndex:index,angleDeg:0,angularVelocityRadps:start.vxMps/radius,normalForceN:normal,normalDirection:{x:0,y:1}}};
+    return {duration:0,end:entry,reason:"prefix_end",sampleAt:()=>({...entry}),events:[
+      {...event("arc_enter",0,start,entry,"刚进入圆弧",`最低点入弧速率 ${Math.abs(start.vxMps).toFixed(4)} m/s，支持力 N=m(g+v²/R)=${normal.toFixed(4)} N。`),position:point(start),normalForceBeforeN:normal,normalForceAfterN:normal},
+      {...event("arc_range_end",0,entry,entry,"入弧瞬时观察结束","只观察刚入弧的状态；未给后续切向力条件，不推演弧内过程或用时。"),position:point(start),normalForceBeforeN:normal,normalForceAfterN:normal},
+    ]};
+  }
   if (stage.path) {
     const solved=solveCircularArc({...stage,path:stage.path},start,gravity,mass,index);
     geometry.verticalArc=solved.geometry;
@@ -685,7 +696,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       }
     }
     if (stage.kind === "vertical_arc") {
-      if (!stage.path && stage.frictionless !== false) {
+      if (!stage.path && (stage.entryOnly || stage.frictionless !== false)) {
         if (prevKind === "vertical_arc") {
           if (incomingSpeed > 0 && (state.vxMps < 0 || Math.abs(state.vyMps) / incomingSpeed > TANGENT_TOL_RAD)) {
             return failure("圆弧入口需要水平向右的切向速度。", "/stages/" + index, "PRECONDITION_CONFLICT");
@@ -999,7 +1010,9 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
       case "spring_release": run = release(stage, state, plan.massKg!, plan.gravityMps2 ?? 0, geometry, hasNext); break;
       case "projectile": run = projectile(stage, state, plan.gravityMps2!, geometry, plan.stages[index - 1]?.kind, hasNext, index, plan.massKg); break;
       case "vertical_arc": {
-        if (stage.frictionless === false) {
+        if (stage.entryOnly) {
+          run=arc(stage,state,plan.gravityMps2!,plan.massKg!,geometry,index,undefined);
+        } else if (stage.frictionless === false) {
           if (state.vyMps !== 0 || state.vxMps === 0) {
             return failure("未知阻力圆弧段需要非零水平切向速度入口。", "/stages/" + index, "PRECONDITION_CONFLICT");
           }
