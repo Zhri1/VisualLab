@@ -18,7 +18,8 @@ const sourceName = `vision-reading.${version}.md`;
 const source = join(root, "skills", sourceName);
 const target = join(root, "functions", "skill.ts");
 
-const skill = readFileSync(source, "utf8");
+// 先统一内容换行，再序列化，避免 Windows 的 CRLF 被固化进字符串字面量。
+const skill = readFileSync(source, "utf8").replace(/\r\n?/g, "\n");
 const body = [
   `// 由 scripts/build-skill-module.mjs 从 skills/${sourceName} 生成，请勿手改。`,
   "// 修改 Skill 文案请改源文件后重新运行：node scripts/build-skill-module.mjs",

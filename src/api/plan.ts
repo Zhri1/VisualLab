@@ -119,7 +119,7 @@ export function loadSkillText(): string {
 
   for (const path of candidates) {
     try {
-      cachedSkill = readFileSync(path, 'utf8');
+      cachedSkill = readFileSync(path, 'utf8').replace(/\r\n?/g, '\n');
       return cachedSkill;
     } catch {
       // 继续找下一个候选路径
