@@ -1,3 +1,4 @@
+import {computeBinaryCircularOrbitMotion, type BinaryCircularOrbitGeometry} from "./binaryCircularOrbitMotion.ts";
 import { inclineTrig } from "./uniformConstraints.ts";
 import { solveVerticalArc } from "./verticalArc.ts";
 import { circularEntry, circularGeometry, solveCircularArc } from './circularArc.ts';
@@ -33,6 +34,7 @@ export type StageGeometry = BodyGeometry & {
   magnetics?: MagneticGeometry[];
   movableArc?: { stageIndex: number; radiusM: number; grooveMassKg: number; entryMode?: "top" | "bottom"; exitDirection: -1 | 1; entryDirection?: -1 | 1; entryXM: number; entryYM: number; exitTimeSeconds: number; exitGrooveXM: number; exitGrooveVX: number; bottomReturnNormalForceN?: number | null };
   circularOrbit?: CircularOrbitGeometry;
+  binaryCircularOrbit?: BinaryCircularOrbitGeometry;
   movableSemicircle?: {
     stageIndex: number; entry: Point; radiusM: number; grooveMassKg: number;
     direction: "right" | "left"; startLabel?: string; endLabel?: string;
@@ -590,6 +592,7 @@ function projectile(stage: Extract<Stage, { kind: "projectile" }>, start: Motion
 
 function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | StagePlanFailure {
   const first = plan.stages[0];
+  if (first?.kind === "binary_circular_orbit") return computeBinaryCircularOrbitMotion(first,plan.derivedCalculations);
   if (first?.kind === 'switchable_em_collision') return computeSwitchableEMMotion(first);
   if (first?.kind === 'magnetic_reencounter') return computeMagneticReencounterMotion(first);
   if (plan.bodies) return computeMultiBodyMotion(plan, scope);
@@ -899,6 +902,7 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
         };
         break;
       }
+      case "binary_circular_orbit": return failure("双星圆轨道必须作为独立单阶段。", "/stages");
       case "circular_orbit": {
         const solved = solveCircularOrbit(stage, index);
         geometry.circularOrbit = solved.geometry;

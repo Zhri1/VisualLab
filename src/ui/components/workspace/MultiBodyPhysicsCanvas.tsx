@@ -8,6 +8,7 @@ import './multiBody.css';
 
 const INK='#1c1c1c',TARGET='#386e8a',SOFT='#777770',HAIR='#d6d6d1',PAPER='#fbfbf9';
 const FONT='-apple-system,"Segoe UI","PingFang SC",sans-serif';
+const orbitNumber=(v:number)=>v===0?"0":Math.abs(v)>=1e5||Math.abs(v)<.01?v.toExponential(3):Number(v.toPrecision(5)).toString();
 const signed=(value:number)=>Math.abs(value)<.005?'0':value.toFixed(2);
 export const bodyStatusText={moving:'运动中',resting:'静止',turning:'转折，随后反向',landed:'接地瞬间',model_boundary:'已知范围边界'};
 function drawingData(motion:Motion){
@@ -30,6 +31,7 @@ function drawingData(motion:Motion){
   if(motion.stageGeometry?.switchableEM){const em=motion.stageGeometry.switchableEM;for(const c of em.circles){points.push({x:c.center.xM-c.radiusM,y:c.center.yM-c.radiusM},{x:c.center.xM+c.radiusM,y:c.center.yM+c.radiusM});}points.push({x:em.tangency.xM,y:em.tangency.yM},{x:em.switchOffX,y:0});for(const lm of motion.stageGeometry.landmarks??[])points.push({x:lm.position.xM,y:lm.position.yM});}
   if(motion.stageGeometry?.magneticReencounter){const mr=motion.stageGeometry.magneticReencounter;for(const c of mr.circles){points.push({x:c.center.xM-c.radiusM,y:c.center.yM-c.radiusM},{x:c.center.xM+c.radiusM,y:c.center.yM+c.radiusM});}points.push({x:mr.contact.xM,y:mr.contact.yM});for(const lm of motion.stageGeometry.landmarks??[])points.push({x:lm.position.xM,y:lm.position.yM});}
   for(const tr of motion.stageGeometry?.bodyTracks??[]){if(tr.horizontal){points.push({x:tr.horizontal.start.xM,y:tr.horizontal.start.yM});if(tr.horizontal.plannedEnd)points.push({x:tr.horizontal.plannedEnd.xM,y:tr.horizontal.plannedEnd.yM});}if(tr.projectile?.landingPlane)points.push({x:tr.projectile.launch.xM,y:tr.projectile.landingPlane.yM});}
+  if(motion.stageGeometry?.binaryCircularOrbit){const radius=Math.max(...motion.stageGeometry.binaryCircularOrbit.stars.map(s=>s.radiusM));points.push({x:-radius,y:-radius},{x:radius,y:radius},{x:0,y:0});}
   return{curves,ids:Object.keys(curves).sort(),bounds:computeWorldBounds(points)};
 }
 export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:number,motion:Motion,time:number,tracked?:string,data=drawingData(motion),forceArrows?:import("../../../features/forces/forceModel").ForceArrow[]){
@@ -43,6 +45,17 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
   ctx.clearRect(0,0,W,H);ctx.fillStyle=PAPER;ctx.fillRect(0,0,W,H);ctx.lineWidth=1.3;ctx.font=`12px ${FONT}`;ctx.textBaseline='alphabetic';
   const emLabelReqs:{text:string;color:string;cx:number;by:number;dir:1|-1}[]=[];
   const emOccupied:{x:number;y:number;w:number;h:number}[]=[];
+  const binary=motion.stageGeometry?.binaryCircularOrbit;
+  if(binary){
+    ctx.save();
+    for(const star of binary.stars){ctx.strokeStyle=color(star.bodyId);ctx.globalAlpha=.38;ctx.setLineDash([4,5]);ctx.beginPath();ctx.arc(X(0),Y(0),star.radiusM*S,0,2*Math.PI);ctx.stroke();}
+    ctx.globalAlpha=1;ctx.setLineDash([]);ctx.strokeStyle=SOFT;ctx.lineWidth=1.2;
+    ctx.beginPath();ctx.moveTo(X(0)-5,Y(0));ctx.lineTo(X(0)+5,Y(0));ctx.moveTo(X(0),Y(0)-5);ctx.lineTo(X(0),Y(0)+5);ctx.stroke();
+    ctx.fillStyle=SOFT;ctx.textAlign="left";ctx.fillText("质心 O",X(0)+8,Y(0)+17);
+    ctx.textAlign="left";ctx.fillText(`${binary.direction==="cw"?"顺时针":"逆时针"} · T = ${orbitNumber(binary.periodSeconds)} s`,12,20);
+    binary.stars.forEach((star,i)=>ctx.fillText(`${i===0?"甲星":"乙星"}  r${i+1} = ${orbitNumber(star.radiusM)} m`,12,38+i*17));
+    ctx.restore();
+  }
   if(motion.stageGeometry?.switchableEM){
     const em=motion.stageGeometry.switchableEM;
     const eOn=true;
@@ -189,7 +202,7 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
     }
     ctx.restore();
   }
-  if(!motion.stageGeometry?.magneticReencounter){
+  if(!motion.stageGeometry?.magneticReencounter && !binary){
     for(const[id,points]of Object.entries(data.curves)){ctx.save();ctx.setLineDash([3,5]);ctx.strokeStyle=motion.stageGeometry?.switchableEM?color(id):HAIR;ctx.globalAlpha=motion.stageGeometry?.switchableEM?0.45:1;ctx.beginPath();points.forEach((p,i)=>i===0?ctx.moveTo(X(p.x),Y(p.y)):ctx.lineTo(X(p.x),Y(p.y)));ctx.stroke();ctx.restore();
       const initial=points[0],now=snapshot.bodies?.[id];if(now&&Math.hypot(now.position.x-initial.x,now.position.y-initial.y)*S>18){ctx.save();ctx.setLineDash([3,3]);ctx.strokeStyle=color(id);ctx.beginPath();ctx.arc(X(initial.x),Y(initial.y),5,0,2*Math.PI);ctx.stroke();ctx.restore();}}
   }
@@ -445,8 +458,8 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
     ctx.beginPath();ctx.arc(x,y,i===0?5:8,0,2*Math.PI);if(i===0&&!posUnknown)ctx.fill();else ctx.stroke();
     ctx.setLineDash([]);
     if(speed>.01){const ux=body.velocity.x/speed,uy=-body.velocity.y/speed,len=Math.min(53,24+speed*5);const ex=Math.max(10,Math.min(W-10,x+ux*len)),ey=Math.max(10,Math.min(H-10,y+uy*len)),a=Math.atan2(ey-y,ex-x);ctx.beginPath();ctx.moveTo(x+ux*12,y+uy*12);ctx.lineTo(ex,ey);ctx.moveTo(ex-7*Math.cos(a-.45),ey-7*Math.sin(a-.45));ctx.lineTo(ex,ey);ctx.lineTo(ex-7*Math.cos(a+.45),ey-7*Math.sin(a+.45));ctx.stroke();}
-    const name=id.length>12?id.slice(0,11)+'…':id;
-    vel.push({text:posUnknown?`${name}: v = ${formatSpeed(speed)} m/s（间距未知 · 仅速度确定）`:`${name}: v = ${formatSpeed(speed)} m/s`,color:posUnknown?SOFT:color(id),cx:x,by:y-19,dir:-1,leader:{x,y}});
+    const name=binary?(id==="star1"?"甲星":"乙星"):id.length>12?id.slice(0,11)+'…':id;
+    vel.push({text:posUnknown?`${name}: v = ${formatSpeed(speed)} m/s（间距未知 · 仅速度确定）`:`${name}: v = ${binary?orbitNumber(speed):formatSpeed(speed)} m/s`,color:posUnknown?SOFT:color(id),cx:x,by:y-19,dir:-1,leader:{x,y}});
     ctx.restore();
   }
   const rects=occupied.slice();
@@ -469,6 +482,8 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
  *  让画布卡片与单物体版保持同一布局（画布独占整块 frame）。 */
 export function MultiBodyReadouts({motion,time,isPlaying=false}:{motion:Motion;time:number;isPlaying?:boolean}){
   const sample=motion.sampleAt(time),ids=Object.keys(sample.bodies??{}).sort(),firstKind=motion.stagePlan?.stages[0]?.kind,horizontal=firstKind==='horizontal_approach'||firstKind==='block_plank'||firstKind==='conveyor_belt';
+  const binary=motion.stageGeometry?.binaryCircularOrbit;
+  if(binary)return <figcaption id="multi-body-readouts" className="multi-body-readouts" aria-live={isPlaying?"off":"polite"}>{binary.stars.map((s,i)=><span className="body-body-value" key={s.bodyId} data-body-id={s.bodyId}><i className="body-swatch" style={{background:i===0?INK:TARGET}}/>{i===0?"甲星":"乙星"}：r = {orbitNumber(s.radiusM)} m；v = {orbitNumber(Math.hypot(sample.bodies![s.bodyId].velocity.x,sample.bodies![s.bodyId].velocity.y))} m/s</span>)}<span className="body-constraint">共同周期 T = {orbitNumber(binary.periodSeconds)} s；星间距 d = {orbitNumber(binary.separationM)} m；固定质心 O</span></figcaption>;
   const em=motion.stageGeometry?.switchableEM;
   const mr=motion.stageGeometry?.magneticReencounter;
   const emStatus=em?(time<em.offSeconds-1e-9?'电场开 · 磁场开':time<em.restoreSeconds-1e-9?'电场开 · 磁场撤去（匀速直线漂移）':'电场开 · 磁场已恢复（两轨迹外切，非碰撞）'):null;
@@ -491,5 +506,5 @@ export function MultiBodyPhysicsCanvas({motion,time,isPlaying=false,trackedBodyI
   const paint=useCallback(()=>{const canvas=ref.current,ctx=canvas?.getContext('2d');if(ctx&&size.current.w){const p=current.current;drawMultiBodyScene(ctx,size.current.w,size.current.h,p.motion,p.time,p.trackedBodyId,p.data,p.forces?forcesAt(p.motion,p.time,p.decompose):undefined);}},[]);
   useEffect(()=>{const canvas=ref.current;if(!canvas)return;const resize=()=>{const box=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;size.current={w:box.width,h:box.height};canvas.width=Math.round(box.width*dpr);canvas.height=Math.round(box.height*dpr);canvas.getContext('2d')?.setTransform(dpr,0,0,dpr,0,0);paint();};resize();const observer=new ResizeObserver(resize);observer.observe(canvas);return()=>observer.disconnect();},[paint]);
   useEffect(()=>{frame.current=requestAnimationFrame(paint);return()=>{if(frame.current!==null)cancelAnimationFrame(frame.current);};},[time,motion,trackedBodyId,forces,decompose,paint]);
-  return <figure className="multi-body-figure" data-renderer="multi-body"><canvas ref={ref} role="img" aria-label={motion.stageGeometry?.switchableEM?'分区电磁场双粒子偏转、弹性正碰与撤场恢复同步动画':motion.stageGeometry?.pulley?'轻绳与理想定滑轮连接体同步动画':motion.stageGeometry?.plank?'滑块与可移动木板同步动画':motion.stageGeometry?.pendulums?.length?'轻绳摆与物体同步动画，P为支点，O为最低点':'两物体水平正碰与碰后同步运动'} aria-describedby="multi-body-readouts"/>{readouts&&<MultiBodyReadouts motion={motion} time={time} isPlaying={isPlaying}/>}</figure>;
+  return <figure className="multi-body-figure" data-renderer="multi-body"><canvas ref={ref} role="img" aria-label={motion.stageGeometry?.binaryCircularOrbit?'两颗恒星绕固定质心的双星圆轨道同步动画':motion.stageGeometry?.switchableEM?'分区电磁场双粒子偏转、弹性正碰与撤场恢复同步动画':motion.stageGeometry?.pulley?'轻绳与理想定滑轮连接体同步动画':motion.stageGeometry?.plank?'滑块与可移动木板同步动画':motion.stageGeometry?.pendulums?.length?'轻绳摆与物体同步动画，P为支点，O为最低点':'两物体水平正碰与碰后同步运动'} aria-describedby="multi-body-readouts"/>{readouts&&<MultiBodyReadouts motion={motion} time={time} isPlaying={isPlaying}/>}</figure>;
 }

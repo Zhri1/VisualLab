@@ -50,6 +50,11 @@ export function forcesAt(motion: Motion, time: number, decompose = false): Force
     const vdir = norm(vel.x, vel.y);
     const kind = stage?.kind;
 
+    if (kind === "binary_circular_orbit") {
+      const other=Object.values(sample.bodies ?? {}).find(b=>b!==sample.bodies?.[body.id ?? ""]);
+      if(other){const dx=other.position.x-pos.x,dy=other.position.y-pos.y,d=Math.hypot(dx,dy);const total=Number(stage.mass1Kg)+Number(stage.mass2Kg);const otherMass=total-mass;push({bodyId:body.id,label:"F引",kind:"gravity",from:pos,dir:norm(dx,dy),magnitudeN:Number(stage.gravitationalConstantM3KgS2)*mass*otherMass/(d*d)});}
+      continue;
+    }
     if (kind === "magnetic_deflection") {
       const rawQ = (stage.chargeC as number) ?? 0;
       const q = Math.abs(rawQ);

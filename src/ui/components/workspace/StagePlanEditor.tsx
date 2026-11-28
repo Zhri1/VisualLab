@@ -20,6 +20,7 @@ const STAGE_LABELS: Record<StageKind, string> = {
   movable_semicircle: "可平动半圆轨道",
   spring_pair: "自由弹簧双球",
   circular_orbit: "圆周轨道运动",
+  binary_circular_orbit: "双星圆轨道",
 };
 
 const STAGE_KINDS = Object.keys(STAGE_LABELS) as StageKind[];
@@ -32,7 +33,7 @@ export function updateStagePlanNumber(draft: StagePlanDraft, index: number | nul
   return { ...draft, ...(index === null ? { [key]: value } : {}), stages };
 }
 
-type NumberMeta = { key: string; label: string; unit: string; step?: number; hint?: string };
+type NumberMeta = { optional?: boolean; key: string; label: string; unit: string; step?: number; hint?: string };
 const NUMBER_FIELDS: Partial<Record<StageKind, NumberMeta[]>> = {
   spring_release: [
     { key: "springConstantNpm", label: "弹簧劲度系数 k", unit: "N/m", step: 1, hint: "可补一项以求全程" },
@@ -93,6 +94,17 @@ const NUMBER_FIELDS: Partial<Record<StageKind, NumberMeta[]>> = {
     { key: "radiusM", label: "圆弧半径 R", unit: "m", step: 0.05, hint: "质点轨迹半径，大于 0" },
     { key: "endAngleDeg", label: "圆弧端点角 φ", unit: "°", step: 1, hint: "从最低点量起，0° < φ ≤ 180°" },
   ],
+  binary_circular_orbit: [
+    {key:"separationM",label:"两星间距 d",unit:"m",step:1e8},
+    {key:"mass1Kg",label:"甲星质量 m₁",unit:"kg",step:1e29},
+    {key:"mass2Kg",label:"乙星质量 m₂",unit:"kg",step:1e29},
+    {key:"totalMassKg",label:"两星总质量 M",unit:"kg",step:1e29},
+    {key:"massRatioM1OverM2",label:"质量比 m₁/m₂",unit:"",step:.1,hint:"甲星/乙星，未给不默认等质量"},
+    {key:"periodSeconds",label:"题给共同周期 T",unit:"s",step:100},
+    {key:"gravitationalConstantM3KgS2",label:"万有引力常量 G",unit:"m³/(kg·s²)",step:1e-13},
+    {key:"initialAngleDeg",label:"星间向量初角",unit:"°",step:15},
+    {key:"orbits",label:"观察圈数",unit:"圈",step:.5},
+  ],
   circular_orbit: [
     { key: "gravitationalParameterM3s2", label: "引力参数 GM", unit: "m³/s²", step: 1e12, hint: "中心天体 G·M（如地球约 3.986e14）" },
     { key: "orbitalRadiusM", label: "轨道半径 r", unit: "m", step: 1e5, hint: "与离地高度 h 二选一" },
@@ -134,6 +146,7 @@ function displayNumber(value: unknown): string {
 
 function blankStage(kind: StageKind): Record<string, unknown> {
   if (kind === "spring_release") return { kind, springConstantNpm: null, initialCompressionM: null, kineticFrictionCoefficient: null, unattached: null, slidesAfterRelease: null };
+  if (kind === "binary_circular_orbit") return {kind,separationM:null,mass1Kg:null,mass2Kg:null,gravitationalConstantM3KgS2:6.67430e-11,direction:"ccw",initialAngleDeg:0,orbits:1};
   if (kind === "incline_slide") {
     return { kind, lengthM: null, angleDeg: null, kineticFrictionCoefficient: null, slidesAfterRelease: null };
   }
@@ -278,7 +291,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
             step={meta.step ?? 0.1}
             inputMode="decimal"
             value={displayNumber(meta.value)}
-            placeholder="待补"
+            placeholder={meta.optional && !invalid ? "可选" : "待补"}
             aria-label={meta.label}
             aria-invalid={invalid}
             data-field-path={meta.path}
@@ -287,7 +300,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
           <span className="unit-tag">{meta.unit || "—"}</span>
         </td>
         <td style={{ fontSize: 12, color: error ? "#8a4b4b" : "var(--text-tertiary)" }}>
-          {error ? "需修正" : missing ? "缺失" : ""}
+          {error ? "需修正" : missing ? meta.optional && !invalid ? "未给（可选）" : "缺失" : ""}
         </td>
       </tr>
     );
@@ -320,14 +333,14 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
 
   const initial = draft.initial ?? { speedMps: null };
   const firstKind = draft.stages[0]?.kind;
-  const isSwitchableEM = firstKind === "switchable_em_collision" || firstKind === "magnetic_reencounter";
+  const usesStageOnlyConditions = firstKind === "switchable_em_collision" || firstKind === "magnetic_reencounter" || firstKind === "binary_circular_orbit";
   const components = firstKind === "projectile" || "vxMps" in initial || "vyMps" in initial;
   const conveyorInit = firstKind === "conveyor_belt";
-  const showMass = !isSwitchableEM && ("massKg" in draft || flagged("/massKg") || draft.stages.some((stage) => stage.kind === "spring_release" || stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "constant_force_1d" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair"));
+  const showMass = !usesStageOnlyConditions && ("massKg" in draft || flagged("/massKg") || draft.stages.some((stage) => stage.kind === "spring_release" || stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "constant_force_1d" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair"));
 
   return (
     <div className="stage-plan-editor" data-testid="stage-plan-editor">
-      {!isSwitchableEM && (
+      {!usesStageOnlyConditions && (
         <>
           <p className="section-label">共享条件</p>
           {draft.scaleMode === "normalized" && (
@@ -385,6 +398,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                     .filter((meta) => !(kind === "incline_slide" && meta.key === "staticFrictionCoefficient" && stage.direction !== "up" && !("staticFrictionCoefficient" in stage)))
                     .map((meta) => numberRow({
                     ...meta,
+                    optional: kind === "binary_circular_orbit" && ["mass1Kg","mass2Kg","totalMassKg","massRatioM1OverM2","periodSeconds"].includes(meta.key),
                     path: `/stages/${index}/${meta.key}`,
                     value: stage[meta.key],
                     onChange: (raw) => setStageNumber(index, meta.key, raw),
@@ -393,6 +407,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
                   {kind === "incline_slide" && "resistanceN" in stage && numberRow({key:"resistanceN",label:"沿坡恒定阻力",unit:"N",path:`/stages/${index}/resistanceN`,value:stage.resistanceN,onChange:raw=>setStageNumber(index,"resistanceN",raw)})}
                   {stage.kinematics && typeof stage.kinematics === "object" ? Object.entries(stage.kinematics).map(([key,value])=>numberRow({key:`kin-${key}`,label:({durationSeconds:"题给本段用时",elapsedSeconds:"题给累计用时",displacementM:"题给本段位移",finalSpeedMps:"题给末速度"} as Record<string,string>)[key] ?? key,unit:key.endsWith("Seconds") ? "s" : key.endsWith("Mps") ? "m/s" : "m",path:`/stages/${index}/kinematics/${key}`,value,onChange:raw=>setStage(index,{...stage,kinematics:{...(stage.kinematics as Record<string,unknown>),[key]:asNumber(raw)}})})) : null}
                   {stage.trig && typeof stage.trig === "object" ? Object.entries(stage.trig).map(([key,value])=>numberRow({key:`trig-${key}`,label:`题给 ${key}θ`,unit:"",path:`/stages/${index}/trig/${key}`,value,onChange:raw=>setStage(index,{...stage,trig:{...(stage.trig as Record<string,unknown>),[key]:asNumber(raw)}})})) : null}
+                  {kind === "binary_circular_orbit" && <tr><td className="name">绕行方向</td><td className="val"><select className="stage-select" aria-label={`阶段 ${index+1} 双星绕行方向`} value={String(stage.direction ?? "ccw")} onChange={e=>setStage(index,{...stage,direction:e.target.value})}><option value="ccw">逆时针</option><option value="cw">顺时针</option></select></td><td/></tr>}
                   {kind === "incline_slide" && (
                     <tr data-field-path={`/stages/${index}/direction`}>
                       <td className="name">斜面运动方向</td>

@@ -13,7 +13,7 @@
 | **可自由滑动的圆弧槽 / 可平动半圆轨道 / 不锚墙弹簧连两球** | 动量守恒专用模型（第 17、17.1、18 节） | 顶层 `massKg`（滑块/球）+ `initial: { speedMps }`；槽/轨道质量写段内 `grooveMassKg`，靶球质量写段内 `targetMassKg` | 不写 `bodies`；可平动半圆内轨（底部带速进入）用 `movable_semicircle`，四分之一槽顶静止下滑用 `movable_arc`，固定圆轨用 `vertical_arc` |
 | **匀强磁场偏转**（垂直纸面的匀强磁场，区内忽略重力；可接仅受重力的抛体） | 单物体多阶段（第 20 节） | 顶层 `massKg` 必填；磁场首段水平向右用 `{ speedMps }`，分量初态用 `{ vxMps, vyMps }`；接抛体需顶层 `gravityMps2` | 不把实际出射速度写成新初态，不把对入射地面的高度写成出射点落差 |
 | **分区电磁场 + 双粒子弹性正碰 + 撤场恢复**（y>0 向下匀强电场，y<0 垂直纸面匀强磁场，碰后按竖线撤场、两圆外切恢复） | 复合电磁模型（第 21 节） | 唯一阶段 `switchable_em_collision`，顶层 `initial: { speedMps: null }`（标度放段内）；符号题设 `scaleMode: "normalized"` | 不拆成 `magnetic_deflection` 或多体 `collision_1d`；不代算 E、B、等待时间或路程 |
-| **不支持题型**（未登记的电磁模型、天体、热光原、机械波等） | 超范围（第 6 节） | `stages: []` + 非空 `unsupportedReason` | 不硬套不匹配的阶段 |
+| **不支持题型**（未登记的电磁模型、椭圆/三星/变轨、热光原、机械波等） | 超范围（第 6 节） | `stages: []` + 非空 `unsupportedReason` | 不硬套不匹配的阶段 |
 
 轻绳摆和最低点两物体正碰另按第9节输出，使用body表，不套旧顶层massKg。
 
@@ -37,6 +37,17 @@
 ## 只问刚入弧状态的观察范围
 
 只问「刚进入圆弧瞬间」的速率/支持力而没有给后续切向力条件时，终段圆弧写 `entryOnly:true,side:"inside"`（最低点水平向右入射）。保留半径或水平投影反求题设，但 `frictionless` 未给就省略，不能擅自称光滑并播放整弧。不要求未知弧终点角；题给端点角可保留用于几何与反求，不代表要求推进到那里。入口法向力由库计算。此模式只支持终段、无显式path，不可接抛体。
+
+## 孤立双星圆轨道（优先于单卫星路由）
+
+两颗质量均不可忽略的恒星只受相互引力、绕共同质心做圆周运动时，用唯一阶段 `binary_circular_orbit`。不套两个 circular_orbit，不输出顶层 bodies、primaryBodyId、massKg 或 gravityMps2。initial 可写 `{speedMps:0}` 占位；实际速度由库计算。
+
+阶段字段：separationM（两星间距，非各星轨道半径）、mass1Kg（甲星）、mass2Kg（乙星）、totalMassKg（总质量）、massRatioM1OverM2（甲/乙）、periodSeconds（题给共同周期）、gravitationalConstantM3KgS2（题给G，未给省略采用6.67430e-11）、direction（默认ccw，顺时针cw）、initialAngleDeg（r₂−r₁初始极角，默认0）、orbits（默认1）。只提取题给值，待求质量填null，不代算答案。太阳质量、小时/天、km等须先换成SI，保留足够精度。
+
+支持两质量+间距，或总质量+比例+间距，或共同周期+间距+质量比反求。只有间距和周期而未给质量分配时也输出该阶段，质量比null，不默认等质量，让库保留反求总质量并提示补比值。题给质量比方向必须严格按甲/乙；未知不能凭图中圆圈大小猜测。不忽略重星的运动，不用两个固定中心轨道。椭圆、三星、变轨不在本模块范围。
+
+示例（合成，仅题设，不是答案）：
+`{"kind":"stage_plan","schemaVersion":1,"initial":{"speedMps":0},"stages":[{"kind":"binary_circular_orbit","mass1Kg":2e30,"mass2Kg":1e30,"separationM":3e9,"gravitationalConstantM3KgS2":6.67e-11}]}`
 
 ## 0. 你的角色
 
