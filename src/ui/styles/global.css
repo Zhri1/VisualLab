@@ -1915,7 +1915,8 @@ textarea {
   }
 
   .home {
-    padding: 6vh 16px 10vh;
+    /* 对称留白：内容在剩余视口里真正垂直居中，不再整体偏上 */
+    padding: 24px 16px calc(24px + env(safe-area-inset-bottom, 0px));
   }
   .composer {
     padding: 16px 14px 12px;
@@ -2664,7 +2665,10 @@ textarea {
     height: 44px;
   }
   .home {
-    padding: 4vh 16px 10vh;
+    padding: 24px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+    /* 窄屏整页滚动后 .app 不再拉伸首页：自己占满剩余视口（顶栏 42px）才能垂直居中 */
+    min-height: calc(100vh - 42px);
+    min-height: calc(100dvh - 42px);
   }
   .sample-picker-backdrop {
     padding: 0;
@@ -2731,6 +2735,11 @@ textarea {
   .app {
     height: auto;
     overflow: visible;
+  }
+  /* 首页仍要占满首屏（顶栏 58px），否则内容堆在顶部、下方大片空白 */
+  .home {
+    min-height: calc(100vh - 58px);
+    min-height: calc(100dvh - 58px);
   }
   .player-head {
     flex-wrap: wrap;
