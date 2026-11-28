@@ -83,6 +83,46 @@ describe("共享阶段计划校验", () => {
     expect(validateStagePlan({ ...complete, stages: [{ kind: null }] })).toMatchObject({ ok: false, code: "NEEDS_INPUT", reading: null, missingKeys: ["/stages/0/kind"] });
   });
 
+  it.each([{}, true, "1", []])("非数字版本 %j 属于上游类型损坏", (schemaVersion) => {
+    expect(validateStagePlan({ ...complete, schemaVersion })).toMatchObject({
+      ok: false, code: "INVALID_READING", reading: null,
+      fieldErrors: [{ path: "/schemaVersion", code: "TYPE" }],
+    });
+  });
+
+  it.each([true, {}, 1, []])("非字符串结束类型 %j 属于上游类型损坏", (kind) => {
+    const input = structuredClone(complete);
+    input.stages[2].end!.kind = kind as never;
+    expect(validateStagePlan(input)).toMatchObject({
+      ok: false, code: "INVALID_READING", reading: null,
+      fieldErrors: [{ path: "/stages/2/end/kind", code: "TYPE" }],
+    });
+  });
+
+  it.each([null, undefined])("版本和结束类型缺值 %j 仍提示补齐", (value) => {
+    const input = structuredClone(complete);
+    input.schemaVersion = value as never;
+    expect(validateStagePlan(input)).toMatchObject({
+      ok: false, code: "NEEDS_INPUT", fieldErrors: [],
+      missingKeys: ["/schemaVersion"],
+    });
+    input.schemaVersion = 1;
+    input.stages[2].end!.kind = value as never;
+    expect(validateStagePlan(input)).toMatchObject({
+      ok: false, code: "NEEDS_INPUT", fieldErrors: [],
+      missingKeys: ["/stages/2/end/kind"],
+    });
+  });
+
+  it("未登记的字符串结束类型仍属超范围", () => {
+    const input = structuredClone(complete);
+    input.stages[2].end!.kind = "unknown";
+    expect(validateStagePlan(input)).toMatchObject({
+      ok: false, code: "UNSUPPORTED",
+      fieldErrors: [{ path: "/stages/2/end/kind", code: "UNSUPPORTED" }],
+    });
+  });
+
   it("局部stage.kind未知时继续透传已知阶段、参数及结束条件", () => {
     const input = structuredClone(complete);
     delete (input.stages[2] as Record<string, unknown>).kind;

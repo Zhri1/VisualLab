@@ -1316,6 +1316,18 @@ export async function handler(request: Request): Promise<Response> {
         internal = repairedInternal;
       }
     } catch (error) {
+      if (internal.status === "invalid_reading") {
+        const elapsed = Date.now() - startedAt;
+        const failure = error instanceof VisionError ? error.kind : "upstream";
+        const message = error instanceof VisionError ? error.message : "识别服务异常，请稍后重试";
+        const status = failure === "timeout" ? 504 : 502;
+
+        console.error(`[plan] ${requestId} ${failure} ${elapsed}ms ${message}`);
+        return json({ message }, status, {
+          "x-request-id": requestId,
+          "x-elapsed-ms": String(elapsed),
+        });
+      }
       const reason = error instanceof Error ? error.message : String(error);
       console.warn(`[plan] ${requestId} repair_fallback ${reason}`);
     }
