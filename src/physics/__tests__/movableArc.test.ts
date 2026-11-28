@@ -301,6 +301,47 @@ describe("底入可动四分之一圆弧槽与多体弹性碰撞接续", () => {
     expect(end.bodies?.A.xM).toBeCloseTo(0.25 * vB1 * built.scene.motion.durationSeconds, 7);
   });
 
+  it("全符号归一化标度（图3：scaleMode=normalized, m=R=g=1, A:B:C=2:1:4 与 3:1:5 回归）", () => {
+    const raw = JSON.parse(readFileSync(resolve("fixtures/spring-collision-movable-arc-symbolic.reading.json"), "utf8"));
+    const apiRes = buildPlanResponse(raw);
+    expect(apiRes.status).toBe("ok");
+    if (apiRes.status !== "ok") return;
+    const apiReading = apiRes.reading as Record<string, any>;
+    expect(apiReading.scaleMode).toBe("normalized");
+    expect(apiReading.gravityMps2).toBe(1);
+    expect(apiReading.stages[2].tracks[1].stages[0].radiusM).toBe(1);
+    expect(apiReading.stages[2].tracks[1].stages[0].entryGapM).toBeNull();
+
+    const built = assembleStageScene(apiReading);
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const { motion, geometry } = built.scene;
+    expect(geometry.scaleMode).toBe("normalized");
+    expect(motion.timing?.mode).toBe("suffix");
+    expect(motion.playbackGaps).toHaveLength(1);
+    // Ep = 45/32 mgR = 1.40625，返底压力 N = 3.5 mg = 3.5
+    expect(motion.calculations?.find((c) => c.quantity === "initial_elastic_energy")?.value).toBeCloseTo(45 / 32, 9);
+    expect(motion.calculations?.find((c) => c.quantity === "movable_arc_bottom_normal_force")?.value).toBeCloseTo(3.5, 9);
+    const vB1 = Math.sqrt(2.5);
+    const end = motion.sampleAt(motion.durationSeconds);
+    expect(end.bodies?.B.vxMps).toBeCloseTo((-3 / 5) * vB1, 8);
+    expect(motion.movableArcAt?.(motion.durationSeconds)?.grooveVX).toBeCloseTo((2 / 5) * vB1, 8);
+    expect(end.bodies?.A.positionUndetermined).toBe(true);
+
+    // 第二组全符号质量比（A:B:C = 3:1:5，m=R=g=1）
+    const ratio2 = structuredClone(raw);
+    ratio2.bodies[0].massKg = 3;
+    ratio2.bodies[1].massKg = 1;
+    ratio2.stages[2].tracks[1].stages[0].grooveMassKg = 5;
+    const built2 = assembleStageScene(ratio2);
+    expect(built2.ok).toBe(true);
+    if (!built2.ok) return;
+    // vB1 = sqrt(2*(1+5)/5) = sqrt(2.4), vA0 = (4/6)*vB1, Ep = 0.5*3*(16/36)*2.4 = 1.6, N = 1 + 2.4 = 3.4
+    expect(built2.scene.motion.calculations?.find((c) => c.quantity === "initial_elastic_energy")?.value).toBeCloseTo(1.6, 8);
+    expect(built2.scene.motion.calculations?.find((c) => c.quantity === "movable_arc_bottom_normal_force")?.value).toBeCloseTo(3.4, 8);
+    expect(built2.scene.geometry.scaleMode).toBe("normalized");
+  });
+
   it("第二组参数验证（A:B:C = 3:2:5，R=1.2 m，g=9.8 m/s²，显式初位与入槽间距）", () => {
     const mA = 3;
     const mB = 2;

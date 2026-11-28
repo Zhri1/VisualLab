@@ -83,7 +83,7 @@ export function solveHorizontal(plan:HorizontalPlan, scope?: PlaybackScope) {
   const impact=contactHappens&&(u1-u2)*n>0&&!nearValue(u1,u2);
   let reason=contactHappens?impact?'prefix_end':'contact_without_impact':Object.values(preContact.bodies).every(b=>b.status==='resting')?'no_collision':'approach_range_end';
   let status:'complete'|'range_end'|'model_limit'=reason==='no_collision'?'complete':'range_end',duration=tc;
-  const geometry:BodyGeometry&{blockSizeM:number;positionReference:'particle'}={blockSizeM:.3,positionReference:'particle',bodies:defs.map(b=>({...b})),bodyTracks:[],pendulums:[],...(conveyorRun?{conveyor:conveyorRun.geometry}:{})};
+  const geometry:BodyGeometry&{blockSizeM:number;positionReference:'particle';scaleMode?:'normalized'|'si'}={blockSizeM:.3,positionReference:'particle',...(plan.scaleMode?{scaleMode:plan.scaleMode}:{}),bodies:defs.map(b=>({...b})),bodyTracks:[],pendulums:[],...(conveyorRun?{conveyor:conveyorRun.geometry}:{})};
   const segments:{stageIndex:number;kind:'horizontal_approach'|'conveyor_belt'|BodyTrackStage['kind'];startSeconds:number;endSeconds:number;bodyIds:string[];stagePath:string}[]=[];
   const events:BodyEvent[]=[];
   const extraCalculations:ExtraCalc[]=[];

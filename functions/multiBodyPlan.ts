@@ -32,11 +32,16 @@ export function validateMultiBodyPlan(input: Obj, legacy: (v: unknown) => StageP
   const block=(o:Obj,k:string,p:string):Obj|null=>{if(o[k]==null){o[k]=null;missing.push(p);return null;}if(!obj(o[k])){issue(p,'TYPE','需要对象。');return null;}return o[k] as Obj;};
   choice(draft,'kind','/kind',['stage_plan']);
   if(draft.schemaVersion==null)missing.push('/schemaVersion');else if(typeof draft.schemaVersion!=='number')issue('/schemaVersion','TYPE','版本号须为数字。');else if(draft.schemaVersion!==1)issue('/schemaVersion','UNSUPPORTED','仅支持版本1。');
+  if(draft.scaleMode!=null){
+    if(typeof draft.scaleMode!=='string')issue('/scaleMode','TYPE','标度模式须为字符串。');
+    else if(draft.scaleMode!=='normalized'&&draft.scaleMode!=='si')issue('/scaleMode','UNSUPPORTED','标度模式仅支持 normalized 或 si。');
+  }
   const blockPlank = Array.isArray(draft.stages) && draft.stages.some(s => obj(s) && s.kind === 'block_plank');
   const pulley = !blockPlank && Array.isArray(draft.stages) && draft.stages.some(s => obj(s) && s.kind === 'pulley_system');
   const horizontal = !blockPlank && !pulley && (Array.isArray(draft.stages) && draft.stages.some(s => obj(s) && s.kind === 'horizontal_approach') || obj(draft.initial) && 'bodies' in draft.initial);
   const usesGravity=(v:unknown):boolean=>Array.isArray(v)?v.some(usesGravity):obj(v)?v.kind==='projectile'||v.kind==='pendulum_swing'||v.kind==='pendulum_string'||v.kind==='conveyor_belt'||v.kind==='movable_arc'||typeof v.kineticFrictionCoefficient==='number'&&v.kineticFrictionCoefficient>0||Object.values(v).some(usesGravity):false;
-  num(draft,'gravityMps2','/gravityMps2',v=>v>0,!horizontal||usesGravity(draft));
+  if(draft.scaleMode==='normalized'&&draft.gravityMps2==null&&(!horizontal||usesGravity(draft)))draft.gravityMps2=1;
+  else num(draft,'gravityMps2','/gravityMps2',v=>v>0,!horizontal||usesGravity(draft));
   if('massKg'in draft)issue('/massKg','PRECONDITION_CONFLICT','新摆计划的质量只取body表，请移除旧顶层质量。');
   if(!Array.isArray(draft.stages)){if(draft.stages==null)missing.push('/stages');else issue('/stages','TYPE','阶段列表须为数组。');structural=true;return result();}
   const stages=draft.stages as unknown[];

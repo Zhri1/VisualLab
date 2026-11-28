@@ -286,6 +286,15 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
     ctx.restore();
     occupied.push({x:Math.min(X(cx),X(backX)),y:Y(y0+R),w:Math.abs(X(backX)-X(cx)),h:Math.abs(Y(y0)-Y(y0+R))});
     reqs.push({text:`槽 C (M=${ma.grooveMassKg} kg · v=${signed(gs.grooveVX)} m/s)`,color:SOFT,cx:X(cx+d*R*0.65),by:Y(y0)+18,dir:1});
+    if(motion.stageGeometry?.scaleMode==='normalized'){
+      const badge=narrow?'归一化：m=R=g=1':'归一化标度：m = R = g = 1（质量比不变）';
+      const bw=ctx.measureText(badge).width+14;
+      ctx.save();
+      ctx.fillStyle='rgba(251,251,249,0.88)';ctx.fillRect(W-bw-10,8,bw,20);
+      ctx.fillStyle=SOFT;ctx.textAlign='right';ctx.fillText(badge,W-17,22);
+      ctx.restore();
+      occupied.push({x:W-bw-10,y:8,w:bw,h:20});
+    }
   }
   if(motion.stageGeometry?.plank){
     const pg=motion.stageGeometry.plank,pb=snapshot.bodies?.[pg.plankBodyId];
@@ -468,7 +477,7 @@ export function MultiBodyReadouts({motion,time,isPlaying=false}:{motion:Motion;t
     {!!motion.playbackGaps?.length&&<span className="body-constraint">播放时间缺口：{motion.playbackGaps[0].reason}</span>}
     {emStatus&&<span className="body-constraint">场区状态：{emStatus}{em?.scaleMode==='normalized'?' · 归一化标度（m=q=L=v₀=1）':''}</span>}
     {mr&&<span className="body-constraint">匀强磁场（{mr.fieldDirection==='into_page'?'垂直纸面向里':'垂直纸面向外'}）· 共 {mr.collisionCount} 次正碰{mr.scaleMode==='normalized'?' · 归一化标度（m=q=B=a=1）':''}</span>}
-    {motion.stageGeometry?.multiBodyMovableArc&&(()=>{const ma=motion.stageGeometry!.multiBodyMovableArc!,gs=motion.movableArcAt?.(time);return <span className="body-constraint">可移动圆弧槽 C（M = {ma.grooveMassKg} kg，R = {ma.radiusM} m）：x = {signed(gs?.grooveXM??ma.entryXM)} m，v = {signed(gs?.grooveVX??0)} m/s{gs?.normalForceN!=null&&gs.normalForceN>0?`，支持力 N = ${gs.normalForceN.toFixed(2)} N`:''}{ma.bottomReturnNormalForceN!=null?`（返回槽底 N = ${ma.bottomReturnNormalForceN.toFixed(2)} N）`:''}</span>;})()}
+    {motion.stageGeometry?.multiBodyMovableArc&&(()=>{const ma=motion.stageGeometry!.multiBodyMovableArc!,gs=motion.movableArcAt?.(time),norm=motion.stageGeometry?.scaleMode==='normalized';return <span className="body-constraint">可移动圆弧槽 C（M = {ma.grooveMassKg}{norm?' m':' kg'}，R = {ma.radiusM}{norm?' R':' m'}）：x = {signed(gs?.grooveXM??ma.entryXM)}，v = {signed(gs?.grooveVX??0)}{gs?.normalForceN!=null&&gs.normalForceN>0?`，支持力 N = ${gs.normalForceN.toFixed(2)}${norm?' mg':' N'}`:''}{ma.bottomReturnNormalForceN!=null?`（返回槽底 N = ${ma.bottomReturnNormalForceN.toFixed(2)}${norm?' mg':' N'}）`:''}{norm?' · 归一化标度（m = R = g = 1）':''}</span>;})()}
     {Object.values(sample.constraints??{}).map(c=>{
       const pendGeo=motion.stageGeometry?.pendulums?.find(p=>p.constraintId===c.constraintId);
       const pegActive=pendGeo?.peg&&Math.abs(c.pivot.xM-pendGeo.pivot.xM)>1e-6;

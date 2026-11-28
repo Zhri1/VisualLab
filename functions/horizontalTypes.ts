@@ -27,7 +27,7 @@ export type HorizontalCollision = {
   contact:{kind:'horizontal_meeting';approachStageIndex:number}|{kind:'conveyor_end';conveyorStageIndex:number};
   externalImpulseNegligible:true;
 };
-export type HorizontalPlan = {kind:'stage_plan';schemaVersion:1;bodies:BodyDefinition[];primaryBodyId:string;gravityMps2?:number;initial:HorizontalInitial;stages:[HorizontalApproach|ConveyorApproach,HorizontalCollision?,ParallelStage?]};
+export type HorizontalPlan = {kind:'stage_plan';schemaVersion:1;scaleMode?:'normalized'|'si';bodies:BodyDefinition[];primaryBodyId:string;gravityMps2?:number;initial:HorizontalInitial;stages:[HorizontalApproach|ConveyorApproach,HorizontalCollision?,ParallelStage?]};
 export type CollisionValues = {mode:HorizontalCollision['mode'];normalXM:1|-1;momentumBeforeKgMps:number;momentumAfterKgMps:number;energyBeforeJ:number;energyAfterJ:number;energyLostJ:number};
 export type BodyEvent = {timeSeconds:number;kind:string;stageIndex:number;stagePath:string;bodyIds:string[];before:BodySnapshot;after:BodySnapshot;collision?:CollisionValues};
 export type TrackLeaf = BodyTrackStage;

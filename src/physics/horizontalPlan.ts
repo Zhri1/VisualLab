@@ -150,7 +150,8 @@ export function validateHorizontalFields(draft:Obj,c:HorizontalValidationContext
       if(tr.stages.length!==1)issue(tp+'/stages','UNSUPPORTED','碰后底入可移动圆弧槽阶段暂不自动续接后段。');
       if(head.entryMode==null)head.entryMode='bottom';
       else if(head.entryMode!=='bottom')issue(hp+'/entryMode','PRECONDITION_CONFLICT','碰后并行轨道中的可移动圆弧槽仅支持底入模式（entryMode="bottom"）。');
-      num(head,'radiusM',hp+'/radiusM',v=>v>0);
+      if(draft.scaleMode==='normalized'&&head.radiusM==null)head.radiusM=1;
+      else num(head,'radiusM',hp+'/radiusM',v=>v>0);
       num(head,'grooveMassKg',hp+'/grooveMassKg',v=>v>0);
       if('entryDirection'in head&&head.entryDirection!=null)choice(head,'entryDirection',hp+'/entryDirection',[1,-1]);
       if('criticalTopRelativeRest'in head&&head.criticalTopRelativeRest!=null&&head.criticalTopRelativeRest!==true)issue(hp+'/criticalTopRelativeRest','UNSUPPORTED','criticalTopRelativeRest 仅支持 true。');

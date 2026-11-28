@@ -814,4 +814,46 @@ describe("第一阶段端到端验收：图 1、图 2 与合成变式", () => {
     const legacyRes = assembleStageScene(legacyReading);
     expect(legacyRes.ok).toBe(false);
   });
+
+  it("镜像与新角度变式（0°/positive/180° 向左平抛切向入 +45°/negative/45° 圆弧）：接续无跳位且反求正确", () => {
+    const mirror = {
+      kind: "stage_plan",
+      schemaVersion: 1,
+      gravityMps2: 10,
+      massKg: 1,
+      initial: { speedMps: null },
+      stages: [
+        {
+          kind: "vertical_arc",
+          radiusM: 0.8,
+          side: "inside",
+          frictionless: true,
+          path: { startAngleDeg: 0, direction: "positive", end: { kind: "physical_endpoint", sweepAngleDeg: 180 } },
+        },
+        {
+          kind: "projectile",
+          landingPlaneYM: 0,
+          end: { kind: "tangent_to_next_arc" },
+        },
+        {
+          kind: "vertical_arc",
+          radiusM: 0.5,
+          side: "inside",
+          frictionless: true,
+          path: { startAngleDeg: 45, direction: "negative", end: { kind: "physical_endpoint", sweepAngleDeg: 45 } },
+        },
+      ],
+    };
+    const built = assembleStageScene(mirror);
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    // H = 2R = 1.6 m => vyEntry = -sqrt(32), +45°/negative => vx = -sqrt(32)
+    const launchEv = built.scene.motion.events.find((e) => e.kind === "projectile_launch")!;
+    expect(launchEv.velocityAfter.vxMps).toBeCloseTo(-Math.sqrt(32), 4);
+    const arcEnter2 = built.scene.motion.events.find((e) => e.kind === "arc_enter" && e.stageIndex === 2)!;
+    expect(arcEnter2).toBeDefined();
+    const beforeEnter = built.scene.motion.sampleAt(arcEnter2.timeSeconds - 1e-6);
+    const afterEnter = built.scene.motion.sampleAt(arcEnter2.timeSeconds + 1e-6);
+    expect(Math.hypot(afterEnter.xM - beforeEnter.xM, afterEnter.yM - beforeEnter.yM)).toBeLessThan(1e-3);
+  });
 });

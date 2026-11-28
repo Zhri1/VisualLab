@@ -105,7 +105,7 @@
 | `spring_contact` | `springConstantNpm`、`unattached`，以及互斥的 `frictionless: true` 或 `kineticFrictionCoefficient`（粗糙面，见第 12 节） | `unattached` 指滑块与弹簧不连接，为 `false` → 超范围；回弹脱离后可继续接续下一阶段（见第 12.1 节） |
 | `spring_release` | `springConstantNpm`、`initialCompressionM`、`kineticFrictionCoefficient`、`unattached`、`slidesAfterRelease`，必要时releaseCompleteByM | 静止预压释放首段；完整或缺参条件见第8节，由B计算能量与精确范围 |
 | `vertical_arc` | `radiusM`（可为 `null`）、可选 `verticalDropM`、旧 `endAngleDeg` 或互斥的显式 `path`、`side`、`frictionless` | 旧模式为最低点向右的半圆范围；完整内轨或不同角度入口按第11节提取显式 `path`（后继段应省略 `path.center` 由物理库自动衔接）；题面只给高度差与圆心角未给半径时填 `radiusM: null` + `verticalDropM`；临界过顶未给半径时填 `radiusM: null` + 顶层 `constraints: [{ kind: "critical_arc_top", stageIndex }]`；`side` 支持 `"inside"`（单内轨，过顶临界 `v≥√(gR)`）或 `"rod"`（轻杆/双轨/光滑管，过顶临界 `v≥0`，不脱轨），未知事实填 `null` |
-| `projectile` | `dropHeightM`、`landingPlaneYM` 或 `end: { kind: "tangent_to_next_arc" }`，三者互斥只能保留一个键 | 旧 `dropHeightM` 是相对发射点的非负落差；`landingPlaneYM` 是固定世界坐标落地高度（**只要前一段是 `vertical_arc`，无论旧 `endAngleDeg` 还是显式 `path`，都严禁写 `dropHeightM`，必须只写 `landingPlaneYM`**：落回与圆弧最低点同高的水平地面直接填 `0`，从半圆最高点 `y = 2R` 向下落差 `h` 则填 `2R - h`）；题面写「恰好沿切线滑入下一段圆弧」且未给落差时使用 `end: { kind: "tangent_to_next_arc" }`。依据不足填 `null`，不要按图像或脱轨位置猜地面 |
+| `projectile` | `dropHeightM`、`landingPlaneYM`、`end: { kind: "tangent_to_next_arc" }` | `dropHeightM` 与 `landingPlaneYM` 互斥（**只要前一段是 `vertical_arc`，严禁写 `dropHeightM`，必须用 `landingPlaneYM`**：落回与圆弧最低点同高的水平面填 `0`，从半圆最高点 `y = 2R` 向下落差 `h` 则填 `2R - h`）。题面写「恰好沿切线滑入下一段圆弧」时：**必须写 `end: { "kind": "tangent_to_next_arc" }`**；若初速已知、落差未知，则只写 `end` 不写落差；若落差（或固定 `landingPlaneYM`）已知、而平抛初速 / 前段圆弧初速 / 前段预压弹簧能量未知，则**同时保留 `dropHeightM`（或 `landingPlaneYM`）与 `end: { "kind": "tangent_to_next_arc" }`**，将未知初速或弹簧 `k, c` 填 `null` 交由物理库反求。依据不足填 `null`，不要猜地面 |
 | *通用地标标注* | 可选 `startLabel`、`endLabel` | 任意阶段均可附带题图字母地标（如 `"startLabel": "A", "endLabel": "B"`），便于前端与阶段说明对应题面节点 |
 | `pendulum_swing` | bodyIds、lengthM、initialAngleDeg、initialStringState、理想绳/支点事实、end；碰后用inheritFromStageIndex | 第9节；不能将60°按小角近似、不能把绳当可推的杆 |
 | `collision_1d` | bodyIds、mode、normalXM、contact、targetApproach、externalImpulseNegligible | 第9节；两质量和带方向速度，碰撞算式由B执行 |
@@ -396,8 +396,9 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - 已有绳只在对应initial.bodies条目写constraint:{kind:"pendulum_string",pivotXM,lengthM,pivotFixed:true,lightInextensibleString:true,airResistanceNegligible:true,initialStringState:"taut"}。水平等待的已有绳物体须静止在最低点；非零水平初速仅能在t=0立即碰撞，不把绷紧摆误画成碰前直线运动。碰后pendulum_swing用inheritFromBodyId引用它，不能临时造绳或绕过张紧绳直接飞行；实际松绳由B判定。
 - 相遇/追及、先停后被追上、无碰撞、共速无冲击或再次相遇均由B按实际轨迹判定。不填写这些答案，不为未发生的后段输出假时间；当前只求一次冲击，再次接触保留入射边界。
 - 碰后底入可移动四分之一圆弧槽（如「弹簧弹射 A → 弹性正碰 B → B 从槽底滑上可移动 1/4 圆弧槽 C 恰好在槽顶相对静止」）：
-  - 在 `stages[2].tracks` 中将进入圆弧槽的物体轨道设为 `{"kind":"movable_arc","entryMode":"bottom","radiusM":R,"grooveMassKg":M,"entryDirection":1,"criticalTopRelativeRest":true}`（若非临界则省略 `criticalTopRelativeRest`）；另一物体在光滑水平面上用 `horizontal_slide`（`kineticFrictionCoefficient: 0, end: { kind: "scene_end" }`）。
+  - 在 `stages[2].tracks` 中将进入圆弧槽的物体轨道设为 `{"kind":"movable_arc","entryMode":"bottom","radiusM":R,"grooveMassKg":M,"entryDirection":1,"entryGapM":null,"criticalTopRelativeRest":true}`（若题面明确给出碰撞点到槽底的水平间距则填具体数值，未给务必填 `entryGapM: null`；非临界则省略 `criticalTopRelativeRest`）；另一物体在光滑水平面上用 `horizontal_slide`（`kineticFrictionCoefficient: 0, end: { kind: "scene_end" }`）。
   - 若题面有上游预压弹簧但未给劲度系数 $k$、初始压缩量 $x_0$ 或物体间水平间距，在 `stages[0]` 写 `upstreamSpring: { bodyId, springConstantNpm: null, initialCompressionM: null, frictionless: true, unattached: true }`，并将未知的 `xM`/`vxMps` 置 `null`，由物理库反求 $v_A, v_{B1}, E_p$ 并以已知后缀播放，不代算答案也不猜测间距。
+  - **全符号质量比题（无具体 SI 数值，仅给如 $2m$、$m$、$4m$ 与符号 $R$、$g$）**：设置顶层 `"scaleMode": "normalized"`，**严格保留题面质量比**（如 `A: massKg = 2`，`B: massKg = 1`，`grooveMassKg = 4`），取 `radiusM: 1`、`gravityMps2: 1`，并在 `assumptions` 说明「全符号题，取归一化标度 m = R = g = 1，保留质量比」；不要把符号 $m, R, g$ 留成 `null` 要求补值，也不要把质量比改成 1:1:1。
   - 独立顶入可移动圆弧槽（`entryMode: "top"` 或省略）从槽顶静止释放，`initial.speedMps` 必须为 `0`。
 
 ## 11. 完整内轨与非最低点切向入弧
@@ -428,7 +429,15 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - **圆周轨道运动（`circular_orbit`）**：固定中心天体 + 低质量单卫星做圆周轨道运动（不含椭圆轨道或霍曼转移）。无需顶层 `gravityMps2` 或 `massKg`，提取 `gravitationalParameterM3s2`（$GM$，若题面给 $gR^2$ 可在 `assumptions` 说明换算为 $GM$）、`orbitalRadiusM`（轨道半径 $r$）或互斥的 `centralBodyRadiusM` + `altitudeM`（给离地高度 $h$ 时必须提取中心天体半径 $R$，缺 $R$ 时置 `null`）、可选 `direction`（`"ccw"` / `"cw"`）、`orbits`（默认 `1`）。速度与周期由物理库按 $v=\sqrt{GM/r}$、$T=2\pi\sqrt{r^3/(GM)}$ 计算，识别层不代算。
 
 - **后继段省略 `path.center`**：显式 `vertical_arc.path` 作为后继段时**应省略 `center`**，由物理库按前段出口世界坐标、入口角与半径自动反算衔接圆心，避免手算世界圆心出错；首段也可省略 `center`（默认入口在 `(0, 0)`）。
-- **平抛/斜抛切向入弧**：题面写「恰好沿切线滑入圆弧」时：若已知初速、未知落差，`projectile` 只写 `end: { "kind": "tangent_to_next_arc" }`（不写 `dropHeightM`/`landingPlaneYM`）；若已知正落差（或圆弧后固定 `landingPlaneYM`）且平抛初速/前段圆弧初速/预压弹簧势能待求，则保留该 `dropHeightM`（或 `landingPlaneYM`）并同时写 `end: { "kind": "tangent_to_next_arc" }`，将待求的 `initial.vxMps` / `initial.speedMps` / 弹簧 `k, c` 填 `null`，由物理库反求水平出射速度并反传前段能量。
+- **平抛/斜抛切向入弧（双向反求规则）**：题面出现「恰好沿切线进入/滑入圆弧」时，`projectile` **必须保留** `end: { "kind": "tangent_to_next_arc" }`：
+  1. 已知初速、未知落差：只写 `end: { "kind": "tangent_to_next_arc" }`（不写 `dropHeightM` / `landingPlaneYM`），由物理库反求落差。
+  2. 已知落差（`dropHeightM`）或前段圆弧后固定落面（`landingPlaneYM`，如与最低点 B 同高填 `0`），而平抛初速 / 前段圆弧入速 / 前段预压弹簧能量未知：**同时保留** `dropHeightM`（或 `landingPlaneYM`）与 `end: { "kind": "tangent_to_next_arc" }`，并将未知的 `initial.vxMps`、`initial.speedMps` 或 `spring_release` 的 `springConstantNpm: null, initialCompressionM: null` 置 `null`，由物理库反求水平出射速度并反传前段能量，不要自己算初速，也不要因漏写 `end` 导致后端误报缺少初速或弹簧 `k`、压缩量。
+- **半圆方向与相切斜面判定（防判反）**：
+  - 显式圆弧角度约定：`0°` 在最低点、`+90°` 在最右、`±180°` 在最高点、`-90°` 在最左；`direction: "positive"` 为逆时针（角度增大），`"negative"` 为顺时针（角度减小）。
+  - **光滑水平面未给距离直入圆弧**：若题面仅说明物体在光滑水平面上经最低点 B 进入圆弧轨道、但未给出 B 之前的水平滑动距离，**直接以 `vertical_arc` 作为 `stages[0]`**（不要在前面多写 `distanceM: null` 的 `horizontal_slide`）；B 点即为世界高度 `y = 0`，若后段抛体落回与 B 同高的 C 点，则 `stages[1]`（`projectile`）**必须同时写出** `"landingPlaneYM": 0` 与 `"end": { "kind": "tangent_to_next_arc" }`（绝不能省略 `"landingPlaneYM": 0`，否则引擎无法知道平抛落差），`initial.speedMps: null` 由物理库反求。例如：
+    `{"stages":[{"kind":"vertical_arc","radiusM":0.9,"side":"inside","frictionless":true,"path":{"startAngleDeg":0,"direction":"negative","end":{"kind":"physical_endpoint","sweepAngleDeg":180}}},{"kind":"projectile","landingPlaneYM":0,"end":{"kind":"tangent_to_next_arc"}},{"kind":"vertical_arc","radiusM":0.5,"side":"inside","frictionless":true,"path":{"startAngleDeg":-37,"direction":"positive","end":{"kind":"physical_endpoint","sweepAngleDeg":37}}}]}`
+  - 若小球从最低点 B **向左上方**绕半圆升至最高点 A，再从 A **向右**水平抛出，则第一段半圆为 `startAngleDeg: 0, direction: "negative", sweepAngleDeg: 180`（到最高点切线向右 `+x`）；随后落入左下方圆弧（切线向右下）为 `startAngleDeg: -θ, direction: "positive"`（如 `-37°`, `positive`, `sweepAngleDeg: 37`）。若镜像从最低点向右上方绕半圆再向左平抛，则第一段为 `direction: "positive"`、后段为 `startAngleDeg: +θ, direction: "negative"`。
+  - 若圆弧末段在正角度处（如 `-53°` 正向转 `90°` 到达 `+37°`）**与粗糙/光滑斜面相切衔接**，后继阶段必须输出 `incline_slide`（`direction: "up"`，倾角等于圆弧出口角如 `37°`，足够长时 `lengthM: null`），**严禁**把相切上坡误识别成 `horizontal_slide`。
 - **圆弧高差反求半径**：题面给出圆弧两端的竖直高度差与圆心角、但未直接给半径时，`vertical_arc` 填 `"radiusM": null` + `"verticalDropM": <高度差数值>`（与显式正数 `radiusM` 互斥）。
 - **圆轨临界过顶反求半径**：题干或小问要求「恰好到达圆轨最高点」且该圆弧半径未给时，`vertical_arc` 填 `"radiusM": null`，并在顶层添加 `"constraints": [{ "kind": "critical_arc_top", "stageIndex": <该圆弧下标> }]`（同时适用于旧预压弹簧 180° 内轨与显式 `path` 圆轨）。
 - **题图字母地标**：各 stage 可选填 `"startLabel"` / `"endLabel"`（如 `"A"`、`"B"`、`"C"`、`"D"`、`"E"`）。
