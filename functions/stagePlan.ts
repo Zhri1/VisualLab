@@ -1,6 +1,7 @@
 // 由 scripts/sync-functions.mjs 从 src/physics/stagePlan.ts 复制生成，请勿手改。
 // 改动请改源文件后重新运行：node scripts/sync-functions.mjs
 import {validateBinaryCircularOrbitPlan} from "./binaryCircularOrbit.ts";
+import {validateEmfRailPlan} from "./emfRail.ts";
 import { resolveUniformConstraints, inclineTrig } from "./uniformConstraints.ts";
 import type {HorizontalInitial} from './horizontalTypes.ts';
 import { resolveSpringEnergy } from "./springEnergy.ts";
@@ -13,7 +14,7 @@ import { validateMagneticReencounterPlan, type MagneticReencounterStage } from '
 import type { BodyDefinition, BodyStage } from './multiBodyTypes.ts';
 export type Energy = { stageIndex: number; elasticEnergyJ: number; origin: "given" | "user" | "spring_parameters" | "critical_arc_top" | "tangent_to_next_arc"; basis?: Record<string, number> };
 export type PlaybackScope = { mode: "full" | "suffix" | "state_only"; startStageIndex: number; unresolvedKeys: string[]; reason: string; xM?: number; vxMps?: number; stopReason?: "stop_at_target" | "stop_before_target" | "prefix_end" };
-export type SingleStageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release" | "constant_force_1d" | "conveyor_belt" | "magnetic_deflection" | "movable_arc" | "movable_semicircle" | "spring_pair" | "circular_orbit" | "binary_circular_orbit";
+export type SingleStageKind = "incline_slide" | "lossless_turn" | "horizontal_slide" | "spring_contact" | "projectile" | "vertical_arc" | "spring_release" | "constant_force_1d" | "conveyor_belt" | "magnetic_deflection" | "movable_arc" | "movable_semicircle" | "spring_pair" | "circular_orbit" | "binary_circular_orbit" | "emf_rail";
 export type StageKind = SingleStageKind | BodyStage['kind'] | SwitchableEMStage['kind'] | MagneticReencounterStage['kind'];
 export type ProjectileBounce = {
   normalRestitution: number;
@@ -29,6 +30,7 @@ export type SingleStage =
   | import("./magneticDeflection.ts").MagneticDeflectionStage
   | import("./movableArc.ts").MovableArcStage
   | import("./binaryCircularOrbit.ts").BinaryCircularOrbitStage
+  | import("./emfRail.ts").EmfRailStage
   | import("./circularOrbit.ts").CircularOrbitStage
   | import("./movableSemicircle.ts").MovableSemicircleStage
   | import("./springPair.ts").SpringPairStage
@@ -79,12 +81,12 @@ export type StagePlanFailure = {
 };
 export type StagePlanValidation = { ok: true; reading: ResolvedStagePlan; playback?: PlaybackScope } | StagePlanFailure;
 
-const stageKinds: readonly string[] = ["incline_slide", "lossless_turn", "horizontal_slide", "spring_contact", "projectile", "vertical_arc", "spring_release", "constant_force_1d", "conveyor_belt", "magnetic_deflection", "movable_arc", "movable_semicircle", "spring_pair", "circular_orbit", "binary_circular_orbit"];
+const stageKinds: readonly string[] = ["incline_slide", "lossless_turn", "horizontal_slide", "spring_contact", "projectile", "vertical_arc", "spring_release", "constant_force_1d", "conveyor_belt", "magnetic_deflection", "movable_arc", "movable_semicircle", "spring_pair", "circular_orbit", "binary_circular_orbit", "emf_rail"];
 const positive = (value: number) => value > 0;
 const nonnegative = (value: number) => value >= 0;
 const finite = (_value: number) => true;
 const numericRules: Record<StageKind, Record<string, (value: number) => boolean>> = {
-  switchable_em_collision: {}, magnetic_reencounter: {}, horizontal_approach: {}, pendulum_swing: {}, collision_1d: {}, parallel_motion: {}, block_plank: {}, pulley_system: {},
+  switchable_em_collision: {}, magnetic_reencounter: {}, horizontal_approach: {}, pendulum_swing: {}, collision_1d: {}, parallel_motion: {}, block_plank: {}, pulley_system: {}, emf_rail: {},
   incline_slide: { lengthM: positive, angleDeg: (value) => value > 0 && value < 90, kineticFrictionCoefficient: nonnegative },
   lossless_turn: {},
   horizontal_slide: { kineticFrictionCoefficient: nonnegative },
@@ -107,6 +109,7 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 export function validateStagePlan(input: unknown): StagePlanValidation {
+  if (record(input) && Array.isArray(input.stages) && input.stages.some(s=>record(s)&&s.kind==="emf_rail")) return validateEmfRailPlan(input);
   if (record(input) && Array.isArray(input.stages) && input.stages.some(s=>record(s)&&s.kind==="binary_circular_orbit")) return validateBinaryCircularOrbitPlan(input);
   if (record(input) && Array.isArray(input.stages) && input.stages.some(stage => record(stage) && stage.kind === 'switchable_em_collision')) {
     return validateSwitchableEMPlan(input);

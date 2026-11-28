@@ -53,6 +53,7 @@ const FILES = [
   { from: "src/physics/movableSemicircle.ts", to: "functions/movableSemicircle.ts" },
   { from: "src/physics/springPair.ts", to: "functions/springPair.ts" },
   { from: "src/physics/uniformConstraints.ts", to: "functions/uniformConstraints.ts" },
+  { from: "src/physics/emfRail.ts", to: "functions/emfRail.ts" },
   { from: "src/physics/stagePlan.ts", to: "functions/stagePlan.ts" },
   { from: "src/api/stageTypes.ts", to: "functions/stageTypes.ts" },
   { from: "src/api/stageStatus.ts", to: "functions/stageStatus.ts" },

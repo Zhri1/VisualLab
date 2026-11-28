@@ -10,6 +10,7 @@ const STAGE_LABELS: Record<StageKind, string> = {
   lossless_turn: "无损转向",
   horizontal_slide: "水平滑动",
   constant_force_1d: "常力匀变速",
+  emf_rail: "电磁感应导轨",
   conveyor_belt: "传送带与滑块",
   spring_contact: "弹簧接触",
   projectile: "抛体运动",
@@ -112,6 +113,16 @@ const NUMBER_FIELDS: Partial<Record<StageKind, NumberMeta[]>> = {
     { key: "altitudeM", label: "轨道高度 h（可选）", unit: "m", step: 1e4, hint: "r = R + h" },
     { key: "orbits", label: "观察圈数", unit: "圈", step: 0.5 },
   ],
+  emf_rail: [
+    { key: "magneticTeslaB", label: "磁感应强度 B", unit: "T", step: 0.1, hint: "垂直导轨平面" },
+    { key: "railSpacingM", label: "导轨间距 L", unit: "m", step: 0.1, hint: "同时是棒的有效长度" },
+    { key: "totalResistanceOhm", label: "回路总电阻 R", unit: "Ω", step: 0.1, hint: "含棒电阻与外接电阻" },
+    { key: "rodMassKg", label: "导体棒质量 m", unit: "kg", step: 0.1 },
+    { key: "initialSpeedMps", label: "初速度 v₀", unit: "m/s", step: 0.5, hint: "非负；反向运动用负外力表达" },
+    { key: "externalForceN", label: "恒定外力 F（可选）", unit: "N", step: 0.1, hint: "沿 +x 为正，无外力填 0" },
+    { key: "kineticFrictionCoefficient", label: "动摩擦因数 μ（可选）", unit: "", step: 0.05, hint: "光滑导轨填 0" },
+    { key: "gravityMps2", label: "重力加速度 g", unit: "m/s²", step: 0.1 },
+  ],
 };
 
 const ROUGH_SPRING_FIELDS: NumberMeta[] = [
@@ -165,6 +176,7 @@ function blankStage(kind: StageKind): Record<string, unknown> {
   if (kind === "switchable_em_collision") return { kind, scaleMode: "normalized", targetMassRatio: null, targetChargeRatio: null, entryXOverLength: null, collisionXOverLength: null, collisionYOverLength: null, switchOffXOverLength: null, fieldDirection: "out_of_page", gravityAndMutualForcesNegligible: true };
   if (kind === "magnetic_reencounter") return { kind, scaleMode: "normalized", massScaleKg: 1, chargeScaleC: 1, magneticTeslaB: 1, lengthScaleM: 1, fieldDirection: "into_page", entryOverLength: { x: 2, y: 0 }, entryDirection: { x: 0, y: 1 }, contactOverLength: { x: 0, y: 0 }, postFirstCollisionSpeedRatioA: -3, periodRatioAOverB: 2, observationTimeOverPiTau: 18, gravityAndMutualForcesNegligible: true };
   if (kind === "spring_pair") return { kind, springConstantNpm: 100, targetMassKg: null, separationSpeedMps: null, gapM: 0.5 };
+  if (kind === "emf_rail") return { kind, magneticTeslaB: null, railSpacingM: null, totalResistanceOhm: null, rodMassKg: null, initialSpeedMps: null, externalForceN: 0, kineticFrictionCoefficient: 0, gravityMps2: 10, fieldDirection: "into_page", end: { kind: "stop" } };
   if (kind === "spring_contact") return { kind, springConstantNpm: null, frictionless: null, unattached: null };
   if (kind === "vertical_arc") return { kind, radiusM: null, endAngleDeg: null, side: null, frictionless: null };
   return { kind, dropHeightM: null };
@@ -333,7 +345,7 @@ export function StagePlanEditor({ draft, onChange, missingKeys, fieldErrors }: P
 
   const initial = draft.initial ?? { speedMps: null };
   const firstKind = draft.stages[0]?.kind;
-  const usesStageOnlyConditions = firstKind === "switchable_em_collision" || firstKind === "magnetic_reencounter" || firstKind === "binary_circular_orbit";
+  const usesStageOnlyConditions = firstKind === "switchable_em_collision" || firstKind === "magnetic_reencounter" || firstKind === "binary_circular_orbit" || firstKind === "emf_rail";
   const components = firstKind === "projectile" || "vxMps" in initial || "vyMps" in initial;
   const conveyorInit = firstKind === "conveyor_belt";
   const showMass = !usesStageOnlyConditions && ("massKg" in draft || flagged("/massKg") || draft.stages.some((stage) => stage.kind === "spring_release" || stage.kind === "spring_contact" || stage.kind === "vertical_arc" || stage.kind === "constant_force_1d" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair"));

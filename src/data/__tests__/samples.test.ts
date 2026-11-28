@@ -16,13 +16,13 @@ function build(input: unknown) {
 }
 
 /** 单阶段示例：只有一段运动，事件数与段数下限相应放宽。 */
-const SINGLE_STAGE_IDS = new Set(["pulley-ground-slack", "circular-orbit", "binary-circular-orbit"]);
+const SINGLE_STAGE_IDS = new Set(["pulley-ground-slack", "circular-orbit", "binary-circular-orbit", "emf-rail-friction"]);
 /** 事件天然偏少的示例（单段或事件合并）。 */
-const FEW_EVENT_IDS = new Set(["conveyor-accel", "circular-orbit", "binary-circular-orbit"]);
+const FEW_EVENT_IDS = new Set(["conveyor-accel", "circular-orbit", "binary-circular-orbit", "emf-rail-friction"]);
 
 describe("内置示例题库（多过程多模型高考压轴题 + 传送带）", () => {
-  it("恰好 14 道题、id 唯一、默认示例存在且全部附带真实存在的原题图片", () => {
-    expect(SAMPLES.length).toBe(14);
+  it("恰好 15 道题、id 唯一、默认示例存在且全部附带真实存在的原题图片", () => {
+    expect(SAMPLES.length).toBe(15);
     const ids = SAMPLES.map((sample) => sample.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(getSample("missing-id").id).toBe(SAMPLES[0].id);
@@ -114,5 +114,32 @@ describe("内置示例题库（多过程多模型高考压轴题 + 传送带）"
     expect(kinds).toContain("apex");
     expect(kinds).toContain("reach_bottom");
     expect(motion.stageGeometry?.landmarks?.map((l) => l.label)).toEqual(["A", "B", "C", "D", "E"]);
+  });
+
+  it("emf-rail-friction 为电磁感应单杆模型：安培力指数衰减、摩擦使其在有限时间内停下", () => {
+    const motion = build(getSample("emf-rail-friction").reading);
+    expect(motion.segments.map((s) => s.kind)).toEqual(["emf_rail"]);
+    expect(motion.events.map((e) => e.eventKind)).toEqual(["emf_start", "emf_force_balance", "emf_stop"]);
+    // 初速 10 m/s；安培力衰减到与摩擦力（0.2 N）相等时 v = μmgR/(B²L²) = 0.32 m/s。
+    expect(Math.abs(motion.events[0].velocityAfter!.x)).toBeCloseTo(10, 6);
+    expect(Math.abs(motion.events[1].velocityAfter!.x)).toBeCloseTo(0.32, 6);
+    expect(Math.abs(motion.events[2].velocityAfter!.x)).toBeCloseTo(0, 9);
+    const value = (quantity: string) => motion.calculations!.find((c) => c.quantity === quantity)!.value;
+    expect(value("emf_travel")).toBeCloseTo(2.844312, 5);
+    expect(value("emf_charge")).toBeCloseTo(3.55539, 5);
+    // 能量守恒：焦耳热 + 摩擦热 = ½mv₀² = 10 J，且焦耳热占绝大部分。
+    const frictionHeat = 0.1 * 0.2 * 10 * value("emf_travel");
+    expect(value("emf_joule_heat") + frictionHeat).toBeCloseTo(10, 6);
+    expect(value("emf_joule_heat")).toBeGreaterThan(9);
+    // 电学读数必须经适配器透传到 UI 采样，画布才能画出 ε/I/F安。
+    expect(motion.stageGeometry?.emfRail?.railSpacingM).toBe(1);
+    const start = motion.sampleAt(0);
+    expect(start.emfRail?.emfV).toBeCloseTo(5, 9);
+    expect(start.emfRail?.currentA).toBeCloseTo(12.5, 9);
+    expect(start.emfRail?.ampereForceN).toBeCloseTo(6.25, 9);
+    const mid = motion.sampleAt(motion.durationSeconds / 2);
+    expect(mid.emfRail?.currentA).toBeGreaterThan(0);
+    expect(mid.emfRail!.currentA).toBeLessThan(start.emfRail!.currentA);
+    expect(getSample("emf-rail-friction").difficulty).toBe("中档");
   });
 });

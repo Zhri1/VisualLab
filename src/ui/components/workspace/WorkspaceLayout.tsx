@@ -263,6 +263,7 @@ export function WorkspaceLayout({ ws }: Props) {
     projectile: "抛体",
     vertical_arc: "圆弧",
     magnetic_deflection: "匀强磁场偏转",
+    emf_rail: "电磁感应导轨",
     switchable_em_collision: "分区电磁场与正碰",
     magnetic_reencounter: "磁场双粒子正碰与再相遇",
   } as const;

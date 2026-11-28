@@ -124,6 +124,7 @@ Node 服务与 Qoder 云函数识别新题时使用同一张映射表。
 | `movable_semicircle` | `radiusM`、`grooveMassKg`、`direction`、`frictionless`、`groundFrictionless`，详情见 [可平动半圆轨道契约](MOVABLE_SEMICIRCLE.md)。 | 正速从底部切向进入初静止的可平动半圆内轨，取样同时包含滑块与轨道运动，记录实际到顶、提前失去接触或首个转折点。 |
 | `spring_pair` | `springConstantNpm`、`targetMassKg`（可 null）、`separationSpeedMps`（可 null）、可选 `gapM`；入射球质量读顶层 `massKg`。 | 弹簧不锚墙的弹性双球作用：匀速走完 gap → 压缩 → 共速（Ep 最大）→ 恢复原长分离。`targetMassKg` 缺而给 `separationSpeedMps` 时反求 m₂ = m₁(u+s)/(u−s)。末段。 |
 | `circular_orbit` | `gravitationalParameterM3s2`（中心天体引力常量乘质量 $GM$，正值）、`orbitalRadiusM`（轨道半径 $r$）或互斥的 `altitudeM` + `centralBodyRadiusM`（$r = R + h$，给离地高度时必须提供中心天体半径）、可选 `direction`（`"ccw"` 默认逆时针 / `"cw"` 顺时针）、`initialAngleDeg`（默认 0°）、`orbits`（默认 1 圈）。无需顶层 `gravityMps2` 或 `massKg`。 | 固定中心天体与低质量单卫星圆周轨道运动：计算 $v = \sqrt{GM/r}$、$T = 2\pi\sqrt{r^3/(GM)}$、向心加速度 $a_c = GM/r^2$，完整播放指定圈数并输出轨道方向、速率与半径。椭圆轨道与霍曼转移不在本版范围。 |
+| `emf_rail` | `magneticTeslaB`（T，正值）、`railSpacingM`（m，正值）、`totalResistanceOhm`（Ω，正值）、`rodMassKg`（kg，正值）、`end`（`time` / `distance` / `speed` / `stop` / `terminal`），可选 `externalForceN`（默认 0）、`kineticFrictionCoefficient`（默认 0）、`gravityMps2`（默认 10）、`initialSpeedMps`（默认 0）、`fieldDirection`（`into_page` / `out_of_page`）。质量与重力写在段内，不用顶层 `massKg`、`gravityMps2`、`bodies`。详情见 [电磁感应导轨契约](EMF_RAIL.md)。 | 单棒在水平平行导轨上切割磁感线，按 $m\,dv/dt = F - \mu mg - B^2L^2v/R$ 的解析解求速度、位移、感应电动势、电流与安培力；输出 `emf_start`、`emf_terminal`、`emf_force_balance`、`emf_stop`、`emf_end` 事件与电荷量、焦耳热、收尾速度、特征时间四项派生量。 |
 
 `horizontal_slide.end` 原有 `distance/stop` 两种互斥分支保持兼容。指定距离时，库比较到达目标与因摩擦停止两个事件。停止更早时返回 `stop_before_target`，恰好同时发生时停止优先，返回 `stop_at_target`。只指定 `stop` 时，以停止为目标。光滑面上有正初速且要求因摩擦停止，返回可定位的前提冲突。
 
@@ -269,3 +270,5 @@ const nextPlan = {
 | 5. 原斜面弹簧 | 第 3 节 [规划书](PROJECT_PLAN_FINAL.md) 的原题和数值回归通过。原题约 2.2361 s 接触、2.3146 s 压缩最短，最大压缩量约 0.2012 m，脱离速率约 4.0249 m/s。 |
 
 对第 1、4 条读取斜面末端附近的 `t−ε`、`t` 和 `t+ε`。完整计划在 `t+ε` 进入减速，速度为 (6 − 2ε, 0) m/s。前缀计划在 `t+ε` 钳制到保留斜向速度的末帧。对第 2、3 条检查最后事件为 `stop`，越界取样仍为静止，播放列表与字幕中均无飞行和落地。A、C 联调时另测缺少整块 `end`、缺少距离以及距离非法这三种回包。
+
+[电磁感应导轨](EMF_RAIL.md) 登记单棒在**水平**平行导轨上切割垂直纸面匀强磁场的模型，可带沿导轨的恒定外力与动摩擦，按指数解给出速度、位移、电荷量与焦耳热。阶段只能单独出现，不与其他阶段串接；棒长取导轨间距 $L$，回路电阻取总电阻 $R$。双棒、倾斜/竖直导轨、转动的线框、含电容或电感的回路、绕端点转动的棒切割均不在本模型范围。识别文案见 [vision-reading.v2 第24节](skills/vision-reading.v2.md)。

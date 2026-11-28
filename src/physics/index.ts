@@ -28,6 +28,9 @@ export type { PulleyStage, PulleySurface, PulleyGeometry } from './pulleyTypes.t
 export type { ConveyorBeltStage, ConveyorBeltSegment, ConveyorEdge, ConveyorReading, ConveyorGeometry } from './conveyorBelt.ts';
 export { solveCircularOrbit, resolveOrbitalRadiusM } from './circularOrbit.ts';
 export type { CircularOrbitStage, CircularOrbitGeometry, CircularOrbitSample, CircularOrbitSolution } from './circularOrbit.ts';
+export { solveEmfRail, emfRailParameters, validateEmfRailPlan } from './emfRail.ts';
+export type { EmfRailStage, EmfRailGeometry, EmfRailSample, EmfRailSolution, EmfRailEnd } from './emfRail.ts';
+export { computeEmfRailMotion } from './emfRailMotion.ts';
 export { solveMovableArc, solveMovableArcBottom, movableArcCriticalEntrySpeed } from './movableArc.ts';
 export type { MovableArcStage, MovableArcSample, MovableArcSolution } from './movableArc.ts';
 export { solveSpringPair } from './springPair.ts';

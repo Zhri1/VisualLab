@@ -19,6 +19,7 @@ const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "f
   movable_arc: { name:'可移动圆弧槽', summary:'槽置于光滑地面可自由滑动：球槽系统水平动量守恒、机械能守恒，球离槽时两者反向分离。', formula:'m·v球 + M·V槽 = 0；mgR = ½mv球² + ½MV槽²' },
   binary_circular_orbit: {name:"双星圆轨道",summary:"两星绕固定质心以共同周期同步运行，星间距保持不变。",formula:"T² = 4π²d³/[G(m₁+m₂)]，m₁r₁=m₂r₂"},
   circular_orbit: { name:'圆周轨道运动', summary:'固定中心天体与低质量单卫星做匀速圆周轨道运动，由万有引力提供向心力决定速率与周期。', formula:'v = √(GM/r)，T = 2π√(r³/(GM))，a = GM/r²' },
+  emf_rail: { name:'电磁感应导轨', summary:'导体棒在匀强磁场中的平行导轨上切割磁感线，安培力随速度增大，速度按指数趋近收尾值或逐渐减为零。', formula:'ε = BLv，I = ε/R，F安 = B²L²v/R，q = BLx/R' },
   spring_pair: { name:'自由弹簧双球', summary:'弹簧不锚墙：入射球经弹簧与静止球弹性作用，共速时压缩最大，恢复原长后分离。', formula:'v共 = m₁u/(m₁+m₂)；Ep_max = ½m₁u² − ½(m₁+m₂)v共²' },
   magnetic_deflection: { name:'匀强磁场偏转', summary:'洛伦兹力提供向心力，带电粒子在磁场区域内做匀速圆周；穿出边界或转过半圆后离开。', formula:'R = mv/(|q|B)，F = qv×B' },
   horizontal_approach: {name:'水平接近',summary:'各物体按题给初位、带符号速度和各自摩擦同钟运动。',formula:'xᵢ = xᵢ₀ + vᵢ₀t + aᵢt²/2'},
@@ -83,6 +84,7 @@ function segmentKind(kind: StageKind): SegmentKind {
   if (kind === "spring_pair") return "spring_pair";
   if (kind === "binary_circular_orbit") return "circular_orbit";
   if (kind === "circular_orbit") return "circular_orbit";
+  if (kind === "emf_rail") return "emf_rail";
   return "horizontal";
 }
 
@@ -194,6 +196,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
         position: vec(sample.xM, sample.yM),
         velocity: vec(sample.vxMps, sample.vyMps),
         springCompressionM: sample.springCompressionM,
+        ...(sample.emfRail ? { emfRail: { ...sample.emfRail } } : {}),
         ...(sample.constraint ? { constraint: { ...sample.constraint } } : {}),
       };
     },

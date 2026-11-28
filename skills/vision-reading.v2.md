@@ -13,6 +13,7 @@
 | **可自由滑动的圆弧槽 / 可平动半圆轨道 / 不锚墙弹簧连两球** | 动量守恒专用模型（第 17、17.1、18 节） | 顶层 `massKg`（滑块/球）+ `initial: { speedMps }`；槽/轨道质量写段内 `grooveMassKg`，靶球质量写段内 `targetMassKg` | 不写 `bodies`；可平动半圆内轨（底部带速进入）用 `movable_semicircle`，四分之一槽顶静止下滑用 `movable_arc`，固定圆轨用 `vertical_arc` |
 | **匀强磁场偏转**（垂直纸面的匀强磁场，区内忽略重力；可接仅受重力的抛体） | 单物体多阶段（第 20 节） | 顶层 `massKg` 必填；磁场首段水平向右用 `{ speedMps }`，分量初态用 `{ vxMps, vyMps }`；接抛体需顶层 `gravityMps2` | 不把实际出射速度写成新初态，不把对入射地面的高度写成出射点落差 |
 | **分区电磁场 + 双粒子弹性正碰 + 撤场恢复**（y>0 向下匀强电场，y<0 垂直纸面匀强磁场，碰后按竖线撤场、两圆外切恢复） | 复合电磁模型（第 21 节） | 唯一阶段 `switchable_em_collision`，顶层 `initial: { speedMps: null }`（标度放段内）；符号题设 `scaleMode: "normalized"` | 不拆成 `magnetic_deflection` 或多体 `collision_1d`；不代算 E、B、等待时间或路程 |
+| **导体棒切割磁感线**（水平平行导轨 + 垂直纸面匀强磁场，含摩擦或恒定外力） | 电磁感应单杆（第 24 节） | 唯一阶段 `emf_rail`，`initial: { speedMps }` 与段内 `initialSpeedMps` 保持一致 | **不写顶层 `massKg` / `gravityMps2` / `bodies` / `primaryBodyId`**（全写在段内）；不拆成 `magnetic_deflection`；不自算收尾速度、电荷量、焦耳热或停止时间 |
 | **不支持题型**（未登记的电磁模型、椭圆/三星/变轨、热光原、机械波等） | 超范围（第 6 节） | `stages: []` + 非空 `unsupportedReason` | 不硬套不匹配的阶段 |
 
 轻绳摆和最低点两物体正碰另按第9节输出，使用body表，不套旧顶层massKg。
@@ -147,6 +148,7 @@
 | `movable_semicircle` | `radiusM`、`grooveMassKg`、`direction`（`"right"` / `"left"`）、`frictionless`、`groundFrictionless` | 第17.1节；静置光滑水平面、可自由水平平动的光滑竖直半圆内轨，滑块从底部带正速切向进入；可独立或接在水平匀速 `conveyor_belt` 之后 |
 | `spring_pair` | 可选 `springConstantNpm`（未给填 `null` 默认 100）、`targetMassKg`（可 `null`）、`separationSpeedMps`（可 `null`）、可选 `matchGrooveSpeed`、`gapM` | 第18节；弹簧不锚墙、另一端自由；`targetMassKg`、`separationSpeedMps`、`matchGrooveSpeed: true`（紧接 `movable_arc` 且题面称「恰好不能再次滑上圆弧槽」）三者至少给一个；k 未给时直接填 `null`（不影响速度、质量与最大弹性势能） |
 | `switchable_em_collision` | `scaleMode`、`massScaleKg`/`chargeScaleC`/`lengthScaleM`/`speedScaleMps`、`targetMassRatio`、`targetChargeRatio`、`entryXOverLength`、`collisionXOverLength`、`collisionYOverLength`、`switchOffXOverLength`、`fieldDirection`、`gravityAndMutualForcesNegligible` | 第21节；独立复合阶段：y>0 向下匀强电场、y<0 垂直纸面匀强磁场、定点弹性正碰、乙首次穿过竖线撤场、两回旋圆首次有效外切恢复磁场 |
+| `emf_rail` | `magneticTeslaB`（T）、`railSpacingM`（m）、`totalResistanceOhm`（Ω）、`rodMassKg`（kg）、`end`，可选 `externalForceN`（沿 +x 为正，默认 0）、`kineticFrictionCoefficient`（默认 0）、`gravityMps2`（默认 10）、`initialSpeedMps`（默认 0）、`fieldDirection`（`"into_page"` / `"out_of_page"`） | 第24节；单棒在水平平行导轨上切割磁感线，安培力随速度线性增大；`end` 四选一：`{kind:"time",durationSeconds}` / `{kind:"distance",distanceM}` / `{kind:"speed",speedMps}` / `{kind:"stop"}`；收尾速度、电荷量、焦耳热与停止时间全部由物理库计算 |
 
 阶段特有的事实写在阶段内，**没有全局 `facts`**。
 
@@ -172,7 +174,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 5. `vertical_arc` → `projectile`（使用固定 `landingPlaneYM`）、`horizontal_slide`、`incline_slide`、`lossless_turn`、`spring_contact`、`constant_force_1d`、`conveyor_belt`、`spring_pair` 或另一段 `vertical_arc`；同一题可出现多个 `vertical_arc` 或 `horizontal_slide`。实际到端点、先脱轨或回滑由物理库判定，不由模型预先删段
 6. `projectile` → `vertical_arc`（切向入弧）或 `incline_slide`（切向落入斜面）；若为「恰好沿切线进入下一段圆弧」则用 `end: { kind: "tangent_to_next_arc" }`
 7. `conveyor_belt` 实际离带后 → `projectile`、`horizontal_slide`、`spring_contact`、`vertical_arc`、`constant_force_1d`、`incline_slide`、`lossless_turn`、`spring_pair`、`movable_semicircle`；用 `continuationExitEdge` 写题面明确的接续端（见第 15 节）。水平向右匀速且未给带长但明确「足够长」时填 `lengthSufficientForCommonSpeed: true`，可接右向 `movable_semicircle`
-8. 单段独立：`incline_slide`、`horizontal_slide`、`spring_contact`、`projectile`、`vertical_arc`、`conveyor_belt`、`constant_force_1d`、`magnetic_deflection`、`movable_arc`、`movable_semicircle`、`spring_pair`、`switchable_em_collision` 都可以单独出现（`switchable_em_collision` 只能单独出现，不与其他阶段混用）
+8. 单段独立：`incline_slide`、`horizontal_slide`、`spring_contact`、`projectile`、`vertical_arc`、`conveyor_belt`、`constant_force_1d`、`magnetic_deflection`、`movable_arc`、`movable_semicircle`、`spring_pair`、`emf_rail`、`switchable_em_collision` 都可以单独出现（`switchable_em_collision` 与 `emf_rail` 只能单独出现，不与其他阶段混用）
 9. `spring_release`作为首段可独立，或接水平、弹簧接触、圆弧、抛体、传送带、斜面、转向；接续和距离/能量前提见第8节。
 10. `pendulum_swing → collision_1d → parallel_motion`（弹性）或碰后同绳`pendulum_swing`（粘连）；独立摆也合法，详细字段见第9节。
 11. `horizontal_approach → collision_1d → parallel_motion`，或只给有依据的前缀；字段见第10节，碰后可以滑动、飞行或继承已有绳。由B判定是否实际发生碰撞，不预删未发生的计划后段。
@@ -251,7 +253,7 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 
 出现下列任一情况，输出 `kind: "stage_plan"`、`stages: []`、`gravityMps2: null`、`initial: { "speedMps": null }`，并在 `unsupportedReason` 写一句中文：
 
-- 第 20、21 节以外的电磁模型，如电路、电磁感应、带电粒子在同一区域同时受电场和磁场作用，或磁区内重力不可忽略。匀强磁场偏转及出场后仅受重力的抛体按第 20 节处理；上下分区电磁场、定点正碰与撤场恢复按第 21 节处理。
+- 第 20、21、24 节以外的电磁模型，如纯电路计算（含电容、电感）、带电粒子在同一区域同时受电场和磁场作用、磁区内重力不可忽略、转动的线框（发电机/电动机模型）、变压器与交流电。匀强磁场偏转及出场后仅受重力的抛体按第 20 节处理；上下分区电磁场、定点正碰与撤场恢复按第 21 节处理；单棒在平行导轨上切割磁感线按第 24 节处理。
 - 未登记的圆周轨道、天体、第9、10、14、15、16、17、18节以外的碰撞/连接体/槽/弹簧系统、浮力热学、光学原子物理、机械波；轻绳摆、最低点正碰、独立水平正碰、传送带、可移动圆弧槽与自由弹簧双球已支持
 - 圆弧槽固定不动却写 `movable_arc`，或槽面/地面粗糙（本模型只支持双光滑）；弹簧另一端锚墙却写 `spring_pair`（锚墙用 `spring_contact`）
 - 不符合第8节前提的预压释放/能量题
@@ -967,3 +969,95 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
   "assumptions": ["题设使用符号基准 m、q、B、a，按归一化标度 1 演示"]
 }
 ```
+
+## 24. 单棒在水平平行导轨上切割磁感线（`emf_rail`）
+
+共享契约 `EMF_RAIL.md`。题面特征：两根**水平平行导轨**，左端（或右端）接一个电阻，一根**导体棒垂直于导轨**横放在上面，整个区域有**垂直纸面**的匀强磁场 $B$；棒沿导轨平动切割磁感线，回路中出现感应电动势与电流，安培力 $F = B^2L^2v/R$ 始终阻碍相对运动。可带摩擦或沿导轨方向的恒定外力。
+
+- 使用唯一阶段 `emf_rail`，**不与其他阶段混用**（`stages` 长度必须为 1）。
+- **不写**顶层 `massKg`、`gravityMps2`、`bodies`、`primaryBodyId`、`energy`、`constraints`、`scaleMode`；质量、重力加速度全部写在段内。
+- `initial` 只能写 `{ "speedMps": <与段内 initialSpeedMps 相同> }` 作占位，真正的初速以段内 `initialSpeedMps` 为准。
+- 字段提取：
+  - `magneticTeslaB`：磁感应强度 $B$（T）。题面写「磁感应强度为 $B$」而**只给符号**、没有数值时，本模型不适用，输出超范围。
+  - `railSpacingM`：导轨间距 $L$（m），也是棒在磁场中的有效长度。题面写「导轨宽 $L$」「棒长 $L$」都填这里。
+  - `totalResistanceOhm`：**回路总电阻** $R$（Ω）。题面分别给出棒电阻 $r$ 与外电阻 $R_0$ 时填 $r + R_0$；明确写「导轨电阻不计」时只取棒电阻。
+  - `rodMassKg`：导体棒质量 $m$（kg）。
+  - `externalForceN`：沿导轨方向的**恒定外力** $F$（N，沿 $+x$ 为正、反向为负），没有则填 `0` 或省略。
+  - `kineticFrictionCoefficient`：棒与导轨间的**动摩擦因数** $\mu$，光滑导轨填 `0` 或省略。题面只给静摩擦因数时视为动摩擦因数相同；只写「粗糙」而没给 $\mu$ 且后续求解依赖摩擦时，填 `null`。
+  - `gravityMps2`：$g$，默认 `10`。题面给了就照抄（如 `9.8`）。
+  - `initialSpeedMps`：$t=0$ 时棒的速率（m/s，**非负**）。从静止受恒力拉动填 `0`；反向运动用 `externalForceN` 负值表达，不要写负初速。
+  - `fieldDirection`：垂直纸面**向里**填 `"into_page"`（默认），**向外**填 `"out_of_page"`。
+  - `end`：观察终点，按下表选。
+- `end` 选择规则（**严禁代算任何物理量后再填**）：
+
+| 题面表述 | `end` 写法 |
+|---|---|
+| 「最终停下」「直到静止」 | `{ "kind": "stop" }` |
+| 「经 $t$ 时间」「$t$ 秒末」 | `{ "kind": "time", "durationSeconds": t }` |
+| 「滑行 $x$ 距离时」「移动 $x$ 后」 | `{ "kind": "distance", "distanceM": x }` |
+| 「速度减为 $v$ 时」 | `{ "kind": "speed", "speedMps": v }` |
+| 「足够长时间后」「最终匀速」「达到最大速度」 | `{ "kind": "terminal" }` |
+| 只问某个瞬时量、没给观察范围 | `{ "kind": "terminal" }`（有恒定外力时）或 `{ "kind": "stop" }`（有摩擦无外力时） |
+
+- **严禁代算**：收尾速度 $v_t = FR/(B^2L^2)$、通过回路的电荷量 $q = BLx/R$、焦耳热 $Q$、停止时间、任意时刻的速度与位移，全部由物理库按 $m\,dv/dt = F - \mu mg - B^2L^2v/R$ 的解析解给出。
+- 输出前自检：`end.kind === "stop"` 要求 $\mu > 0$ 或外力为负（否则棒只会渐近减速、不会在有限时间内停下）；`end.kind === "terminal"` 要求 $F - \mu mg > 0$。两者都不满足时物理库会报错，此时应改用 `time` 或 `distance`。
+
+示例（粗糙导轨给初速，棒最终停下）：
+
+```json
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "initial": { "speedMps": 10 },
+  "stages": [
+    {
+      "kind": "emf_rail",
+      "magneticTeslaB": 0.5,
+      "railSpacingM": 1.0,
+      "totalResistanceOhm": 0.4,
+      "rodMassKg": 0.2,
+      "externalForceN": 0,
+      "kineticFrictionCoefficient": 0.1,
+      "gravityMps2": 10,
+      "initialSpeedMps": 10,
+      "fieldDirection": "into_page",
+      "end": { "kind": "stop" }
+    }
+  ],
+  "assumptions": ["导轨水平且足够长，磁场垂直导轨平面向里"]
+}
+```
+
+示例（光滑导轨，恒力从静止拉动，观察至收尾速度）：
+
+```json
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "initial": { "speedMps": 0 },
+  "stages": [
+    {
+      "kind": "emf_rail",
+      "magneticTeslaB": 0.5,
+      "railSpacingM": 1.0,
+      "totalResistanceOhm": 0.4,
+      "rodMassKg": 0.2,
+      "externalForceN": 0.5,
+      "kineticFrictionCoefficient": 0,
+      "initialSpeedMps": 0,
+      "fieldDirection": "into_page",
+      "end": { "kind": "terminal" }
+    }
+  ],
+  "assumptions": ["导轨光滑且足够长，磁场垂直导轨平面向里"]
+}
+```
+
+**本模型不覆盖、必须判超范围的情形**：
+
+- 双棒或多棒（含「两棒先后进入磁场」「棒与框」）；
+- 导轨倾斜或竖直（棒沿斜面下滑切割磁感线）；
+- 线框整体转动（发电机/电动机模型）、变压器、交流电有效值；
+- 回路含电容器、电感，或要求分析充放电过程；
+- 棒绕过其一端的轴转动切割磁感线（$E = \frac12 B\omega L^2$）；
+- 需要求「棒上产生的热量」而回路还含其他电阻且题面未给分配关系（本模型只给回路总焦耳热）。

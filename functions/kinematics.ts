@@ -1,6 +1,10 @@
 // 由 scripts/sync-functions.mjs 从 src/physics/kinematics.ts 复制生成，请勿手改。
 // 改动请改源文件后重新运行：node scripts/sync-functions.mjs
-type MotionSample = { xM: number; yM: number; vxMps: number; vyMps: number; springCompressionM: number };
+type MotionSample = {
+  xM: number; yM: number; vxMps: number; vyMps: number; springCompressionM: number;
+  /** 电磁感应导轨的瞬时电学量（仅 emf_rail 阶段提供，其余阶段为 undefined）。 */
+  emfRail?: { emfV: number; currentA: number; ampereForceN: number };
+};
 
 export function linearState(xM: number, yM: number, vxMps: number, vyMps: number, axMps2: number, ayMps2: number, time: number): MotionSample {
   return {

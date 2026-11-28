@@ -1,9 +1,9 @@
 /**
  * 内置示例题库：覆盖高考物理主要模型族。
  *
- * 覆盖范围（14 道）：
+ * 覆盖范围（15 道）：
  * - 组合压轴：平抛入弧 / 碰后平抛 / 斜面-圆弧-弹簧 / 弹簧-跳台-斜抛 / 传送带 / 组合场 / 连接体 / 可移动圆弧槽；
- * - 单模型基础：万有引力圆轨道、双星系统、恒力一维（加速-匀速-减速）、弹性正碰后单摆上摆；
+ * - 单模型基础：万有引力圆轨道、双星系统、恒力一维（加速-匀速-减速）、弹性正碰后单摆上摆、电磁感应导轨减速；
  * - 电磁与多体压轴：匀强磁场两粒子正碰再相遇、传送带加速后冲上可平动半圆槽。
  *
  * 约定：
@@ -26,6 +26,7 @@ import constantForceThreeStage from "../../fixtures/constant-force-three-stage.r
 import conveyorMovableSemicircle from "../../fixtures/conveyor-movable-semicircle.reading.json";
 import magneticReencounter from "../../fixtures/magnetic-reencounter-hubei2023.reading.json";
 import horizontalCollisionPendulum from "../../fixtures/horizontal-collision-pendulum.reading.json";
+import emfRailFriction from "../../fixtures/emf-rail-friction.reading.json";
 
 export type SampleDifficulty = "基础" | "中档" | "压轴";
 
@@ -715,6 +716,53 @@ export const SAMPLES: Sample[] = [
       },
     ],
     reading: horizontalCollisionPendulum as WorkspaceReading,
+  },
+  {
+    id: "emf-rail-friction",
+    title: "电磁感应 · 粗糙导轨上导体棒的减速",
+    description: "单杆切割磁感线：安培力随速度减小而减弱，只有摩擦才能让棒真正停下，焦耳热要用能量守恒扣掉摩擦热。",
+    difficulty: "中档",
+    tags: ["电磁感应", "安培力", "电荷量", "焦耳热"],
+    imageUrl: "/samples/emf-rail-friction.svg",
+    problemText:
+      "如图，水平平行导轨间距 L = 1.0 m，处在磁感应强度 B = 0.5 T、方向垂直纸面向里的匀强磁场中，导轨左端接有 R = 0.4 Ω 的电阻（导轨与棒的电阻不计）。质量 m = 0.2 kg 的导体棒垂直于导轨，以 v₀ = 10 m/s 的初速度沿导轨向右滑上磁场区域，棒与导轨间的动摩擦因数 μ = 0.1，g 取 10 m/s²。求：(1) 棒刚滑上导轨时回路中的电流 I₀ 与棒所受安培力 F₀；(2) 棒最终停下时滑行的总距离 x 与通过回路的总电荷量 q；(3) 全过程回路中产生的焦耳热 Q。",
+    message:
+      "已建立电磁感应导轨模型：阻尼系数 B²L²/R = 0.625 N·s/m，特征时间 mR/(B²L²) = 0.32 s；安培力单独作用只能让速度指数趋近于零，是摩擦使棒在有限时间内停下。",
+    assumptions: [
+      "导轨水平且足够长，磁场垂直导轨平面向里",
+      "回路总电阻恒为 R = 0.4 Ω，忽略自感与端点效应",
+      "g = 10 m/s²，动摩擦因数 μ 恒定，棒始终垂直于导轨",
+    ],
+    questions: [
+      {
+        label: "(1) 初始电流与安培力",
+        formula: "ε₀ = BLv₀，I₀ = ε₀/R，F₀ = BI₀L",
+        substitution: "ε₀ = 0.5×1.0×10 = 5 V；I₀ = 5/0.4 = 12.5 A；F₀ = 0.5×12.5×1.0 = 6.25 N（方向向左）",
+      },
+      {
+        label: "(2) 总位移与总电荷量",
+        eventKind: "emf_stop",
+        formula: "m·dv/dt = −(B²L²/R)v − μmg → x = v_t t + (v₀−v_t)(1−e^(−λt))/λ；q = BLx/R",
+        substitution:
+          "λ = B²L²/(mR) = 3.125 s⁻¹，v_t = −μmgR/(B²L²) = −0.32 m/s，解得 t = 1.11 s、x = 2.84 m；q = 0.5×1.0×2.84/0.4 = 3.56 C",
+      },
+      {
+        label: "(3) 焦耳热",
+        eventKind: "emf_stop",
+        formula: "½mv₀² = Q + μmg·x",
+        substitution: "Q = ½×0.2×10² − 0.1×0.2×10×2.84 = 10 − 0.57 = 9.43 J（摩擦热仅 0.57 J）",
+      },
+    ],
+    practice: [
+      {
+        prompt: "若把导轨改成光滑（μ = 0），导体棒最终会怎样？",
+        options: ["在有限时间内停下", "速度无限趋近于零但永不真正停下", "保持 10 m/s 匀速运动"],
+        answer: 1,
+        explain:
+          "光滑时只有安培力，v = v₀e^(−λt) 是指数衰减，只在 t → ∞ 时趋近于零；位移趋于 v₀mR/(B²L²) = 3.2 m，焦耳热恰好等于 ½mv₀² = 10 J。",
+      },
+    ],
+    reading: emfRailFriction as WorkspaceReading,
   },
 ];
 
