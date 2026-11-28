@@ -11,6 +11,7 @@ import {
 } from "../gaokaoConstraints.ts";
 import { validateStagePlan } from "../stagePlan.ts";
 import { assembleStageScene, buildStageMotion } from "../stageMotion.ts";
+import { buildPlanResponse } from "../../api/validate.ts";
 
 describe("deriveProjectileTangentDrop", () => {
   it("平抛切向进入 -53° 正向圆弧：精确数值与来源记录正确", () => {
@@ -739,5 +740,78 @@ describe("第一阶段端到端验收：图 1、图 2 与合成变式", () => {
     const bad = validateStagePlan(overConstrained);
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.fieldErrors.some((e) => e.code === "PRECONDITION_CONFLICT")).toBe(true);
+  });
+
+  it("API 回包再编辑重算：图1改 stages[0].radiusM 0.9→1、图2改 stages[1].dropHeightM 0.8→1.2、改切线角与显式覆写冲突", () => {
+    // 1) 图1：buildPlanResponse → 编辑 stages[0].radiusM: 0.9 → 1.0 → 重算 vx ≈ 8.393 m/s
+    const fig1Raw = JSON.parse(readFileSync(resolve(process.cwd(), "fixtures/semicircle-projectile-tangent-arc.reading.json"), "utf8"));
+    const fig1Api = buildPlanResponse(fig1Raw);
+    expect(fig1Api.status).toBe("ok");
+    if (fig1Api.status !== "ok") return;
+    const fig1Edited = structuredClone(fig1Api.reading) as Record<string, any>;
+    fig1Edited.stages[0].radiusM = 1.0;
+    const fig1Rebuilt = assembleStageScene(fig1Edited);
+    expect(fig1Rebuilt.ok).toBe(true);
+    if (fig1Rebuilt.ok) {
+      const expectedVx = Math.sqrt(2 * 10 * 2.0) * (Math.cos((37 * Math.PI) / 180) / Math.sin((37 * Math.PI) / 180));
+      const launchEv = fig1Rebuilt.scene.motion.events.find((e) => e.kind === "projectile_launch");
+      expect(launchEv?.velocityAfter.vxMps).toBeCloseTo(expectedVx, 3);
+      expect(expectedVx).toBeCloseTo(8.393, 2);
+    }
+
+    // 2) 图1：改后段入口切线角 -37° → -53° 也能重新反求
+    const fig1AngleEdited = structuredClone(fig1Api.reading) as Record<string, any>;
+    fig1AngleEdited.stages[2].path.startAngleDeg = -53;
+    const fig1AngleRebuilt = assembleStageScene(fig1AngleEdited);
+    expect(fig1AngleRebuilt.ok).toBe(true);
+
+    // 3) 图1：用户显式覆写 initial.speedMps = 12 时不再被反求覆写，若不满足切线则报明确冲突
+    const fig1Override = structuredClone(fig1Api.reading) as Record<string, any>;
+    fig1Override.initial.speedMps = 12;
+    const fig1OverrideRes = assembleStageScene(fig1Override);
+    expect(fig1OverrideRes.ok).toBe(false);
+    if (!fig1OverrideRes.ok) {
+      expect(fig1OverrideRes.fieldErrors.some((e) => e.path === "/stages/2/path")).toBe(true);
+    }
+
+    // 4) 图2：buildPlanResponse → 编辑 stages[1].dropHeightM: 0.8 → 1.2 → 重算 vx ≈ 3.692 m/s、Ep ≈ 6.814 J
+    const fig2Raw = JSON.parse(readFileSync(resolve(process.cwd(), "fixtures/spring-projectile-arc-incline.reading.json"), "utf8"));
+    const fig2Api = buildPlanResponse(fig2Raw);
+    expect(fig2Api.status).toBe("ok");
+    if (fig2Api.status !== "ok") return;
+    const fig2Edited = structuredClone(fig2Api.reading) as Record<string, any>;
+    fig2Edited.stages[1].dropHeightM = 1.2;
+    const fig2Rebuilt = assembleStageScene(fig2Edited);
+    expect(fig2Rebuilt.ok).toBe(true);
+    if (fig2Rebuilt.ok) {
+      const expectedVx = Math.sqrt(2 * 10 * 1.2) * (Math.cos((53 * Math.PI) / 180) / Math.sin((53 * Math.PI) / 180));
+      const expectedEp = 0.5 * 1.0 * expectedVx * expectedVx;
+      expect(fig2Rebuilt.scene.motion.sampleAt(0).vxMps).toBeCloseTo(expectedVx, 3);
+      expect(expectedVx).toBeCloseTo(3.692, 2);
+      expect(fig2Rebuilt.scene.motion.calculations?.find((c) => c.quantity === "initial_elastic_energy")?.value).toBeCloseTo(expectedEp, 3);
+      expect(expectedEp).toBeCloseTo(6.814, 2);
+    }
+
+    // 5) 图2：改切线角 -53° → -37° 也能重新反求
+    const fig2AngleEdited = structuredClone(fig2Api.reading) as Record<string, any>;
+    fig2AngleEdited.stages[2].path.startAngleDeg = -37;
+    const fig2AngleRebuilt = assembleStageScene(fig2AngleEdited);
+    expect(fig2AngleRebuilt.ok).toBe(true);
+
+    // 6) 图2：用户显式改写 energy（origin="user"）时不再被反求覆盖，不自洽时报切线冲突
+    const fig2Override = structuredClone(fig2Api.reading) as Record<string, any>;
+    fig2Override.energy = { stageIndex: 0, elasticEnergyJ: 12, origin: "user" };
+    const fig2OverrideRes = assembleStageScene(fig2Override);
+    expect(fig2OverrideRes.ok).toBe(false);
+    if (!fig2OverrideRes.ok) {
+      expect(fig2OverrideRes.fieldErrors.some((e) => e.path === "/stages/2/path")).toBe(true);
+    }
+
+    // 7) 旧回包（无 derivedCalculations、无 end）保持原有严格校验行为
+    const legacyReading = structuredClone(fig1Api.reading) as Record<string, any>;
+    delete legacyReading.derivedCalculations;
+    legacyReading.stages[0].radiusM = 1.0;
+    const legacyRes = assembleStageScene(legacyReading);
+    expect(legacyRes.ok).toBe(false);
   });
 });

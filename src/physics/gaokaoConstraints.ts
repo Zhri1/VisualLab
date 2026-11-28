@@ -127,6 +127,7 @@ export type GaokaoPlanDraftInput = {
   stages: Array<Record<string, unknown>>;
   constraints?: unknown;
   energy?: unknown;
+  derivedCalculations?: unknown;
 };
 
 export type ResolveGaokaoImplicitResult =
@@ -548,6 +549,20 @@ export function deriveCriticalArcTopRadius(
 function hasGaokaoImplicitDeclarations(planDraft: GaokaoPlanDraftInput): boolean {
   const isSpringReleaseHead = planDraft.stages[0]?.kind === "spring_release";
   if (!isSpringReleaseHead && planDraft.constraints != null) return true;
+  if (
+    Array.isArray(planDraft.derivedCalculations) &&
+    (planDraft.derivedCalculations as unknown[]).some(
+      (c) =>
+        isRecord(c) &&
+        c.quantity === "projectile_launch_vx" &&
+        (c.rule === "tangent_to_next_arc_launch_vx" || c.rule === "tangent_to_next_arc"),
+    )
+  ) {
+    return true;
+  }
+  if (isRecord(planDraft.energy) && planDraft.energy.origin === "tangent_to_next_arc") {
+    return true;
+  }
   for (const stage of planDraft.stages) {
     if (!isRecord(stage)) continue;
     if (stage.kind === "projectile" && hasOwn(stage, "end") && stage.end !== undefined) return true;
@@ -700,31 +715,93 @@ export function resolveGaokaoImplicitParams(
       const hasPlane =
         hasOwn(stage, "landingPlaneYM") && stage.landingPlaneYM !== undefined && stage.landingPlaneYM !== null;
 
-      if (hasEnd) {
-        if (stage.end === null) {
-          addMissing(`${stagePath}/end`);
-          state = null;
-          continue;
-        }
-        if (!isRecord(stage.end)) {
-          addError(`${stagePath}/end`, "TYPE", "抛体结束条件须为对象。");
-          state = null;
-          continue;
-        }
-        if (stage.end.kind == null) {
-          addMissing(`${stagePath}/end/kind`);
-          state = null;
-          continue;
-        }
-        if (typeof stage.end.kind !== "string") {
-          addError(`${stagePath}/end/kind`, "TYPE", "抛体结束条件类型须为字符串。");
-          state = null;
-          continue;
-        }
-        if (stage.end.kind !== "tangent_to_next_arc") {
-          addError(`${stagePath}/end/kind`, "UNSUPPORTED", "未登记的抛体结束条件类型。");
-          state = null;
-          continue;
+      // 识别 API 回包再编辑场景：虽然规范化已移除 stage.end，但 derivedCalculations / energy.origin
+      // 仍记录了该段曾由 tangent_to_next_arc 反求初速/能量。只要用户未手工覆盖派生值，就允许重算。
+      const priorCalcs = Array.isArray(planDraft.derivedCalculations)
+        ? (planDraft.derivedCalculations as unknown[]).filter(isRecord)
+        : [];
+      const nearPrior = (actual: unknown, expected: unknown) =>
+        typeof actual === "number" &&
+        typeof expected === "number" &&
+        Number.isFinite(actual) &&
+        Number.isFinite(expected) &&
+        Math.abs(actual - expected) <= 1e-6 * Math.max(1, Math.abs(expected));
+      const nextStageForPrior = stages[i + 1];
+      const hasExplicitNextArc =
+        Boolean(nextStageForPrior) && nextStageForPrior.kind === "vertical_arc" && isRecord(nextStageForPrior.path);
+      const priorLaunchCalc = priorCalcs.find(
+        (c) =>
+          c.stageIndex === i &&
+          c.quantity === "projectile_launch_vx" &&
+          (c.rule === "tangent_to_next_arc_launch_vx" || c.rule === "tangent_to_next_arc"),
+      );
+      const priorArcEntryCalc = priorCalcs.find(
+        (c) => c.stageIndex === 0 && c.targetPath === "/initial/speedMps" && c.quantity === "arc_entry_speed" && c.rule === "energy_backprop_from_tangent_launch",
+      );
+      const priorSpringEnergyCalc = priorCalcs.find(
+        (c) => c.stageIndex === 0 && c.targetPath === "/energy/elasticEnergyJ" && c.quantity === "initial_elastic_energy" && c.rule === "energy_backprop_from_tangent_launch",
+      );
+      const rederiveStandalone =
+        !hasEnd &&
+        hasExplicitNextArc &&
+        i === 0 &&
+        hasDrop &&
+        !hasPlane &&
+        initial != null &&
+        priorLaunchCalc != null &&
+        priorLaunchCalc.targetPath === "/initial/vxMps" &&
+        nearPrior(initial.vxMps, priorLaunchCalc.value);
+      const rederiveArcPredecessor =
+        !hasEnd &&
+        hasExplicitNextArc &&
+        i === 1 &&
+        stages[0]?.kind === "vertical_arc" &&
+        !hasDrop &&
+        hasPlane &&
+        initial != null &&
+        priorArcEntryCalc != null &&
+        nearPrior(initial.speedMps, priorArcEntryCalc.value);
+      const rederiveSpringPredecessor =
+        !hasEnd &&
+        hasExplicitNextArc &&
+        i === 1 &&
+        stages[0]?.kind === "spring_release" &&
+        stages[0].springConstantNpm == null &&
+        stages[0].initialCompressionM == null &&
+        hasDrop &&
+        !hasPlane &&
+        isRecord(planDraft.energy) &&
+        planDraft.energy.origin === "tangent_to_next_arc" &&
+        (priorSpringEnergyCalc == null || nearPrior(planDraft.energy.elasticEnergyJ, priorSpringEnergyCalc.value));
+      const hasPriorRederive = rederiveStandalone || rederiveArcPredecessor || rederiveSpringPredecessor;
+
+      if (hasEnd || hasPriorRederive) {
+        if (hasEnd) {
+          if (stage.end === null) {
+            addMissing(`${stagePath}/end`);
+            state = null;
+            continue;
+          }
+          if (!isRecord(stage.end)) {
+            addError(`${stagePath}/end`, "TYPE", "抛体结束条件须为对象。");
+            state = null;
+            continue;
+          }
+          if (stage.end.kind == null) {
+            addMissing(`${stagePath}/end/kind`);
+            state = null;
+            continue;
+          }
+          if (typeof stage.end.kind !== "string") {
+            addError(`${stagePath}/end/kind`, "TYPE", "抛体结束条件类型须为字符串。");
+            state = null;
+            continue;
+          }
+          if (stage.end.kind !== "tangent_to_next_arc") {
+            addError(`${stagePath}/end/kind`, "UNSUPPORTED", "未登记的抛体结束条件类型。");
+            state = null;
+            continue;
+          }
         }
 
         const nextStage = stages[i + 1];
@@ -739,24 +816,27 @@ export function resolveGaokaoImplicitParams(
         }
 
         if (hasDrop || hasPlane) {
-          // 已知落差/固定落面 + 切向入弧：仅当出射水平初速待求时启用反求，否则视为过约束互斥。
+          // 已知落差/固定落面 + 切向入弧：仅当出射水平初速待求或携带未手工改写的派生来源时启用反求，否则视为过约束互斥。
           const isStandaloneInverse =
-            i === 0 && initial != null && initial.vxMps == null && hasDrop && !hasPlane;
+            rederiveStandalone ||
+            (i === 0 && initial != null && initial.vxMps == null && hasDrop && !hasPlane);
           const isArcPredecessorInverse =
-            i === 1 &&
-            stages[0]?.kind === "vertical_arc" &&
-            initial != null &&
-            initial.speedMps == null &&
-            !hasDrop &&
-            hasPlane;
+            rederiveArcPredecessor ||
+            (i === 1 &&
+              stages[0]?.kind === "vertical_arc" &&
+              initial != null &&
+              initial.speedMps == null &&
+              !hasDrop &&
+              hasPlane);
           const isSpringPredecessorInverse =
-            i === 1 &&
-            stages[0]?.kind === "spring_release" &&
-            stages[0].springConstantNpm == null &&
-            stages[0].initialCompressionM == null &&
-            planDraft.energy == null &&
-            hasDrop &&
-            !hasPlane;
+            rederiveSpringPredecessor ||
+            (i === 1 &&
+              stages[0]?.kind === "spring_release" &&
+              stages[0].springConstantNpm == null &&
+              stages[0].initialCompressionM == null &&
+              planDraft.energy == null &&
+              hasDrop &&
+              !hasPlane);
 
           if (!isStandaloneInverse && !isArcPredecessorInverse && !isSpringPredecessorInverse) {
             addError(

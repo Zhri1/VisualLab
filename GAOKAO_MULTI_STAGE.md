@@ -115,20 +115,34 @@ constraints: [{ kind: "critical_arc_top", stageIndex: 3 }]
 export type DerivedCalculation = {
   stageIndex: number;
   targetPath: string;
-  quantity: "projectile_drop_height" | "arc_radius" | "critical_arc_top_radius";
+  quantity:
+    | "projectile_drop_height"
+    | "projectile_launch_vx"
+    | "arc_entry_speed"
+    | "initial_elastic_energy"
+    | "arc_radius"
+    | "critical_arc_top_radius";
   value: number;
-  unit: "m";
+  unit: "m" | "m/s" | "J";
   source: "derived";
-  rule: "tangent_to_next_arc" | "arc_radius_from_drop" | "critical_arc_top";
+  rule:
+    | "tangent_to_next_arc"
+    | "tangent_to_next_arc_launch_vx"
+    | "energy_backprop_from_tangent_launch"
+    | "arc_radius_from_drop"
+    | "critical_arc_top"
+    | "bounce_apex_height";
   inputPaths: string[];
 };
 ```
+
+- **API 回包再编辑重算**：规范化回包会保留 `derivedCalculations`（及弹簧 `energy.origin = "tangent_to_next_arc"`）作为派生来源记录。工作台在 API 回包基础上修改落差 `dropHeightM`、前段圆弧半径 `radiusM` 或后段入口切线角 `startAngleDeg` 时，只要原派生出的初速或弹簧能量未被用户手工改写，再次走 `validateStagePlan → assembleScene` 会自动按同一反求公式重新推导；若用户显式覆写了初速/能量（或补齐弹簧 `k`、压缩量），则以用户给定值为准，不再覆写，不自洽时按原规则报冲突。
 
 ## 3. 错误代码与 JSON Pointer 定位总表
 
 | 场景 | 错误路径 `path` | 错误码 `code` | 说明 |
 |---|---|---|---|
-| `tangent_to_next_arc` 与 `dropHeightM` / `landingPlaneYM` 共存 | `/stages/<i>` | `PRECONDITION_CONFLICT` | 抛体落差声明互斥 |
+| `tangent_to_next_arc` 与 `dropHeightM` / `landingPlaneYM` 共存（非反求初速/能量场景） | `/stages/<i>` | `PRECONDITION_CONFLICT` | 仅在待反求水平出射速度/前段能量（或携带未手工改写的 `derivedCalculations` 派生来源）时允许共存；已给定固定初速/能量时视为过约束互斥 |
 | `tangent_to_next_arc` 后继非显式 `path` 圆弧 | `/stages/<i>/end` | `PRECONDITION_CONFLICT` | 缺少目标圆弧入口切向 |
 | 圆弧入口角为 $\pm 90^\circ$（$\cos\varphi_0 = 0$） | `/stages/<i+1>/path/startAngleDeg` | `PRECONDITION_CONFLICT` | 竖直切线无法由水平速度反求 |
 | $v_x$ 与 $d\cos\varphi_0$ 异号或 $v_x = 0$ | `/stages/<i>/end` | `PRECONDITION_CONFLICT` | 水平速度与切向相反 |

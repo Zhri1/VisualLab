@@ -254,7 +254,17 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
       }
     }
   }
+  const hasPriorInverseTangent =
+    (Array.isArray(input.derivedCalculations) &&
+      (input.derivedCalculations as unknown[]).some(
+        (c) =>
+          record(c) &&
+          (c.rule === "tangent_to_next_arc_launch_vx" || c.rule === "tangent_to_next_arc") &&
+          c.quantity === "projectile_launch_vx",
+      )) ||
+    (record(input.energy) && input.energy.origin === "tangent_to_next_arc");
   const hasGaokaoImplicit = nonSpringConstraints
+    || hasPriorInverseTangent
     || stages.some((s) => (s.kind === "projectile" && Object.prototype.hasOwnProperty.call(s, "end"))
       || (s.kind === "vertical_arc" && Object.prototype.hasOwnProperty.call(s, "verticalDropM")));
   if (nonSpringConstraints) draft.constraints = input.constraints;
@@ -797,6 +807,7 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
       initial: normalizedInitial,
       stages: draft.stages,
       ...(input.energy != null ? { energy: input.energy } : {}),
+      ...(Array.isArray(input.derivedCalculations) ? { derivedCalculations: input.derivedCalculations } : {}),
       ...(nonSpringConstraints ? { constraints: input.constraints } : {}),
     });
     if (solved.ok) {

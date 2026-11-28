@@ -18,7 +18,7 @@ export function resolveSpringEnergy(input: Obj, draft: StagePlanDraft, missing: 
   const mu = s.kineticFrictionCoefficient as number, muh = h?.kineticFrictionCoefficient as number;
   let k = s.springConstantNpm as number | null, c = s.initialCompressionM as number | null;
   let energy: Energy | undefined = draft.energy;
-  if (input.energy != null) {
+  if (input.energy != null && !(draft.energy && draft.energy.origin === "tangent_to_next_arc")) {
     if (!object(input.energy)) issue("/energy", "TYPE", "能量记录须为对象。");
     else {
       const raw = input.energy, target: Obj = { origin: raw.origin };
