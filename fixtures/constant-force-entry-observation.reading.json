@@ -1,0 +1,8 @@
+{
+  "kind":"stage_plan", "schemaVersion":1, "gravityMps2":10, "massKg":3,
+  "initial":{"speedMps":0},
+  "stages":[
+    {"kind":"constant_force_1d","netForceXN":null,"end":{"kind":"duration","durationSeconds":4},"kinematics":{"displacementM":24}},
+    {"kind":"vertical_arc","entryOnly":true,"radiusM":30,"side":"inside"}
+  ]
+}

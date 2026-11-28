@@ -85,6 +85,9 @@ describe("轻绳与理想定滑轮连接体：共享基准与约束切换", () =
     });
     expect(smoothInclineSlack.events.some((e: any) => e.kind === "turn_around")).toBe(true);
     expect(smoothInclineSlack.endReason).toBe("prefix_end");
+    // 斜面底端与地面齐平，绝不向下穿过地面支撑线
+    expect(smoothInclineSlack.geometry.pulley.body1Start.yM).toBeGreaterThanOrEqual(smoothInclineSlack.geometry.pulley.groundYM - 1e-9);
+    expect(smoothInclineSlack.geometry.pulley.body2Start.yM).toBeLessThan(0);
 
     const noHit: any = assembleScene({
       kind: "stage_plan", schemaVersion: 1, gravityMps2: 10,

@@ -19,6 +19,7 @@ const ROOT = resolve(__dirname, '../../..');
 /** 与 scripts/sync-functions.mjs 的 FILES 一致 */
 const FILES = [
   { from: 'src/physics/arcTypes.ts', to: 'functions/arcTypes.ts' },
+  { from: 'src/physics/criticalRodArc.ts', to: 'functions/criticalRodArc.ts' },
   { from: 'src/physics/circularArc.ts', to: 'functions/circularArc.ts' },
   { from: 'src/physics/bodyPlanError.ts', to: 'functions/bodyPlanError.ts' },
   { from: 'src/physics/horizontalKinematics.ts', to: 'functions/horizontalKinematics.ts' },
@@ -40,10 +41,14 @@ const FILES = [
   { from: 'src/physics/magneticDeflection.ts', to: 'functions/magneticDeflection.ts' },
   { from: 'src/physics/movableArc.ts', to: 'functions/movableArc.ts' },
   { from: 'src/physics/springPair.ts', to: 'functions/springPair.ts' },
+  { from: 'src/physics/uniformConstraints.ts', to: 'functions/uniformConstraints.ts' },
   { from: 'src/physics/stagePlan.ts', to: 'functions/stagePlan.ts' },
   { from: 'src/api/stageTypes.ts', to: 'functions/stageTypes.ts' },
   { from: 'src/api/stageStatus.ts', to: 'functions/stageStatus.ts' },
   { from: 'src/api/legacyBridge.ts', to: 'functions/legacyBridge.ts' },
+  { from: 'src/rag/types.ts', to: 'functions/rag/types.ts' },
+  { from: 'src/rag/corpus.ts', to: 'functions/rag/corpus.ts' },
+  { from: 'src/rag/retriever.ts', to: 'functions/rag/retriever.ts' },
 ];
 
 /** 与 scripts/sync-functions.mjs 的 withDenoExtensions 一致 */

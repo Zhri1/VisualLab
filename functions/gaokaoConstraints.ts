@@ -1,5 +1,6 @@
 // 由 scripts/sync-functions.mjs 从 src/physics/gaokaoConstraints.ts 复制生成，请勿手改。
 // 改动请改源文件后重新运行：node scripts/sync-functions.mjs
+import { inclineTrig } from "./uniformConstraints.ts";
 import { arcTrig } from "./circularArc.ts";
 
 export type ArcDirection = "positive" | "negative";
@@ -7,11 +8,26 @@ export type ArcDirection = "positive" | "negative";
 export type DerivedCalculation = {
   stageIndex: number;
   targetPath: string;
-  quantity: "projectile_drop_height" | "arc_radius" | "critical_arc_top_radius";
+  quantity:
+    | "net_force" | "resistance" | "friction_coefficient"
+    | "projectile_drop_height"
+    | "arc_radius"
+    | "critical_arc_top_radius"
+    | "projectile_launch_vx"
+    | "arc_entry_speed"
+    | "initial_elastic_energy";
   value: number;
-  unit: "m";
+  unit: "m" | "m/s" | "J" | "N" | "1";
   source: "derived";
-  rule: "tangent_to_next_arc" | "arc_radius_from_drop" | "critical_arc_top";
+  rule:
+    | "arc_radius_from_horizontal_span"
+    | "uniform_acceleration"
+    | "tangent_to_next_arc"
+    | "tangent_to_next_arc_launch_vx"
+    | "energy_backprop_from_tangent_launch"
+    | "arc_radius_from_drop"
+    | "critical_arc_top"
+    | "bounce_apex_height";
   inputPaths: string[];
 };
 
@@ -50,6 +66,28 @@ export type ProjectileTangentDropResult =
     }
   | GaokaoConstraintError;
 
+export type ProjectileTangentLaunchSpeedParams = {
+  dropHeightM: number;
+  gravityMps2: number;
+  nextArcStartAngleDeg: number;
+  nextArcDirection: ArcDirection;
+  stageIndex?: number;
+  nextArcStageIndex?: number;
+  targetPath?: string;
+  inputPaths?: string[];
+};
+
+export type ProjectileTangentLaunchSpeedResult =
+  | {
+      ok: true;
+      vxMps: number;
+      flightSeconds: number;
+      entrySpeedMps: number;
+      entryVyMps: number;
+      calculation: DerivedCalculation;
+    }
+  | GaokaoConstraintError;
+
 export type ArcRadiusFromDropParams = {
   verticalDropM: number;
   startAngleDeg: number;
@@ -73,6 +111,7 @@ export type CriticalArcTopRadiusParams = {
   entrySpeedMps: number;
   gravityMps2: number;
   startAngleDeg?: number;
+  side?: "inside" | "rod";
   stageIndex?: number;
   constraintIndex?: number;
   inputPaths?: string[];
@@ -93,6 +132,8 @@ export type GaokaoPlanDraftInput = {
   initial?: Record<string, unknown> | null;
   stages: Array<Record<string, unknown>>;
   constraints?: unknown;
+  energy?: unknown;
+  derivedCalculations?: unknown;
 };
 
 export type ResolveGaokaoImplicitResult =
@@ -101,6 +142,8 @@ export type ResolveGaokaoImplicitResult =
       stages: Array<Record<string, unknown>>;
       calculations: DerivedCalculation[];
       consumedConstraintIndices: number[];
+      initial?: Record<string, unknown>;
+      energy?: { stageIndex: 0; elasticEnergyJ: number; origin: "tangent_to_next_arc" };
     }
   | {
       ok: false;
@@ -265,6 +308,105 @@ export function deriveProjectileTangentDrop(
 }
 
 /**
+ * 由平抛正落差 dropHeightM 与紧邻圆弧入口切向条件反求带符号水平出射速度 vxMps。
+ * 平抛下落 H > 0 到达入口时 vyEntry = -sqrt(2gH) < 0；
+ * 入口单位切向量 (d*cos(phi0), d*sin(phi0)) 须满足 cos(phi0) !== 0、sin(phi0) !== 0 且 d*sin(phi0) < 0，
+ * 由此唯一确定 vxMps = vyEntry * cos(phi0) / sin(phi0)。
+ */
+export function deriveProjectileTangentLaunchSpeed(
+  params: ProjectileTangentLaunchSpeedParams,
+): ProjectileTangentLaunchSpeedResult {
+  const stageIndex = params.stageIndex ?? 0;
+  const nextIdx = params.nextArcStageIndex ?? stageIndex + 1;
+  const stageEndPath = `/stages/${stageIndex}/end`;
+  const dropPath = `/stages/${stageIndex}/dropHeightM`;
+  const startAnglePath = `/stages/${nextIdx}/path/startAngleDeg`;
+  const directionPath = `/stages/${nextIdx}/path/direction`;
+
+  if (!Number.isFinite(params.dropHeightM)) {
+    return fail(dropPath, "NOT_FINITE", "平抛落差须为有限数。");
+  }
+  if (params.dropHeightM <= ZERO_TOL) {
+    return fail(dropPath, "RANGE", "由落差与切向入弧反求平抛初速时，落差须大于零。");
+  }
+  if (!Number.isFinite(params.gravityMps2)) {
+    return fail("/gravityMps2", "NOT_FINITE", "重力加速度须为有限数。");
+  }
+  if (params.gravityMps2 <= 0) {
+    return fail("/gravityMps2", "RANGE", "重力加速度须大于零。");
+  }
+  if (!Number.isFinite(params.nextArcStartAngleDeg)) {
+    return fail(startAnglePath, "NOT_FINITE", "圆弧入口角须为有限数。");
+  }
+  if (params.nextArcStartAngleDeg < -180 || params.nextArcStartAngleDeg > 180) {
+    return fail(startAnglePath, "RANGE", "圆弧入口角须在 [-180, 180] 度范围内。");
+  }
+  if (params.nextArcDirection !== "positive" && params.nextArcDirection !== "negative") {
+    return fail(directionPath, "UNSUPPORTED", "圆弧方向须为 positive 或 negative。");
+  }
+
+  const d = params.nextArcDirection === "positive" ? 1 : -1;
+  const phi0 = (params.nextArcStartAngleDeg * Math.PI) / 180;
+  const { sin, cos } = arcTrig(phi0);
+
+  if (Math.abs(cos) <= ZERO_TOL) {
+    return fail(
+      startAnglePath,
+      "PRECONDITION_CONFLICT",
+      "圆弧入口切线为竖直方向（cos(phi0) = 0），无法由平抛落差反求水平出射速度。",
+    );
+  }
+  if (Math.abs(sin) <= ZERO_TOL) {
+    return fail(
+      startAnglePath,
+      "PRECONDITION_CONFLICT",
+      "圆弧入口切线为水平方向（sin(phi0) = 0），无法在正落差平抛下切向入弧。",
+    );
+  }
+  if (d * sin >= -ZERO_TOL) {
+    return fail(
+      stageEndPath,
+      "PRECONDITION_CONFLICT",
+      "圆弧入口切线竖直分量未向下（d·sin(phi0) >= 0），平抛下落过程无法切向入弧。",
+    );
+  }
+
+  const entryVyMps = -Math.sqrt(2 * params.gravityMps2 * params.dropHeightM);
+  const flightSeconds = Math.sqrt((2 * params.dropHeightM) / params.gravityMps2);
+  const vxMps = entryVyMps * (cos / sin);
+  const entrySpeedMps = Math.hypot(vxMps, entryVyMps);
+  if (!Number.isFinite(vxMps) || !Number.isFinite(entrySpeedMps) || Math.abs(vxMps) <= ZERO_TOL) {
+    return fail(stageEndPath, "NOT_FINITE", "反求得到的平抛水平出射速度超出可表示范围。");
+  }
+
+  const calculation: DerivedCalculation = {
+    stageIndex,
+    targetPath: params.targetPath ?? (stageIndex === 0 ? "/initial/vxMps" : `/stages/${stageIndex}/launchVxMps`),
+    quantity: "projectile_launch_vx",
+    value: vxMps,
+    unit: "m/s",
+    source: "derived",
+    rule: "tangent_to_next_arc_launch_vx",
+    inputPaths: params.inputPaths ?? [
+      "/gravityMps2",
+      dropPath,
+      stageEndPath,
+      startAnglePath,
+      directionPath,
+    ],
+  };
+
+  return {
+    ok: true,
+    vxMps,
+    flightSeconds,
+    entrySpeedMps,
+    entryVyMps,
+    calculation,
+  };
+}
+
+/**
  * 由圆弧入口角、圆心角与竖直落差 verticalDropM 反求半径 radiusM。
  * 竖直向下落差满足 verticalDropM = R * (cos(endAngle) - cos(startAngle))，要求 deltaCos > 1e-9。
  */
@@ -375,17 +517,18 @@ export function deriveCriticalArcTopRadius(
   }
 
   const cosPhi0 = arcTrig((startAngleDeg * Math.PI) / 180).cos;
-  const denomFactor = 3 + 2 * cosPhi0;
+  const isRod = params.side === "rod";
+  const denomFactor = (isRod ? 2 : 3) + 2 * cosPhi0;
   if (!Number.isFinite(denomFactor) || denomFactor <= DELTA_COS_TOL) {
     return fail(
       startAnglePath,
       "PRECONDITION_CONFLICT",
-      "入口角对应的能量系数 3 + 2*cos(phi0) 非正，无法反求临界半径。",
+      `入口角对应的能量系数 ${isRod ? 2 : 3} + 2*cos(phi0) 非正，无法反求临界半径。`,
     );
   }
 
   const radiusM = (params.entrySpeedMps * params.entrySpeedMps) / (params.gravityMps2 * denomFactor);
-  const topSpeedMps = Math.sqrt(params.gravityMps2 * radiusM);
+  const topSpeedMps = isRod ? 0 : Math.sqrt(params.gravityMps2 * radiusM);
   if (!Number.isFinite(radiusM) || radiusM <= 0 || !Number.isFinite(topSpeedMps)) {
     return fail(constraintPath, "NOT_FINITE", "反求得到的临界圆轨半径超出可表示范围。");
   }
@@ -412,6 +555,20 @@ export function deriveCriticalArcTopRadius(
 function hasGaokaoImplicitDeclarations(planDraft: GaokaoPlanDraftInput): boolean {
   const isSpringReleaseHead = planDraft.stages[0]?.kind === "spring_release";
   if (!isSpringReleaseHead && planDraft.constraints != null) return true;
+  if (
+    Array.isArray(planDraft.derivedCalculations) &&
+    (planDraft.derivedCalculations as unknown[]).some(
+      (c) =>
+        isRecord(c) &&
+        c.quantity === "projectile_launch_vx" &&
+        (c.rule === "tangent_to_next_arc_launch_vx" || c.rule === "tangent_to_next_arc"),
+    )
+  ) {
+    return true;
+  }
+  if (isRecord(planDraft.energy) && planDraft.energy.origin === "tangent_to_next_arc") {
+    return true;
+  }
   for (const stage of planDraft.stages) {
     if (!isRecord(stage)) continue;
     if (stage.kind === "projectile" && hasOwn(stage, "end") && stage.end !== undefined) return true;
@@ -537,6 +694,8 @@ export function resolveGaokaoImplicitParams(
   let state: VelocityState | null = null;
   const firstKind = stages[0]?.kind;
   const initial = isRecord(planDraft.initial) ? planDraft.initial : null;
+  let derivedInitial: Record<string, unknown> | undefined;
+  let derivedEnergy: { stageIndex: 0; elasticEnergyJ: number; origin: "tangent_to_next_arc" } | undefined;
   if (initial) {
     if (firstKind === "projectile") {
       const vx = initial.vxMps;
@@ -562,40 +721,93 @@ export function resolveGaokaoImplicitParams(
       const hasPlane =
         hasOwn(stage, "landingPlaneYM") && stage.landingPlaneYM !== undefined && stage.landingPlaneYM !== null;
 
-      if (hasEnd) {
-        if (stage.end === null) {
-          addMissing(`${stagePath}/end`);
-          state = null;
-          continue;
-        }
-        if (!isRecord(stage.end)) {
-          addError(`${stagePath}/end`, "TYPE", "抛体结束条件须为对象。");
-          state = null;
-          continue;
-        }
-        if (stage.end.kind == null) {
-          addMissing(`${stagePath}/end/kind`);
-          state = null;
-          continue;
-        }
-        if (typeof stage.end.kind !== "string") {
-          addError(`${stagePath}/end/kind`, "TYPE", "抛体结束条件类型须为字符串。");
-          state = null;
-          continue;
-        }
-        if (stage.end.kind !== "tangent_to_next_arc") {
-          addError(`${stagePath}/end/kind`, "UNSUPPORTED", "未登记的抛体结束条件类型。");
-          state = null;
-          continue;
-        }
-        if (hasDrop || hasPlane) {
-          addError(
-            stagePath,
-            "PRECONDITION_CONFLICT",
-            "tangent_to_next_arc 与显式 dropHeightM、landingPlaneYM 互斥，请只保留一种。",
-          );
-          state = null;
-          continue;
+      // 识别 API 回包再编辑场景：虽然规范化已移除 stage.end，但 derivedCalculations / energy.origin
+      // 仍记录了该段曾由 tangent_to_next_arc 反求初速/能量。只要用户未手工覆盖派生值，就允许重算。
+      const priorCalcs = Array.isArray(planDraft.derivedCalculations)
+        ? (planDraft.derivedCalculations as unknown[]).filter(isRecord)
+        : [];
+      const nearPrior = (actual: unknown, expected: unknown) =>
+        typeof actual === "number" &&
+        typeof expected === "number" &&
+        Number.isFinite(actual) &&
+        Number.isFinite(expected) &&
+        Math.abs(actual - expected) <= 1e-6 * Math.max(1, Math.abs(expected));
+      const nextStageForPrior = stages[i + 1];
+      const hasExplicitNextArc =
+        Boolean(nextStageForPrior) && nextStageForPrior.kind === "vertical_arc" && isRecord(nextStageForPrior.path);
+      const priorLaunchCalc = priorCalcs.find(
+        (c) =>
+          c.stageIndex === i &&
+          c.quantity === "projectile_launch_vx" &&
+          (c.rule === "tangent_to_next_arc_launch_vx" || c.rule === "tangent_to_next_arc"),
+      );
+      const priorArcEntryCalc = priorCalcs.find(
+        (c) => c.stageIndex === 0 && c.targetPath === "/initial/speedMps" && c.quantity === "arc_entry_speed" && c.rule === "energy_backprop_from_tangent_launch",
+      );
+      const priorSpringEnergyCalc = priorCalcs.find(
+        (c) => c.stageIndex === 0 && c.targetPath === "/energy/elasticEnergyJ" && c.quantity === "initial_elastic_energy" && c.rule === "energy_backprop_from_tangent_launch",
+      );
+      const rederiveStandalone =
+        !hasEnd &&
+        hasExplicitNextArc &&
+        i === 0 &&
+        hasDrop &&
+        !hasPlane &&
+        initial != null &&
+        priorLaunchCalc != null &&
+        priorLaunchCalc.targetPath === "/initial/vxMps" &&
+        nearPrior(initial.vxMps, priorLaunchCalc.value);
+      const rederiveArcPredecessor =
+        !hasEnd &&
+        hasExplicitNextArc &&
+        i === 1 &&
+        stages[0]?.kind === "vertical_arc" &&
+        !hasDrop &&
+        hasPlane &&
+        initial != null &&
+        priorArcEntryCalc != null &&
+        nearPrior(initial.speedMps, priorArcEntryCalc.value);
+      const rederiveSpringPredecessor =
+        !hasEnd &&
+        hasExplicitNextArc &&
+        i === 1 &&
+        stages[0]?.kind === "spring_release" &&
+        stages[0].springConstantNpm == null &&
+        stages[0].initialCompressionM == null &&
+        hasDrop &&
+        !hasPlane &&
+        isRecord(planDraft.energy) &&
+        planDraft.energy.origin === "tangent_to_next_arc" &&
+        (priorSpringEnergyCalc == null || nearPrior(planDraft.energy.elasticEnergyJ, priorSpringEnergyCalc.value));
+      const hasPriorRederive = rederiveStandalone || rederiveArcPredecessor || rederiveSpringPredecessor;
+
+      if (hasEnd || hasPriorRederive) {
+        if (hasEnd) {
+          if (stage.end === null) {
+            addMissing(`${stagePath}/end`);
+            state = null;
+            continue;
+          }
+          if (!isRecord(stage.end)) {
+            addError(`${stagePath}/end`, "TYPE", "抛体结束条件须为对象。");
+            state = null;
+            continue;
+          }
+          if (stage.end.kind == null) {
+            addMissing(`${stagePath}/end/kind`);
+            state = null;
+            continue;
+          }
+          if (typeof stage.end.kind !== "string") {
+            addError(`${stagePath}/end/kind`, "TYPE", "抛体结束条件类型须为字符串。");
+            state = null;
+            continue;
+          }
+          if (stage.end.kind !== "tangent_to_next_arc") {
+            addError(`${stagePath}/end/kind`, "UNSUPPORTED", "未登记的抛体结束条件类型。");
+            state = null;
+            continue;
+          }
         }
 
         const nextStage = stages[i + 1];
@@ -606,6 +818,297 @@ export function resolveGaokaoImplicitParams(
             "tangent_to_next_arc 要求紧邻后继段为带显式 path 的 vertical_arc。",
           );
           state = null;
+          continue;
+        }
+
+        if (hasDrop || hasPlane) {
+          // 已知落差/固定落面 + 切向入弧：仅当出射水平初速待求或携带未手工改写的派生来源时启用反求，否则视为过约束互斥。
+          const isStandaloneInverse =
+            rederiveStandalone ||
+            (i === 0 && initial != null && initial.vxMps == null && hasDrop && !hasPlane);
+          const isArcPredecessorInverse =
+            rederiveArcPredecessor ||
+            (i === 1 &&
+              stages[0]?.kind === "vertical_arc" &&
+              initial != null &&
+              initial.speedMps == null &&
+              !hasDrop &&
+              hasPlane);
+          const isSpringPredecessorInverse =
+            rederiveSpringPredecessor ||
+            (i === 1 &&
+              stages[0]?.kind === "spring_release" &&
+              stages[0].springConstantNpm == null &&
+              stages[0].initialCompressionM == null &&
+              planDraft.energy == null &&
+              hasDrop &&
+              !hasPlane);
+
+          if (!isStandaloneInverse && !isArcPredecessorInverse && !isSpringPredecessorInverse) {
+            addError(
+              stagePath,
+              "PRECONDITION_CONFLICT",
+              "tangent_to_next_arc 与显式 dropHeightM、landingPlaneYM 互斥，请只保留一种。",
+            );
+            state = null;
+            continue;
+          }
+
+          if (isStandaloneInverse && initial!.vyMps !== 0) {
+            if (initial!.vyMps == null) {
+              addMissing("/initial/vyMps");
+            } else {
+              addError(
+                `${stagePath}/end`,
+                "PRECONDITION_CONFLICT",
+                "由落差与切向入弧反求水平出射速度仅适用于平抛初态（vyMps = 0）。",
+              );
+            }
+            state = null;
+            continue;
+          }
+
+          const nextPath = nextStage.path;
+          let ready = true;
+          if (g == null) {
+            addMissing("/gravityMps2");
+            ready = false;
+          }
+          if (nextPath.startAngleDeg == null) {
+            addMissing(`/stages/${i + 1}/path/startAngleDeg`);
+            ready = false;
+          } else if (typeof nextPath.startAngleDeg !== "number") {
+            addError(`/stages/${i + 1}/path/startAngleDeg`, "TYPE", "圆弧入口角须为数值。");
+            ready = false;
+          }
+          if (nextPath.direction == null) {
+            addMissing(`/stages/${i + 1}/path/direction`);
+            ready = false;
+          } else if (typeof nextPath.direction !== "string") {
+            addError(`/stages/${i + 1}/path/direction`, "TYPE", "圆弧方向须为字符串。");
+            ready = false;
+          }
+
+          let dropH: number | null = null;
+          let arc0R = 0;
+          let arc0StartCos = 0;
+          let arc0EndCos = 0;
+          let arc0ExitTx = 0;
+          let arc0Side: "inside" | "rod" = "inside";
+
+          if (isStandaloneInverse || isSpringPredecessorInverse) {
+            if (typeof stage.dropHeightM !== "number" || !Number.isFinite(stage.dropHeightM)) {
+              addError(`${stagePath}/dropHeightM`, "TYPE", "平抛落差须为有限数值。");
+              ready = false;
+            } else {
+              dropH = stage.dropHeightM;
+            }
+          } else if (isArcPredecessorInverse) {
+            const arc0 = stages[0];
+            if (typeof stage.landingPlaneYM !== "number" || !Number.isFinite(stage.landingPlaneYM)) {
+              addError(`${stagePath}/landingPlaneYM`, "TYPE", "固定落地平面须为有限数值。");
+              ready = false;
+            }
+            if (arc0.frictionless !== true) {
+              addError("/stages/0/frictionless", "PRECONDITION_CONFLICT", "反推前段圆弧初速要求圆弧光滑（frictionless = true）。");
+              ready = false;
+            }
+            if (typeof arc0.radiusM !== "number" || !Number.isFinite(arc0.radiusM) || arc0.radiusM <= 0) {
+              if (arc0.radiusM == null) addMissing("/stages/0/radiusM");
+              else addError("/stages/0/radiusM", "RANGE", "前段圆弧半径须为正数。");
+              ready = false;
+            } else {
+              arc0R = arc0.radiusM;
+            }
+            arc0Side = arc0.side === "rod" ? "rod" : "inside";
+            let sa0: number | null = null;
+            let ea0: number | null = null;
+            let d0 = 1;
+            if (isRecord(arc0.path) && isRecord(arc0.path.end)) {
+              const sa = arc0.path.startAngleDeg;
+              const sw = arc0.path.end.sweepAngleDeg;
+              const dir = arc0.path.direction;
+              if (
+                typeof sa === "number" &&
+                Number.isFinite(sa) &&
+                typeof sw === "number" &&
+                Number.isFinite(sw) &&
+                (dir === "positive" || dir === "negative")
+              ) {
+                d0 = dir === "positive" ? 1 : -1;
+                sa0 = sa;
+                ea0 = sa + d0 * sw;
+              }
+            } else if (typeof arc0.endAngleDeg === "number" && Number.isFinite(arc0.endAngleDeg)) {
+              sa0 = 0;
+              ea0 = arc0.endAngleDeg;
+              d0 = 1;
+            }
+            if (ready && sa0 != null && ea0 != null) {
+              arc0StartCos = arcTrig((sa0 * Math.PI) / 180).cos;
+              const endTrig0 = arcTrig((ea0 * Math.PI) / 180);
+              arc0EndCos = endTrig0.cos;
+              if (Math.abs(endTrig0.sin) > 1e-9) {
+                addError(
+                  `${stagePath}/end`,
+                  "PRECONDITION_CONFLICT",
+                  "前段圆弧出口切线非水平，不能按平抛落差反求水平出射速度。",
+                );
+                ready = false;
+              } else {
+                arc0ExitTx = d0 * endTrig0.cos;
+                const yExit0 = arc0R * (arc0StartCos - arc0EndCos);
+                const hVal = yExit0 - (stage.landingPlaneYM as number);
+                if (hVal <= ZERO_TOL) {
+                  addError(
+                    `${stagePath}/landingPlaneYM`,
+                    "PRECONDITION_CONFLICT",
+                    "前段圆弧出口不高于固定落地平面，无法形成正平抛落差。",
+                  );
+                  ready = false;
+                } else {
+                  dropH = hVal;
+                }
+              }
+            } else if (ready) {
+              ready = false;
+            }
+          }
+
+          if (isSpringPredecessorInverse) {
+            const spr0 = stages[0];
+            if (spr0.kineticFrictionCoefficient !== 0 || spr0.unattached !== true || spr0.slidesAfterRelease !== true) {
+              addError(
+                "/stages/0",
+                "PRECONDITION_CONFLICT",
+                "由平抛切向入弧反推弹簧弹性势能需要光滑桌面且脱离发射（μ = 0、unattached = true、slidesAfterRelease = true）。",
+              );
+              ready = false;
+            }
+            if (typeof planDraft.massKg !== "number" || !Number.isFinite(planDraft.massKg) || planDraft.massKg <= 0) {
+              if (planDraft.massKg == null) addMissing("/massKg");
+              else addError("/massKg", "RANGE", "物体质量须大于零。");
+              ready = false;
+            }
+          }
+
+          if (!ready || dropH == null) {
+            state = null;
+            continue;
+          }
+
+          const dropRefPath = isArcPredecessorInverse
+            ? `${stagePath}/landingPlaneYM`
+            : `${stagePath}/dropHeightM`;
+          const derived = deriveProjectileTangentLaunchSpeed({
+            dropHeightM: dropH,
+            gravityMps2: g!,
+            nextArcStartAngleDeg: nextPath.startAngleDeg as number,
+            nextArcDirection: nextPath.direction as ArcDirection,
+            stageIndex: i,
+            nextArcStageIndex: i + 1,
+            targetPath: isStandaloneInverse ? "/initial/vxMps" : `${stagePath}/launchVxMps`,
+            inputPaths: [
+              "/gravityMps2",
+              dropRefPath,
+              `${stagePath}/end`,
+              `/stages/${i + 1}/path/startAngleDeg`,
+              `/stages/${i + 1}/path/direction`,
+            ],
+          });
+
+          if (!derived.ok) {
+            addError(derived.path, derived.code, derived.message);
+            state = null;
+            continue;
+          }
+
+          if (isStandaloneInverse) {
+            derivedInitial = { ...(derivedInitial ?? initial!), vxMps: derived.vxMps };
+            calculations.push(derived.calculation);
+          } else if (isArcPredecessorInverse) {
+            if (arc0ExitTx * derived.vxMps <= 0) {
+              addError(
+                `${stagePath}/end`,
+                "PRECONDITION_CONFLICT",
+                "前段圆弧出口水平方向与后段切向入弧所需水平速度方向相反。",
+              );
+              state = null;
+              continue;
+            }
+            if (arc0Side === "inside" && arc0EndCos <= -1 + 1e-9 && derived.vxMps * derived.vxMps < g! * arc0R - 1e-9) {
+              addError(
+                `${stagePath}/end`,
+                "PRECONDITION_CONFLICT",
+                "反求出的离弧水平速度不足以在内轨最高点保持接触（需满足 v² >= gR）。",
+              );
+              state = null;
+              continue;
+            }
+            const v0Sq = derived.vxMps * derived.vxMps + 2 * g! * arc0R * (arc0StartCos - arc0EndCos);
+            if (!Number.isFinite(v0Sq) || v0Sq <= ZERO_TOL) {
+              addError("/stages/0", "PRECONDITION_CONFLICT", "由能量守恒无法反求前段圆弧的正入弧速率。");
+              state = null;
+              continue;
+            }
+            const v0 = Math.sqrt(v0Sq);
+            derivedInitial = { ...(derivedInitial ?? initial!), speedMps: v0 };
+            calculations.push(derived.calculation, {
+              stageIndex: 0,
+              targetPath: "/initial/speedMps",
+              quantity: "arc_entry_speed",
+              value: v0,
+              unit: "m/s",
+              source: "derived",
+              rule: "energy_backprop_from_tangent_launch",
+              inputPaths: [
+                "/stages/0/radiusM",
+                "/gravityMps2",
+                `${stagePath}/landingPlaneYM`,
+                `/stages/${i + 1}/path/startAngleDeg`,
+                `/stages/${i + 1}/path/direction`,
+              ],
+            });
+          } else if (isSpringPredecessorInverse) {
+            if (derived.vxMps <= ZERO_TOL) {
+              addError(
+                `${stagePath}/end`,
+                "PRECONDITION_CONFLICT",
+                "预压弹簧沿 +x 方向释放，无法匹配反向（vx <= 0）的切向入弧条件。",
+              );
+              state = null;
+              continue;
+            }
+            const elasticEnergyJ = 0.5 * (planDraft.massKg as number) * derived.vxMps * derived.vxMps;
+            derivedEnergy = {
+              stageIndex: 0,
+              elasticEnergyJ,
+              origin: "tangent_to_next_arc",
+            };
+            calculations.push(derived.calculation, {
+              stageIndex: 0,
+              targetPath: "/energy/elasticEnergyJ",
+              quantity: "initial_elastic_energy",
+              value: elasticEnergyJ,
+              unit: "J",
+              source: "derived",
+              rule: "energy_backprop_from_tangent_launch",
+              inputPaths: [
+                "/massKg",
+                "/gravityMps2",
+                `${stagePath}/dropHeightM`,
+                `/stages/${i + 1}/path/startAngleDeg`,
+                `/stages/${i + 1}/path/direction`,
+              ],
+            });
+          }
+
+          delete stage.end;
+          state = {
+            vx: derived.vxMps,
+            vy: derived.entryVyMps,
+            speed: derived.entrySpeedMps,
+          };
           continue;
         }
 
@@ -838,6 +1341,7 @@ export function resolveGaokaoImplicitParams(
             entrySpeedMps: state!.speed,
             gravityMps2: g!,
             startAngleDeg,
+            side: stage.side === "rod" ? "rod" : "inside",
             stageIndex: i,
             constraintIndex: crit.constraintIndex,
             inputPaths,
@@ -939,6 +1443,10 @@ export function resolveGaokaoImplicitParams(
     }
 
     if (kind === "incline_slide") {
+      if (stage.direction === "up") {
+        state = null;
+        continue;
+      }
       if (
         state != null &&
         g != null &&
@@ -954,13 +1462,15 @@ export function resolveGaokaoImplicitParams(
         stage.kineticFrictionCoefficient >= 0
       ) {
         const rad = (stage.angleDeg * Math.PI) / 180;
-        const a = g * (Math.sin(rad) - stage.kineticFrictionCoefficient * Math.cos(rad));
+        const trig = inclineTrig(stage as {angleDeg:number});
+        const a = g * (trig.sin - stage.kineticFrictionCoefficient * trig.cos);
         const vSq = state.speed * state.speed + 2 * a * stage.lengthM;
         if (vSq <= ZERO_TOL) {
           state = { vx: 0, vy: 0, speed: 0 };
         } else {
           const v = Math.sqrt(vSq);
-          state = { vx: v * Math.cos(rad), vy: -v * Math.sin(rad), speed: v };
+          const horizDir = i > 0 && state.vx < -ZERO_TOL ? -1 : 1;
+          state = { vx: horizDir * v * Math.cos(rad), vy: -v * Math.sin(rad), speed: v };
         }
       } else {
         state = null;
@@ -985,5 +1495,12 @@ export function resolveGaokaoImplicitParams(
     return { ok: false, stages, calculations, missingKeys, fieldErrors };
   }
 
-  return { ok: true, stages, calculations, consumedConstraintIndices };
+  return {
+    ok: true,
+    stages,
+    calculations,
+    consumedConstraintIndices,
+    ...(derivedInitial ? { initial: derivedInitial } : {}),
+    ...(derivedEnergy ? { energy: derivedEnergy } : {}),
+  };
 }

@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
-import { handlePlan } from '../plan';
+import { handlePlan, loadSkillText } from '../plan';
 import { handler } from '../../../functions/handler';
 import { SKILL_TEXT } from '../../../functions/skill';
 
@@ -164,8 +166,10 @@ describe.each([
 
 describe('Skill 文案与 functions/skill.ts 同步及高考多过程规则', () => {
   it('skills/vision-reading.v2.md 与 functions/skill.ts 完全一致且包含路由表与声明式字段', () => {
-    const skillSource = readFileSync(resolve(ROOT, 'skills/vision-reading.v2.md'), 'utf8');
+    const skillSource = readFileSync(resolve(ROOT, 'skills/vision-reading.v2.md'), 'utf8').replace(/\r\n?/g, '\n');
     expect(SKILL_TEXT).toBe(skillSource);
+    expect(SKILL_TEXT).not.toContain('\r');
+    expect(loadSkillText()).toBe(SKILL_TEXT);
 
     // 快速路由决策表
     expect(skillSource).toContain('快速路由决策表');
@@ -181,5 +185,34 @@ describe('Skill 文案与 functions/skill.ts 同步及高考多过程规则', ()
     expect(skillSource).toContain('startLabel');
     expect(skillSource).toContain('endLabel');
     expect(skillSource).toContain('应省略 `center`');
+  });
+
+  it('真实 Markdown 的 LF 与 CRLF 副本生成逐字一致的 LF 产物，且完整内容不变', () => {
+    const skillSource = readFileSync(resolve(ROOT, 'skills/vision-reading.v2.md'), 'utf8').replace(/\r\n?/g, '\n');
+    const generator = readFileSync(resolve(ROOT, 'scripts/build-skill-module.mjs'), 'utf8');
+    const committedModule = readFileSync(resolve(ROOT, 'functions/skill.ts'), 'utf8').replace(/\r\n?/g, '\n');
+    const temporaryRoot = mkdtempSync(resolve(tmpdir(), 'visuallab-skill-eol-'));
+    try {
+      mkdirSync(resolve(temporaryRoot, 'scripts'));
+      mkdirSync(resolve(temporaryRoot, 'skills'));
+      const scriptPath = resolve(temporaryRoot, 'scripts/build-skill-module.mjs');
+      const sourcePath = resolve(temporaryRoot, 'skills/vision-reading.v2.md');
+      writeFileSync(scriptPath, generator);
+      const outputs = ['\n', '\r\n'].map((eol) => {
+        writeFileSync(sourcePath, skillSource.replace(/\n/g, eol));
+        execFileSync(process.execPath, [scriptPath], { env: { ...process.env, SKILL_VERSION: 'v2' } });
+        const generated = readFileSync(resolve(temporaryRoot, 'functions/skill.ts'), 'utf8');
+        expect(generated).not.toContain('\r');
+        // 解码整个字符串，不能仅检查几个关键词或忽略内容差异。
+        const literal = generated.match(/^export const SKILL_TEXT: string = (.+);$/m)?.[1];
+        expect(literal).toBeDefined();
+        expect(JSON.parse(literal!)).toBe(skillSource);
+        expect(generated).toBe(committedModule);
+        return generated;
+      });
+      expect(outputs[0]).toBe(outputs[1]);
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
   });
 });

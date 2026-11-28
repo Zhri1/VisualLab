@@ -1,8 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bookmark, ChevronDown, Image as ImageIcon, Repeat, Share2 } from "lucide-react";
+import {
+  ArrowUpRight,
+  Bookmark,
+  Check,
+  ChevronDown,
+  ClipboardCheck,
+  Crop,
+  GitFork,
+  Image as ImageIcon,
+  Pencil,
+  Pointer,
+  Repeat,
+  Share2,
+  Trash2,
+  X,
+} from "lucide-react";
 import type { Workspace } from "../../../hooks/useWorkspace";
-import { isStageReading } from "../../../types";
-import type { Motion } from "../../../types";
+import { isStageReading, type MotionSegment } from "../../../types";
 import { ChatPanel } from "../chat/ChatPanel";
 import { PhysicsCanvas } from "./PhysicsCanvas";
 import { MultiBodyReadouts } from "./MultiBodyPhysicsCanvas";
@@ -11,17 +25,19 @@ import { MultiBodyExplanation } from './MultiBodyExplanation';
 import { PlaybackControls } from "./PlaybackControls";
 import { OriginalProblemViewer } from "./OriginalProblemViewer";
 import { advancePlayback, computeDefaultPace, segmentAt } from "./playback";
-import { CriticalPanel } from "../../../features/critical/CriticalPanel";
-import { buildFromReading, paramLabel, pickScanPath, withParam } from "../../../features/critical/scanner";
-import { EnergyBar } from "../../../features/energy/EnergyBar";
-import { QuestionPanel } from "../../../features/questions/QuestionPanel";
 import { getSample } from "../../../data/samples";
-import { AnnotationLayer } from "../../../features/annotate/AnnotationLayer";
+import {
+  ANNOTATION_COLOR_OPTIONS,
+  AnnotationLayer,
+  AnnotationPalette,
+} from "../../../features/annotate/AnnotationLayer";
 import type { AnnotationMode, AnnotationStroke } from "../../../features/annotate/types";
-import { useEventSpeech } from "../../../features/speech/useEventSpeech";
 import { ExportMenu } from "../../../features/export/ExportMenu";
+import { downloadBlob } from "../../../features/export/capture";
+import { captureRegionPng, copyPngToClipboard, type RegionRect } from "../../../features/export/regionCapture";
+import { RegionScreenshotOverlay } from "../../../features/export/RegionScreenshotOverlay";
 import { PracticePanel } from "../../../features/practice/PracticePanel";
-import { saveFavorite } from "../../../features/share/favorites";
+import { isFavorite, removeFavorite, saveFavoriteWithResult } from "../../../features/share/favorites";
 import { buildShareUrl } from "../../../features/share/shareLink";
 import "./player.css";
 
@@ -31,6 +47,50 @@ interface Props {
 export function stageForLegend(plan:{stages:unknown[]},stagePath:string|undefined,stageIndex:number|undefined):Record<string,unknown>|null{
   const value=stagePath?stagePath.split('/').slice(1).reduce<unknown>((v,k)=>v!==null&&typeof v==='object'?(v as Record<string,unknown>)[k]:undefined,plan):plan.stages[stageIndex??-1];
   return value!==null&&typeof value==='object'?value as Record<string,unknown>:null;
+}
+
+export interface CurrentStageBadgeData {
+  code: string;
+  name: string;
+  frictionText: string | null;
+  fullLabel: string;
+}
+
+/** 仅提取当前播放路段的一条简洁状态，复用既有 activeSegment 与 stageForLegend，不复制阶段选择逻辑。 */
+export function buildCurrentStageBadge(
+  activeSegment: MotionSegment | undefined,
+  stagePlan: { stages: unknown[] } | null,
+  legacyFriction: number | null | undefined,
+): CurrentStageBadgeData | null {
+  if (!activeSegment) return null;
+  if (stagePlan) {
+    const stage = stageForLegend(stagePlan, activeSegment.stagePath, activeSegment.stageIndex);
+    const friction =
+      stage && "kineticFrictionCoefficient" in stage && typeof stage.kineticFrictionCoefficient === "number"
+        ? stage.kineticFrictionCoefficient
+        : null;
+    const code = String((activeSegment.stageIndex ?? 0) + 1).padStart(2, "0");
+    const bodyPrefix = activeSegment.bodyIds?.length ? `${activeSegment.bodyIds.join(" + ")} ` : "";
+    const name = `${bodyPrefix}${activeSegment.name}`.trim();
+    const frictionText = friction != null ? `μ = ${friction.toFixed(2)}` : null;
+    const fullLabel = frictionText ? `${code} ${name} · ${frictionText}` : `${code} ${name}`;
+    return { code, name, frictionText, fullLabel };
+  }
+  if (activeSegment.kind === "incline") {
+    const frictionText = typeof legacyFriction === "number" ? `μ = ${legacyFriction.toFixed(2)}` : null;
+    const fullLabel = frictionText ? `AB 斜面 · ${frictionText}` : "AB 斜面";
+    return { code: "AB", name: "斜面", frictionText, fullLabel };
+  }
+  if (activeSegment.kind === "horizontal") {
+    return { code: "BC", name: "水平面", frictionText: "μ = 0", fullLabel: "BC 水平面 · μ = 0" };
+  }
+  if (activeSegment.kind === "spring") {
+    const name = activeSegment.name || "弹簧压缩与反弹";
+    return { code: "CD", name, frictionText: null, fullLabel: `CD ${name}` };
+  }
+  const code = String((activeSegment.stageIndex ?? 0) + 1).padStart(2, "0");
+  const name = activeSegment.name;
+  return { code, name, frictionText: null, fullLabel: `${code} ${name}` };
 }
 
 type MobileTab = "player" | "chat";
@@ -56,16 +116,67 @@ export function WorkspaceLayout({ ws }: Props) {
   const [mobileTab, setMobileTab] = useState<MobileTab>("player");
   const [metaOpen, setMetaOpen] = useState(false);
   const [explainOpen, setExplainOpen] = useState(false);
-  /** 自动慢放开关：默认开（只放慢不加速），可关回原始物理流速。 */
+  /** 自动调速开关：默认开（只放慢不加速），可关回原始物理流速。 */
   const [paceEnabled, setPaceEnabled] = useState(true);
-const [forcesOn, setForcesOn] = useState(false);
+  const [forcesOn, setForcesOn] = useState(false);
   const [decomposeOn, setDecomposeOn] = useState(false);
   const [annotationMode, setAnnotationMode] = useState<AnnotationMode>("off");
+  const [annotationColor, setAnnotationColor] = useState<string>(ANNOTATION_COLOR_OPTIONS[0].value);
   const [strokes, setStrokes] = useState<AnnotationStroke[]>([]);
-  const [speechOn, setSpeechOn] = useState(false);
-  const [variant, setVariant] = useState<{ value: number; motion: Motion } | null>(null);
+  const [screenshotMode, setScreenshotMode] = useState(false);
+  const [shotToast, setShotToast] = useState<{ kind: "busy" | "ok" | "error"; text: string; blob?: Blob } | null>(null);
+  const [practiceOn, setPracticeOn] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [copiedShare, setCopiedShare] = useState(false);
+  const playerPaneRef = useRef<HTMLElement | null>(null);
   const frameBoxRef = useRef<HTMLDivElement | null>(null);
+  const shotTimerRef = useRef<number | null>(null);
   const [frameSize, setFrameSize] = useState({ w: 0, h: 0 });
+
+  const activeReading = (ws.appliedReading ?? ws.reading) as unknown;
+  const samplePractice = useMemo(() => (ws.sampleId ? getSample(ws.sampleId).practice ?? [] : []), [ws.sampleId]);
+  const sampleTitle = ws.sampleId ? getSample(ws.sampleId).title : ws.problemText?.slice(0, 24) || "VisualLab 题目";
+  const favoriteId = useMemo(() => {
+    if (ws.sampleId) return ws.sampleId;
+    const raw = ws.problemText?.trim() || JSON.stringify(activeReading ?? "").slice(0, 120);
+    let hash = 0;
+    for (let i = 0; i < raw.length; i++) hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
+    return `custom-${Math.abs(hash)}`;
+  }, [ws.sampleId, ws.problemText, activeReading]);
+  const [favorited, setFavorited] = useState(() => isFavorite(favoriteId));
+  useEffect(() => {
+    setFavorited(isFavorite(favoriteId));
+  }, [favoriteId]);
+
+  const masked = practiceOn && !revealed && samplePractice.length > 0;
+
+  useEffect(() => () => {
+    if (shotTimerRef.current !== null) window.clearTimeout(shotTimerRef.current);
+  }, []);
+
+  const handleRegionCapture = async (rect: RegionRect) => {
+    setScreenshotMode(false);
+    const pane = playerPaneRef.current;
+    if (!pane) return;
+    if (shotTimerRef.current !== null) {
+      window.clearTimeout(shotTimerRef.current);
+      shotTimerRef.current = null;
+    }
+    setShotToast({ kind: "busy", text: "正在生成截图并复制到剪贴板…" });
+    // 等一帧确保选区遮罩完全卸载后再合成
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    let blob: Blob | undefined;
+    try {
+      blob = await captureRegionPng(pane, rect);
+      await copyPngToClipboard(blob);
+      setShotToast({ kind: "ok", text: "已复制截图到剪贴板，可直接粘贴" });
+      shotTimerRef.current = window.setTimeout(() => setShotToast(null), 3200);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "复制截图失败，可直接保存 PNG";
+      setShotToast({ kind: "error", text: msg, blob });
+    }
+  };
+
   useEffect(() => {
     const box = frameBoxRef.current;
     if (!box) return;
@@ -75,20 +186,37 @@ const [forcesOn, setForcesOn] = useState(false);
     observer.observe(box);
     return () => observer.disconnect();
   }, [motion]);
+
   useEffect(() => {
-    setVariant(null);
     setRevealed(false);
+    setPracticeOn(false);
+    setStrokes([]);
+    setAnnotationMode("off");
   }, [motion]);
-  const [practiceOn, setPracticeOn] = useState(false);
-  const [revealed, setRevealed] = useState(false);
-  const [savedNote, setSavedNote] = useState<string | null>(null);
-  const speech = useEventSpeech(motion?.events ?? [], currentTime, speechOn);
-  const sampleQuestions = useMemo(() => (ws.sampleId ? getSample(ws.sampleId).questions ?? [] : []), [ws.sampleId]);
-  const samplePractice = useMemo(() => (ws.sampleId ? getSample(ws.sampleId).practice ?? [] : []), [ws.sampleId]);
-  const activeReading = (ws.appliedReading ?? ws.reading) as unknown;
-  const scanPath = useMemo(() => pickScanPath(activeReading), [activeReading]);
-  const sampleTitle = ws.sampleId ? getSample(ws.sampleId).title : ws.problemText?.slice(0, 24) || "VisualLab 题目";
-  const masked = practiceOn && !revealed && samplePractice.length > 0;
+
+  const closeDrawMode = () => {
+    setAnnotationMode((m) => (m === "draw" ? "off" : m));
+  };
+
+  const toggleFavorite = () => {
+    if (favorited) {
+      removeFavorite(favoriteId);
+      setFavorited(isFavorite(favoriteId));
+    } else {
+      const res = saveFavoriteWithResult({
+        id: favoriteId,
+        title: sampleTitle,
+        savedAt: Date.now(),
+        sampleId: ws.sampleId ?? undefined,
+        reading: activeReading,
+      });
+      if (res.ok) {
+        setFavorited(true);
+      } else {
+        setShotToast({ kind: "error", text: res.error ?? "收藏保存失败，请检查浏览器本地存储权限或空间" });
+      }
+    }
+  };
 
   const copyShare = () => {
     const url = buildShareUrl(`${window.location.origin}${window.location.pathname}`, {
@@ -97,28 +225,18 @@ const [forcesOn, setForcesOn] = useState(false);
       timeSeconds: currentTime,
       playbackRate: ws.playbackRate,
     });
+    const markCopied = () => {
+      setCopiedShare(true);
+      window.setTimeout(() => setCopiedShare(false), 2000);
+    };
     if (navigator.clipboard?.writeText) {
-      void navigator.clipboard.writeText(url).then(
-        () => setSavedNote("分享链接已复制"),
-        () => window.prompt("复制此链接", url)
-      );
+      void navigator.clipboard.writeText(url).then(markCopied, () => window.prompt("复制此链接", url));
     } else {
       window.prompt("复制此链接", url);
     }
-    window.setTimeout(() => setSavedNote(null), 2400);
   };
-  const saveCurrent = () => {
-    saveFavorite({
-      id: ws.sampleId ?? `custom-${Date.now()}`,
-      title: sampleTitle,
-      savedAt: Date.now(),
-      sampleId: ws.sampleId ?? undefined,
-      reading: activeReading,
-    });
-    setSavedNote("已存入错题本");
-    window.setTimeout(() => setSavedNote(null), 2400);
-  };
-const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primaryBodyId);
+
+  const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primaryBodyId);
   useEffect(()=>setTrackedBodyId(motion?.primaryBodyId),[motion]);
   const rafRef = useRef<number | null>(null);
   const lastRef = useRef<number | null>(null);
@@ -137,10 +255,15 @@ const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primar
     constant_force_1d: "常力",
     conveyor_belt: "传送带",
     movable_arc: "可移动圆弧槽",
+    movable_semicircle: "可平动半圆轨道",
     spring_pair: "弹簧双球",
+    circular_orbit: "圆周轨道",
     spring_contact: "弹簧",
     projectile: "抛体",
     vertical_arc: "圆弧",
+    magnetic_deflection: "匀强磁场偏转",
+    switchable_em_collision: "分区电磁场与正碰",
+    magnetic_reencounter: "磁场双粒子正碰与再相遇",
   } as const;
   const title = stagePlan
     ? stagePlan.stages.map((stage) => stageLabels[stage.kind as keyof typeof stageLabels] ?? "未知阶段").join(" · ")
@@ -177,6 +300,15 @@ const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primar
       root.style.removeProperty("--app-vh");
     };
   }, []);
+
+  useEffect(() => {
+    if (!metaOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMetaOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [metaOpen]);
 
   // 播放时钟：只在工作台内运行，读取同一份 currentTime
   useEffect(() => {
@@ -242,6 +374,7 @@ const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primar
 
       <div className="workspace">
         <section
+          ref={playerPaneRef}
           id="work-panel-player"
           role="tabpanel"
           aria-labelledby="work-tab-player"
@@ -272,109 +405,227 @@ const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primar
               <h1 className="player-title">{title}</h1>
               <p className="player-sub">{subtitle}</p>
             </div>
-            {ws.sampleCompare && (
-              <button
-                className="ghost-button compare-toggle"
-                onClick={ws.toggleSampleCompare}
-                aria-pressed={ws.compareOn}
-                aria-label={ws.compareOn ? ws.sampleCompare.backLabel : ws.sampleCompare.label}
-                title={ws.compareOn ? ws.sampleCompare.backLabel : ws.sampleCompare.label}
-              >
-                <Repeat size={14} strokeWidth={1.8} />
-                <span className="btn-label">
-                  {ws.compareOn ? ws.sampleCompare.backLabel : ws.sampleCompare.label}
-                </span>
-              </button>
-            )}
-            <button className="ghost-button" onClick={saveCurrent} aria-label="收藏到错题本">
-              <Bookmark size={14} strokeWidth={1.8} />
-              <span className="btn-label">收藏</span>
-            </button>
-            <button className="ghost-button" onClick={copyShare} aria-label="复制分享链接">
-              <Share2 size={14} strokeWidth={1.8} />
-              <span className="btn-label">分享</span>
-            </button>
-            {motion && (
-              <ExportMenu
-                getCanvas={() => frameBoxRef.current?.querySelector("canvas") ?? null}
-                motion={motion}
-                title={sampleTitle}
-                problemText={ws.problemText ?? ""}
-                wallMs={(motion.durationSeconds / Math.max(0.05, ws.playbackRate * (paceEnabled ? defaultPace : 1))) * 1000}
-                onSeek={ws.seek}
-              />
-            )}
-            <button className="ghost-button" onClick={() => setViewerOpen(true)} aria-label="查看原题">
-              <ImageIcon size={14} strokeWidth={1.8} />
-              <span className="btn-label">查看原题</span>
-            </button>
-          </div>
-          {savedNote && <div className="save-note" role="status">{savedNote}</div>}
-
-          <button
-            type="button"
-            className="meta-toggle"
-            aria-expanded={metaOpen}
-            aria-controls="player-meta"
-            onClick={() => setMetaOpen((open) => !open)}
-          >
-            路段与计时
-            <ChevronDown size={15} strokeWidth={2} className="chev" />
-          </button>
-          <div id="player-meta" className={`player-meta${metaOpen ? "" : " is-collapsed"}`}>
-          {motion?.timing && <div className="notice info" role="status"><span>{motion.timing.mode === "full" ? "全程精确播放" : motion.timing.mode === "suffix" ? "前段示意 · 从B精确计时" : "仅展示已知状态 · 用时未知"}：{motion.timing.reason}
-            {motion.calculations?.map(c => <span key={c.quantity}>　{{ initial_elastic_energy: "初始弹性势能", release_speed: "脱离速度", arc_entry_speed: "入弧速度" }[c.quantity] ?? c.quantity} = {Number(c.value.toPrecision(6))} {c.unit}（{c.source === "derived" ? "物理推导" : "题设/用户给定"}）</span>)}</span></div>}
-          {motion?.motionStatus&&<div className="notice info" role="status"><span>{motion.motionStatus.state==='model_limit'?'有限求解范围':motion.motionStatus.state==='range_end'?'播放范围终点':'真实静止结局'}：{motion.motionStatus.message}</span></div>}
-          {motion?.primaryBodyId&&<label className="body-tracking">跟踪物体<select aria-label="跟踪物体" value={trackedBodyId??motion.primaryBodyId} onChange={e=>setTrackedBodyId(e.target.value)}>{motion.stageGeometry?.bodies?.map(b=><option value={b.bodyId} key={b.bodyId}>{b.bodyId}</option>)}</select><span>{(motion.stageGeometry?.bodies?.length??0)>1?'两物体共用同一物理时间':'物体与绳共用同一物理时间'}</span></label>}
-          {motion?.primaryBodyId && (
-            <MultiBodyReadouts motion={motion} time={currentTime} isPlaying={isPlaying} />
-          )}
-          </div>
-          {motion && (
-            <ul className={'scene-legend'+(motion.primaryBodyId?' body-scene-legend':'')} aria-label="路段与动摩擦因数">
-              {stagePlan ? motion.segments.map((segment) => {
-                const stage = stageForLegend(stagePlan,segment.stagePath,segment.stageIndex);
-                const friction = stage && "kineticFrictionCoefficient" in stage && typeof stage.kineticFrictionCoefficient === "number"
-                  ? stage.kineticFrictionCoefficient
-                  : null;
-                return (
-                  <li key={`${segment.stagePath??segment.stageIndex}-${segment.kind}-${segment.startSeconds}`} aria-current={activeSegment === segment ? "step" : undefined}>
-                    <b>{String((segment.stageIndex ?? 0) + 1).padStart(2, "0")}</b> {segment.bodyIds?.join(' + ')} {segment.name}
-                    {friction != null && <span>μ = {friction.toFixed(2)}</span>}
-                  </li>
-                );
-              }) : (
-                <>
-                  <li aria-current={activeSegment?.kind === "incline" ? "step" : undefined}>
-                    <b>AB</b> 斜面 <span>μ = {legacyReading?.conditions.kineticFrictionCoefficient?.toFixed(2)}</span>
-                  </li>
-                  <li aria-current={activeSegment?.kind !== "incline" ? "step" : undefined}>
-                    <b>BC</b> 水平面 <span>μ = 0</span>
-                  </li>
-                </>
+            <div className="player-head-actions">
+              {ws.sampleCompare && (
+                <button
+                  className="ghost-button compare-toggle"
+                  onClick={ws.toggleSampleCompare}
+                  aria-pressed={ws.compareOn}
+                  aria-label={ws.compareOn ? ws.sampleCompare.backLabel : ws.sampleCompare.label}
+                  title={ws.compareOn ? ws.sampleCompare.backLabel : ws.sampleCompare.label}
+                >
+                  <Repeat size={14} strokeWidth={1.8} />
+                  <span className="btn-label">
+                    {ws.compareOn ? ws.sampleCompare.backLabel : ws.sampleCompare.label}
+                  </span>
+                </button>
               )}
-            </ul>
-          )}
-          {motion && (
-            <div className="view-tools" role="group" aria-label="视图工具">
-              <button type="button" className="tool-toggle" aria-pressed={forcesOn} onClick={() => setForcesOn((v) => !v)}>受力</button>
-              <button type="button" className="tool-toggle" aria-pressed={decomposeOn} disabled={!forcesOn} onClick={() => setDecomposeOn((v) => !v)}>分解</button>
-              <button type="button" className="tool-toggle" aria-pressed={annotationMode === "draw"} onClick={() => setAnnotationMode((m) => (m === "draw" ? "off" : "draw"))}>标注</button>
-              <button type="button" className="tool-toggle" aria-pressed={annotationMode === "laser"} onClick={() => setAnnotationMode((m) => (m === "laser" ? "off" : "laser"))}>教鞭</button>
-              <button type="button" className="tool-toggle" aria-pressed={speechOn} disabled={!speech.supported} onClick={() => setSpeechOn((v) => !v)} title={speech.supported ? "朗读关键事件讲解" : "当前浏览器不支持语音合成"}>朗读</button>
-              <button type="button" className="tool-toggle" aria-pressed={practiceOn} disabled={samplePractice.length === 0} onClick={() => { setPracticeOn((v) => !v); setRevealed(false); }} title="先预测再播放">练习</button>
+              {motion && (
+                <ExportMenu
+                  getCanvas={() => frameBoxRef.current?.querySelector("canvas") ?? null}
+                  motion={motion}
+                  title={sampleTitle}
+                  problemText={ws.problemText ?? ""}
+                  wallMs={Math.round((motion.durationSeconds / Math.max(0.1, ws.playbackRate * (paceEnabled ? defaultPace : 1))) * 1000)}
+                  onSeek={ws.seek}
+                />
+              )}
+              {motion && (
+                <button
+                  type="button"
+                  className="ghost-button favorite-btn"
+                  onClick={toggleFavorite}
+                  aria-pressed={favorited}
+                  aria-label={favorited ? "取消收藏" : "收藏到错题本"}
+                  title={favorited ? "已收藏（点击取消）" : "收藏到错题本"}
+                >
+                  <Bookmark size={14} strokeWidth={1.8} fill={favorited ? "currentColor" : "none"} />
+                  <span className="btn-label">{favorited ? "已收藏" : "收藏"}</span>
+                </button>
+              )}
+              {motion && (
+                <button
+                  type="button"
+                  className={`ghost-button share-btn${copiedShare ? " is-copied" : ""}`}
+                  onClick={copyShare}
+                  aria-label="分享链接"
+                  title="复制包含当前条件与时刻的分享链接"
+                >
+                  {copiedShare ? <Check size={14} strokeWidth={2.2} /> : <Share2 size={14} strokeWidth={1.8} />}
+                  <span className="btn-label">{copiedShare ? "已复制" : "分享"}</span>
+                </button>
+              )}
+              <button className="ghost-button" onClick={() => setViewerOpen(true)} aria-label="查看原题">
+                <ImageIcon size={14} strokeWidth={1.8} />
+                <span className="btn-label">查看原题</span>
+              </button>
             </div>
-          )}
+          </div>
+
+          <div className={`stage-bar${metaOpen ? " is-meta-open" : ""}`}>
+            <div className="stage-bar-left">
+              {motion && (
+                <div className="view-tools" role="toolbar" aria-label="画布辅助工具">
+                  <button
+                    type="button"
+                    className="tool-toggle"
+                    aria-pressed={forcesOn}
+                    onClick={() => {
+                      closeDrawMode();
+                      setForcesOn((v) => {
+                        if (v) setDecomposeOn(false);
+                        return !v;
+                      });
+                    }}
+                    title="在画布上显示物体受力矢量"
+                  >
+                    <ArrowUpRight size={13} strokeWidth={2} />
+                    <span>受力</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="tool-toggle"
+                    aria-pressed={decomposeOn}
+                    disabled={!forcesOn}
+                    onClick={() => {
+                      closeDrawMode();
+                      setDecomposeOn((v) => !v);
+                    }}
+                    title={forcesOn ? "正交分解受力矢量" : "请先开启「受力」"}
+                  >
+                    <GitFork size={13} strokeWidth={2} />
+                    <span>分解</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="tool-toggle"
+                    aria-pressed={annotationMode === "draw"}
+                    onClick={() => setAnnotationMode((m) => (m === "draw" ? "off" : "draw"))}
+                    title="在画布上自由标注"
+                  >
+                    <Pencil size={13} strokeWidth={2} />
+                    <span>标注{strokes.length > 0 ? ` (${strokes.length})` : ""}</span>
+                  </button>
+                  <AnnotationPalette
+                    mode={annotationMode}
+                    color={annotationColor}
+                    onColorChange={setAnnotationColor}
+                    onClear={() => setStrokes([])}
+                    canClear={strokes.length > 0}
+                  />
+                  {strokes.length > 0 && annotationMode !== "draw" && (
+                    <button
+                      type="button"
+                      className="tool-toggle tool-clear"
+                      onClick={() => {
+                        closeDrawMode();
+                        setStrokes([]);
+                      }}
+                      title="清空画布标注"
+                    >
+                      <Trash2 size={12} strokeWidth={2} />
+                      <span>清空</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="tool-toggle"
+                    aria-pressed={annotationMode === "laser"}
+                    onClick={() => setAnnotationMode((m) => (m === "laser" ? "off" : "laser"))}
+                    title="临时标注（松手后自动渐隐）"
+                  >
+                    <Pointer size={13} strokeWidth={2} />
+                    <span>临时标注</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="tool-toggle"
+                    aria-label="截图"
+                    aria-pressed={screenshotMode}
+                    onClick={() => {
+                      closeDrawMode();
+                      setScreenshotMode((v) => !v);
+                    }}
+                    title="框选动画工作区并复制 PNG 到剪贴板（Esc 取消）"
+                  >
+                    <Crop size={13} strokeWidth={2} />
+                    <span>截图</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="tool-toggle"
+                    aria-pressed={practiceOn}
+                    disabled={samplePractice.length === 0}
+                    onClick={() => {
+                      closeDrawMode();
+                      setPracticeOn((v) => !v);
+                      setRevealed(false);
+                    }}
+                    title={samplePractice.length > 0 ? "先预测再播放动画验证" : "当前题目暂无预测练习"}
+                  >
+                    <ClipboardCheck size={13} strokeWidth={2} />
+                    <span>练习</span>
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                className="meta-toggle tool-toggle"
+                aria-expanded={metaOpen}
+                aria-controls="player-meta"
+                onClick={() => {
+                  closeDrawMode();
+                  setMetaOpen((open) => !open);
+                }}
+                title="展开或收起路段与计时详情"
+              >
+                <span>路段·计时</span>
+                <ChevronDown size={13} strokeWidth={2} className="chev" />
+              </button>
+              {motion && (() => {
+                const badge = buildCurrentStageBadge(
+                  activeSegment,
+                  stagePlan,
+                  legacyReading?.conditions.kineticFrictionCoefficient,
+                );
+                if (!badge) return null;
+                return (
+                  <div
+                    className="current-stage-badge"
+                    role="status"
+                    aria-live="polite"
+                    aria-label={`当前路段：${badge.fullLabel}`}
+                    title={badge.fullLabel}
+                  >
+                    <b className="current-stage-code">{badge.code}</b>
+                    <span className="current-stage-name">{badge.name}</span>
+                    {badge.frictionText && <span className="current-stage-mu">· {badge.frictionText}</span>}
+                  </div>
+                );
+              })()}
+            </div>
+            <div id="player-meta" className={`player-meta${metaOpen ? "" : " is-collapsed"}`}>
+              {motion?.timing && <div className="notice info" role="status"><span>{motion.timing.mode === "full" ? "全程精确播放" : motion.timing.mode === "suffix" ? "前段示意 · 从B精确计时" : "仅展示已知状态 · 用时未知"}：{motion.timing.reason}
+                {motion.calculations?.map(c => <span key={c.quantity}>　{{ initial_elastic_energy: "初始弹性势能", release_speed: "脱离速度", arc_entry_speed: "入弧速度" }[c.quantity] ?? c.quantity} = {Number(c.value.toPrecision(6))} {c.unit}（{c.source === "derived" ? "物理推导" : "题设/用户给定"}）</span>)}</span></div>}
+              {motion?.motionStatus&&<div className="notice info" role="status"><span>{motion.motionStatus.state==='model_limit'?'有限求解范围':motion.motionStatus.state==='range_end'?'播放范围终点':'真实静止结局'}：{motion.motionStatus.message}</span></div>}
+              {motion?.primaryBodyId&&<label className="body-tracking">跟踪物体<select aria-label="跟踪物体" value={trackedBodyId??motion.primaryBodyId} onChange={e=>setTrackedBodyId(e.target.value)}>{motion.stageGeometry?.bodies?.map(b=><option value={b.bodyId} key={b.bodyId}>{b.bodyId}</option>)}</select><span>{(motion.stageGeometry?.bodies?.length??0)>1?'两物体共用同一物理时间':'物体与绳共用同一物理时间'}</span></label>}
+              {motion?.primaryBodyId && (
+                <MultiBodyReadouts motion={motion} time={currentTime} isPlaying={isPlaying} />
+              )}
+            </div>
+          </div>
           <div className={'canvas-frame'+(motion?.primaryBodyId?' body-canvas-frame':'')} ref={frameBoxRef}>
             {motion ? (
-              <div className={'canvas-stack'+(variant ? ' is-dual' : '')+(masked ? ' is-blinded' : '')}>
-                <PhysicsCanvas motion={motion} time={currentTime} isPlaying={isPlaying} trackedBodyId={trackedBodyId} readouts={false} forces={forcesOn} decompose={decomposeOn} />
-                {variant && (
-                  <div className="dual-pane">
-                    <span className="dual-label">对照 {paramLabel(scanPath ?? [])} = {variant.value.toFixed(2)}</span>
-                    <PhysicsCanvas motion={variant.motion} time={Math.min(currentTime, variant.motion.durationSeconds)} isPlaying={isPlaying} readouts={false} forces={forcesOn} decompose={decomposeOn} />
-                  </div>
-                )}
+              <div className={'canvas-stack'+(masked ? ' is-blinded' : '')}>
+                <PhysicsCanvas
+                  motion={motion}
+                  time={currentTime}
+                  isPlaying={isPlaying}
+                  trackedBodyId={trackedBodyId}
+                  readouts={false}
+                  forces={forcesOn}
+                  decompose={decomposeOn}
+                />
               </div>
             ) : (
               <div
@@ -390,7 +641,15 @@ const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primar
               </div>
             )}
             {motion && (
-              <AnnotationLayer width={frameSize.w} height={frameSize.h} time={currentTime} mode={annotationMode} strokes={strokes} onChange={setStrokes} />
+              <AnnotationLayer
+                width={frameSize.w}
+                height={frameSize.h}
+                time={currentTime}
+                mode={annotationMode}
+                strokes={strokes}
+                onChange={setStrokes}
+                color={annotationColor}
+              />
             )}
             {masked && (
               <div className="practice-mask">
@@ -404,11 +663,6 @@ const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primar
               </div>
             )}
           </div>
-          {motion && speechOn && (() => {
-            const cue = [...motion.events].reverse().find((e) => e.timeSeconds <= currentTime);
-            return cue ? <div className="speech-caption" role="status"><b>{cue.label}</b>{cue.caption}</div> : null;
-          })()}
-          {motion && <EnergyBar motion={motion} time={currentTime} />}
 
           {motion ? (
             <>
@@ -433,20 +687,6 @@ const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primar
                 onSlowSegment={ws.slowCurrentSegment}
                 onExitSegment={ws.exitSegmentPlayback}
               />
-              <CriticalPanel
-                reading={activeReading}
-                path={scanPath}
-                variantValue={variant?.value ?? null}
-                onApply={(value) => {
-                  if (!scanPath) return;
-                  ws.applyReadingOverride(withParam(activeReading, scanPath, value) as Parameters<typeof ws.applyReadingOverride>[0]);
-                }}
-                onVariant={(value) => {
-                  const next = scanPath ? buildFromReading(withParam(activeReading, scanPath, value)) : null;
-                  if (next) setVariant({ value, motion: next });
-                }}
-                onClearVariant={() => setVariant(null)}
-              />
               {motion.timing?.mode !== "state_only" && (
                 <>
                   <button
@@ -460,7 +700,6 @@ const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primar
                     <ChevronDown size={15} strokeWidth={2} className="chev" />
                   </button>
                   <div id="explain-slot" className={`explanation-slot${explainOpen ? "" : " is-collapsed"}`}>
-                    {sampleQuestions.length > 0 && <QuestionPanel questions={sampleQuestions} motion={motion} onSeek={ws.seek} />}
                     <Explanation motion={motion} time={currentTime} />
                     <div className="explanation-reserve" aria-hidden="true">
                       {explanationTimes.map((time, index) => (
@@ -487,6 +726,43 @@ const [trackedBodyId,setTrackedBodyId]=useState<string|undefined>(motion?.primar
         fieldErrors={ws.notice?.fieldErrors ?? []}
         onApply={ws.applyConditions}
       />
+
+      <RegionScreenshotOverlay
+        active={screenshotMode}
+        containerRef={playerPaneRef}
+        onCancel={() => setScreenshotMode(false)}
+        onSelect={handleRegionCapture}
+      />
+
+      {shotToast && (
+        <div
+          className={`region-shot-toast${shotToast.kind === "error" ? " is-error" : ""}`}
+          data-screenshot-exclude="true"
+          role={shotToast.kind === "error" ? "alert" : "status"}
+        >
+          <span>{shotToast.text}</span>
+          {shotToast.kind === "error" && shotToast.blob && (
+            <button
+              type="button"
+              className="region-shot-save-btn"
+              onClick={() => {
+                downloadBlob(`${sampleTitle}-截图.png`, shotToast.blob!);
+                setShotToast(null);
+              }}
+            >
+              保存 PNG
+            </button>
+          )}
+          <button
+            type="button"
+            className="region-shot-dismiss"
+            aria-label="关闭截图提示"
+            onClick={() => setShotToast(null)}
+          >
+            <X size={14} strokeWidth={2.2} />
+          </button>
+        </div>
+      )}
     </>
   );
 }

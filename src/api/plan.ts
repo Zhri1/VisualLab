@@ -13,13 +13,14 @@ import { readFileSync } from 'node:fs';
 import { dispatchStageCommand } from './stageCommand';
 import { join } from 'node:path';
 
-import { callTutorChat, callVisionModel, VisionError, type TutorChatMessage, type VisionRepairContext } from './dashscope';
+import { callTutorChat, callVisionModel, VisionError, type TutorChatMessage, type TutorChatMode, type VisionRepairContext } from './dashscope';
 import { applyLegacyContract, outputContractFromEnv, type ClientResult } from './legacyBridge';
 import { STAGE_HTTP_STATUS } from './stageTypes';
 import type { StagePlanResult } from './stageTypes';
 import { buildPlanResponse, type PlanResponse } from './validate';
 import { UNSUPPORTED_PREFIX } from './contract';
 import { validateReading } from '../physics/reading';
+import { formatRagForVision, searchPhysicsRag } from '../rag/retriever';
 
 function repairRetryEnabled(): boolean {
   return (process.env.VISION_REPAIR_RETRY ?? '').trim() !== '0';
@@ -118,7 +119,7 @@ export function loadSkillText(): string {
 
   for (const path of candidates) {
     try {
-      cachedSkill = readFileSync(path, 'utf8');
+      cachedSkill = readFileSync(path, 'utf8').replace(/\r\n?/g, '\n');
       return cachedSkill;
     } catch {
       // 继续找下一个候选路径
@@ -207,12 +208,24 @@ export async function handlePlan(request: Request): Promise<Response> {
         return json({ message: 'chatContext 须为合法 JSON 字符串' }, 400, base);
       }
     }
+    const rawMode = form.get('chatMode');
+    const modeToken =
+      typeof rawMode === 'string' && rawMode.trim()
+        ? rawMode.trim().toLowerCase()
+        : context && typeof context.mode === 'string' && context.mode.trim()
+          ? context.mode.trim().toLowerCase()
+          : '';
+    const chatMode: TutorChatMode =
+      modeToken === 'similar' ? 'similar' : modeToken === 'socratic' ? 'socratic' : 'tutor';
     try {
-      const chat = await callTutorChat({ message: chatMessage, context, history });
+      const chat = await callTutorChat({ message: chatMessage, context, history, mode: chatMode });
       const elapsed = Date.now() - startedAt;
-      console.log(`[chat] ${requestId} ok ${elapsed}ms model=${chat.model} len=${chatMessage.length}`);
+      console.log(`[chat] ${requestId} ok ${elapsed}ms model=${chat.model} mode=${chatMode} len=${chatMessage.length}`);
+      const ragReferences = chat.ragReferences ?? [];
       return json(
-        { status: 'ok', reply: chat.reply },
+        chatMode === 'similar'
+          ? { status: 'ok', reply: chat.reply, similarProblems: chat.similarProblems ?? [], ragReferences }
+          : { status: 'ok', reply: chat.reply, ragReferences },
         200,
         { ...base, 'x-request-id': requestId, 'x-elapsed-ms': String(elapsed), 'x-vision-model': chat.model },
       );
@@ -256,6 +269,9 @@ export async function handlePlan(request: Request): Promise<Response> {
     return json({ message: '请上传题图，或输入题目文字' }, 400, base);
   }
 
+  const visionRagHits = text ? searchPhysicsRag({ text, mode: 'vision', topK: 2 }) : [];
+  const ragHint = formatRagForVision(visionRagHits) || undefined;
+
   let vision;
   try {
     vision = await callVisionModel({
@@ -263,6 +279,7 @@ export async function handlePlan(request: Request): Promise<Response> {
       mime,
       text,
       skillText: loadSkillText(),
+      ragHint,
     });
   } catch (error) {
     const elapsed = Date.now() - startedAt;
@@ -290,6 +307,7 @@ export async function handlePlan(request: Request): Promise<Response> {
         mime,
         text,
         skillText: loadSkillText(),
+        ragHint,
         repairContext,
       });
       const repairedInternal = buildPlanResponse(repairedVision.raw);
@@ -298,6 +316,20 @@ export async function handlePlan(request: Request): Promise<Response> {
         internal = repairedInternal;
       }
     } catch (error) {
+      if (internal.status === 'invalid_reading') {
+        const elapsed = Date.now() - startedAt;
+        const failure = error instanceof VisionError ? error.kind : 'upstream';
+        const message =
+          error instanceof VisionError ? error.message : '识别服务异常，请稍后重试';
+        const status = failure === 'timeout' ? 504 : 502;
+
+        console.error(`[plan] ${requestId} ${failure} ${elapsed}ms ${message}`);
+        return json({ message }, status, {
+          ...base,
+          'x-request-id': requestId,
+          'x-elapsed-ms': String(elapsed),
+        });
+      }
       // 定向纠错失败或超时时降级保留首次校验结果，避免把可补正的 200 变成 502
       const reason = error instanceof Error ? error.message : String(error);
       console.warn(`[plan] ${requestId} repair_fallback ${reason}`);

@@ -13,7 +13,11 @@ import type {
 } from "../types";
 
 const segmentText: Record<StageKind, Pick<MotionSegment, "name" | "summary" | "formula">> = {
+  switchable_em_collision: { name:'分区电磁场与正碰', summary:'上半区匀强电场加速、下半区匀强磁场偏转，定点弹性正碰后撤场匀速漂移，至两回旋圆首次有效外切时恢复磁场。', formula:'y = ½(qE/m)t²；R = mv/(qB)；O₁O₂ = R₁ + R₂' },
+  magnetic_reencounter: { name:'磁场双粒子正碰与再相遇', summary:'同一垂直匀强磁场中两带电粒子沿切线发生弹性正碰，碰后两回旋圆在接触点外切并按周期同刻再相遇。', formula:'R = mv/(|q|B)；T = 2πm/(|q|B)；Δt = lcm(T甲, T乙)' },
+  movable_semicircle: { name:'可平动半圆轨道', summary:'光滑竖直半圆内轨置光滑水平面可自由平动：滑块与轨道水平动量守恒、机械能守恒，实时输出相对速率与支持力。', formula:'m·v块 + M·V轨 = m·v₀；N = m(u²/R + gcosφ)/(1 + (m/M)sin²φ)' },
   movable_arc: { name:'可移动圆弧槽', summary:'槽置于光滑地面可自由滑动：球槽系统水平动量守恒、机械能守恒，球离槽时两者反向分离。', formula:'m·v球 + M·V槽 = 0；mgR = ½mv球² + ½MV槽²' },
+  circular_orbit: { name:'圆周轨道运动', summary:'固定中心天体与低质量单卫星做匀速圆周轨道运动，由万有引力提供向心力决定速率与周期。', formula:'v = √(GM/r)，T = 2π√(r³/(GM))，a = GM/r²' },
   spring_pair: { name:'自由弹簧双球', summary:'弹簧不锚墙：入射球经弹簧与静止球弹性作用，共速时压缩最大，恢复原长后分离。', formula:'v共 = m₁u/(m₁+m₂)；Ep_max = ½m₁u² − ½(m₁+m₂)v共²' },
   magnetic_deflection: { name:'匀强磁场偏转', summary:'洛伦兹力提供向心力，带电粒子在磁场区域内做匀速圆周；穿出边界或转过半圆后离开。', formula:'R = mv/(|q|B)，F = qv×B' },
   horizontal_approach: {name:'水平接近',summary:'各物体按题给初位、带符号速度和各自摩擦同钟运动。',formula:'xᵢ = xᵢ₀ + vᵢ₀t + aᵢt²/2'},
@@ -73,7 +77,10 @@ function segmentKind(kind: StageKind): SegmentKind {
   if (kind === "projectile") return "projectile";
   if (kind === "vertical_arc") return "vertical_arc";
   if (kind === "movable_arc") return "movable_arc";
+  if (kind === "movable_semicircle") return "movable_semicircle";
+  if (kind === "switchable_em_collision" || kind === "magnetic_reencounter") return "switchable_em";
   if (kind === "spring_pair") return "spring_pair";
+  if (kind === "circular_orbit") return "circular_orbit";
   return "horizontal";
 }
 
@@ -121,6 +128,9 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
       constraintsBefore:event.constraintsBefore,constraintsAfter:event.constraintsAfter,
       id: event.id,
       eventKind: event.kind,
+      ...(event.conveyorExitEdge ? { conveyorExitEdge: event.conveyorExitEdge } : {}),
+      ...(event.conveyorFrictionWorkJ !== undefined ? { conveyorFrictionWorkJ: event.conveyorFrictionWorkJ } : {}),
+      ...(event.conveyorSlipDistanceM !== undefined ? { conveyorSlipDistanceM: event.conveyorSlipDistanceM } : {}),
       stageIndex: event.stageIndex,
       order: event.order,
       timeSeconds: event.timeSeconds,
@@ -128,21 +138,27 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
       caption: event.explanation,
       detail: event.explanation,
       segment: segmentKind(owner?.kind ?? plan?.stages[event.stageIndex]?.kind ?? fallback),
+      ...(event.impulseNs ? {impulseNs:event.impulseNs} : {}),
       velocityBefore: vec(event.velocityBefore.vxMps, event.velocityBefore.vyMps),
       velocityAfter: vec(event.velocityAfter.vxMps, event.velocityAfter.vyMps),
       ...(event.position ? { position: vec(event.position.xM, event.position.yM), normalForceBeforeN: event.normalForceBeforeN, normalForceAfterN: event.normalForceAfterN } : {}),
     };
   });
 
+  // 瞬时入口只增加显示定位标记，物理 segments 仍只保留正时长运动。
+  const displaySegments=[...source.segments];
+  const finalStage=plan?.stages[source.termination.stageIndex];
+  if (finalStage?.kind === "vertical_arc" && finalStage.entryOnly) displaySegments.push({stageIndex:source.termination.stageIndex,kind:"vertical_arc",startSeconds:source.durationSeconds,endSeconds:source.durationSeconds});
   return {
     primaryBodyId:source.primaryBodyId,motionStatus:source.motionStatus,
     timing: source.timing,
+    ...(source.playbackGaps ? { playbackGaps: source.playbackGaps } : {}),
     calculations: source.calculations,
     geometry: legacyGeometry(source),
     stageGeometry: source.geometry,
     stagePlan: plan,
     durationSeconds: source.durationSeconds,
-    segments: source.segments.map((segment) => ({
+    segments: displaySegments.map((segment) => ({
       bodyIds:segment.bodyIds,stagePath:segment.stagePath,
       kind: segmentKind(segment.kind),
       stageKind: segment.kind,
@@ -150,6 +166,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
       startSeconds: segment.startSeconds,
       endSeconds: segment.endSeconds,
       ...segmentText[segment.kind],
+      ...(segment.kind==='vertical_arc' && (plan?.stages[segment.stageIndex] as {entryOnly?:boolean}|undefined)?.entryOnly ? {name:"刚进入圆弧",summary:"只计算最低点入弧瞬时的法向力，不推演未知弧内过程。",formula:"N = m(g + v²/R)"} : {}),
       ...(segment.kind==='spring_contact'&&plan?.stages[segment.stageIndex]&&'kineticFrictionCoefficient' in plan.stages[segment.stageIndex]?{
         name:'粗糙压缩与回弹',
         summary:'按实际运动方向计动摩擦；在最大压缩处用静摩擦上限或题给事实判断保持或回弹，回弹可能脱离或带残余压缩静止。',
@@ -166,6 +183,7 @@ export function adaptStageMotion(source: StageMotion, plan?: ResolvedStagePlan):
     ...(source.energyAt ? { energyAt: (time: number) => source.energyAt!(Number.isNaN(time) ? 0 : time) } : {}),
     ...(source.conveyorAt ? { conveyorAt: (time: number) => source.conveyorAt!(Number.isNaN(time) ? 0 : time) } : {}),
     ...(source.movableArcAt ? { movableArcAt: (time: number) => source.movableArcAt!(Number.isNaN(time) ? 0 : time) } : {}),
+    ...(source.movableSemicircleAt ? { movableSemicircleAt: (time: number) => source.movableSemicircleAt!(Number.isNaN(time) ? 0 : time) } : {}),
     ...(source.springPairAt ? { springPairAt: (time: number) => source.springPairAt!(Number.isNaN(time) ? 0 : time) } : {}),
     sampleAt(timeSeconds) {
       const sample = source.sampleAt(Number.isNaN(timeSeconds) ? 0 : timeSeconds);

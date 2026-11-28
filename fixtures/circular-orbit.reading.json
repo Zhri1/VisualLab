@@ -1,0 +1,18 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "initial": { "speedMps": 0 },
+  "stages": [
+    {
+      "kind": "circular_orbit",
+      "gravitationalParameterM3s2": 3.986e14,
+      "centralBodyRadiusM": 6.371e6,
+      "altitudeM": 4.0e5,
+      "direction": "ccw",
+      "initialAngleDeg": 0,
+      "orbits": 1,
+      "centralBodyLabel": "地球",
+      "satelliteLabel": "卫星"
+    }
+  ]
+}

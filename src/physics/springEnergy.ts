@@ -17,16 +17,20 @@ export function resolveSpringEnergy(input: Obj, draft: StagePlanDraft, missing: 
   const m = draft.massKg as number, g = draft.gravityMps2 ?? 0;
   const mu = s.kineticFrictionCoefficient as number, muh = h?.kineticFrictionCoefficient as number;
   let k = s.springConstantNpm as number | null, c = s.initialCompressionM as number | null;
-  let energy: Energy | undefined;
-  if (input.energy != null) {
+  let energy: Energy | undefined = draft.energy;
+  if (input.energy != null && !(draft.energy && draft.energy.origin === "tangent_to_next_arc")) {
     if (!object(input.energy)) issue("/energy", "TYPE", "能量记录须为对象。");
     else {
       const raw = input.energy, target: Obj = { origin: raw.origin };
       numberField(raw, target, "stageIndex", "/energy/stageIndex", v => v === 0);
-      numberField(raw, target, "elasticEnergyJ", "/energy/elasticEnergyJ", positive);
+      if (draft.scaleMode === "normalized" && raw.origin === "given" && raw.elasticEnergyJ == null) {
+        target.elasticEnergyJ = 1;
+      } else {
+        numberField(raw, target, "elasticEnergyJ", "/energy/elasticEnergyJ", positive);
+      }
       if (raw.origin == null) missing.push("/energy/origin");
       else if (typeof raw.origin !== "string") issue("/energy/origin", "TYPE", "能量来源须为字符串。");
-      else if (!["given", "user", "spring_parameters", "critical_arc_top"].includes(raw.origin)) issue("/energy/origin", "UNSUPPORTED", "未登记的能量来源。");
+      else if (!["given", "user", "spring_parameters", "critical_arc_top", "tangent_to_next_arc"].includes(raw.origin)) issue("/energy/origin", "UNSUPPORTED", "未登记的能量来源。");
       if (raw.origin === "critical_arc_top" || raw.origin === "spring_parameters") {
         if (raw.basis == null) missing.push("/energy/basis");
         else if (!object(raw.basis)) issue("/energy/basis", "TYPE", "来源快照须为对象。");
@@ -109,6 +113,9 @@ export function resolveSpringEnergy(input: Obj, draft: StagePlanDraft, missing: 
     draft.energy = energy;
     return { mode: "full", startStageIndex: 0, unresolvedKeys: [], reason: "从A点释放开始精确播放全程。" };
   }
+  if (!energy && draft.scaleMode === "normalized" && k == null && c == null && s.kineticFrictionCoefficient === 0 && draft.stages[1]?.kind === "projectile") {
+    energy = { stageIndex: 0, elasticEnergyJ: 1, origin: "given" };
+  }
   if (energy) draft.energy = energy;
   if (s.slidesAfterRelease === false) {
     if (condition) issue("/stages/0/slidesAfterRelease", "PRECONDITION_CONFLICT", "静止前提与到达最高点冲突。");
@@ -116,6 +123,19 @@ export function resolveSpringEnergy(input: Obj, draft: StagePlanDraft, missing: 
     return { mode: "full", startStageIndex: 0, unresolvedKeys: [], reason: "题设明确A处保持静止。" };
   }
   const unresolvedKeys = ["/stages/0/springConstantNpm", "/stages/0/initialCompressionM"];
+  // 光滑桌面弹簧释放直连平抛：球脱离后即以能量唯一确定的水平速率离桌，无需索要 releaseCompleteByM 或桌面长度。
+  if (energy && s.kineticFrictionCoefficient === 0 && s.unattached === true && s.slidesAfterRelease === true && draft.stages[1]?.kind === "projectile") {
+    const vxMps = Math.sqrt(2 * energy.elasticEnergyJ / m);
+    return {
+      mode: "suffix",
+      startStageIndex: 1,
+      unresolvedKeys,
+      xM: 0,
+      vxMps,
+      stopReason: "prefix_end",
+      reason: "弹簧劲度系数、压缩量与桌面滑行距离未给出；光滑桌面与弹簧脱离后速度由能量确定，动画从桌缘起算并标注未计时前段。",
+    };
+  }
   if (!energy || !Number.isFinite(L) || mu !== muh || !(typeof s.releaseCompleteByM === "number" && s.releaseCompleteByM > 0)) {
     if (!energy) missing.push(...unresolvedKeys);
     else if (s.releaseCompleteByM == null) missing.push("/stages/0/releaseCompleteByM");

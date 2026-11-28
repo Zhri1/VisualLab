@@ -6,16 +6,20 @@
  * 接触段时长 = π/ω（半周期）；压缩量 x(τ) = (u/ω)·sin(ωτ)。
  * 若未给 m2 但给定分离速率 s（0<s<u，m1 反向弹回）：反求 m2 = m1(u+s)/(u−s)。
  *
- * 符号约定：与 entry.vxMps 同向为正；点质量 + 零自然长度弹簧模型，
- * compressionM 即两球间距的闭合量（x2−x1 沿运动方向的投影取反）。
+ * 符号约定：与 entry.vxMps 同向为正；自由弹簧自然长度 restLengthM > maxCompressionM，
+ * 接触瞬间 m1 抵达弹簧自由端 targetEntryXM，m2 位于其后方 restLengthM 处，
+ * 压缩期间严格保持 d·(x2 − x1) = restLengthM − compressionM > 0，两球绝不穿模。
  */
 
 export type SpringPairStage = {
   kind: "spring_pair";
   targetMassKg?: number | null;
-  springConstantNpm: number;
+  /** 弹簧劲度系数（N/m）；题面未给时默认 100，仅影响动画过程时长，不影响分离速度与最大弹性势能。 */
+  springConstantNpm?: number | null;
   gapM?: number | null;
   separationSpeedMps?: number | null;
+  /** 接续 movable_arc 时：true 表示「恰好不能再次滑上圆弧槽」，自动取前段槽速作为分离速率反求 m₂。 */
+  matchGrooveSpeed?: boolean | null;
 };
 
 export interface SpringPairSample {
@@ -44,7 +48,7 @@ export interface SpringPairSolution {
     explanation: string;
   }>;
   at(t: number): SpringPairSample;
-  geometry: { gapM: number; springConstantNpm: number; mass2Kg: number; targetEntryXM: number };
+  geometry: { gapM: number; springConstantNpm: number; mass2Kg: number; targetEntryXM: number; incomingDir: -1 | 1; maxCompressionM: number; restLengthM: number };
 }
 
 export function solveSpringPair(
@@ -53,10 +57,10 @@ export function solveSpringPair(
   ballMassKg: number,
 ): SpringPairSolution {
   const m1 = ballMassKg;
-  const k = stage.springConstantNpm;
+  const k = stage.springConstantNpm ?? 100;
   const gap = stage.gapM ?? 0.5;
   const u = Math.abs(entry.vxMps);
-  const d = entry.vxMps >= 0 ? 1 : -1;
+  const d: -1 | 1 = entry.vxMps >= 0 ? 1 : -1;
   if (!Number.isFinite(m1) || m1 <= 0) throw new RangeError("ballMassKg 须为正有限数。");
   if (!Number.isFinite(k) || k <= 0) throw new RangeError("springConstantNpm 须为正有限数。");
   if (!Number.isFinite(gap) || gap < 0) throw new RangeError("gapM 须为非负有限数。");
@@ -86,6 +90,7 @@ export function solveSpringPair(
   const sep2 = (2 * m1 * u) / (m1 + m2);
   const targetEntryXM = entry.xM + d * gap;
   const amp = u / omega;
+  const restLengthM = Math.max(0.36, amp * 1.45);
 
   const at = (time: number): SpringPairSample => {
     const q = Math.min(Math.max(time, 0), duration);
@@ -94,7 +99,7 @@ export function solveSpringPair(
         x1M: entry.xM + d * u * q,
         y1M: entry.yM,
         vx1Mps: d * u,
-        x2M: targetEntryXM,
+        x2M: targetEntryXM + d * restLengthM,
         vx2Mps: 0,
         compressionM: 0,
       };
@@ -102,9 +107,9 @@ export function solveSpringPair(
     const tau = q - contactTime;
     if (tau >= halfPeriod) {
       const extra = tau - halfPeriod;
-      // τ=π/ω 时 sin(ωτ)=0：分离点即共速漂移终点。
+      // τ=π/ω 时 sin(ωτ)=0：弹簧恢复原长，m1 位于自由端，m2 位于其后方 restLengthM。
       const x1c = targetEntryXM + d * vc * halfPeriod;
-      const x2c = targetEntryXM + d * vc * halfPeriod;
+      const x2c = targetEntryXM + d * (restLengthM + vc * halfPeriod);
       return {
         x1M: x1c + d * sep1 * extra,
         y1M: entry.yM,
@@ -118,10 +123,10 @@ export function solveSpringPair(
     const cs = Math.cos(omega * tau);
     const compression = amp * sn;
     return {
-      x1M: targetEntryXM + d * (vc * tau + (m2 / (m1 + m2)) * amp * sn),
+      x1M: targetEntryXM + d * (vc * tau + (m2 / (m1 + m2)) * compression),
       y1M: entry.yM,
       vx1Mps: d * (vc + (m2 / (m1 + m2)) * u * cs),
-      x2M: targetEntryXM + d * (vc * tau - (m1 / (m1 + m2)) * amp * sn),
+      x2M: targetEntryXM + d * (restLengthM + vc * tau - (m1 / (m1 + m2)) * compression),
       vx2Mps: d * (vc - (m1 / (m1 + m2)) * u * cs),
       compressionM: compression,
     };
@@ -168,6 +173,6 @@ export function solveSpringPair(
       },
     ],
     at,
-    geometry: { gapM: gap, springConstantNpm: k, mass2Kg: m2, targetEntryXM },
+    geometry: { gapM: gap, springConstantNpm: k, mass2Kg: m2, targetEntryXM, incomingDir: d, maxCompressionM: amp, restLengthM },
   };
 }

@@ -25,6 +25,16 @@ export function segmentAt(segments: readonly MotionSegment[], time: number): Mot
   return segments.find((segment) => time < segment.endSeconds - 1e-9) ?? segments[segments.length - 1];
 }
 
+/** 从当前帧就地进入本段慢放：不回跳到段首；若已在段末/终帧则保持原地暂停。 */
+export function planSlowCurrentSegment(
+  segments: readonly MotionSegment[],
+  currentTime: number,
+): { segment: MotionSegment; shouldPlay: boolean } | null {
+  const segment = segmentAt(segments, currentTime);
+  if (!segment) return null;
+  return { segment, shouldPlay: currentTime < segment.endSeconds - 1e-9 };
+}
+
 export function formatSpeed(speed: number): string {
   return speed === 0 ? "0" : speed < 0.005 ? "<0.01" : speed.toFixed(2);
 }
@@ -47,6 +57,23 @@ export function computeDefaultPace(
 ): number {
   const duration = motion.durationSeconds;
   if (!Number.isFinite(duration) || duration <= 0 || motion.timing?.mode === "state_only") return 1;
+
+  // 圆周轨道运动（如低轨/同步卫星）物理周期常达数千至数万秒：
+  // 保持真实物理时间轴、周期与速率不变，仅将默认观看时钟按约 12 s/圈缩放（10–15 s 可观看区间），
+  // 并在界面明确提示时间加速；普通力学题继续沿用下方只放慢不加速的既有规则。
+  const orbit = motion.stageGeometry?.circularOrbit;
+  if (orbit && Number.isFinite(orbit.periodSeconds) && orbit.periodSeconds > 0) {
+    const targetOrbitWatchSeconds = 12;
+    if (orbit.periodSeconds > 15) {
+      const accel = orbit.periodSeconds / targetOrbitWatchSeconds;
+      return accel >= 10 ? Math.round(accel) : Number(accel.toFixed(2));
+    }
+    if (orbit.periodSeconds < 10) {
+      const slow = Math.max(0.15, Math.round((orbit.periodSeconds / targetOrbitWatchSeconds) * 20) / 20);
+      return Number(slow.toFixed(4));
+    }
+    return 1;
+  }
 
   const steps = 96;
   const dt = duration / steps;

@@ -1,0 +1,42 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "gravityMps2": 10,
+  "massKg": 1,
+  "initial": { "speedMps": 0 },
+  "stages": [
+    {
+      "kind": "spring_release",
+      "springConstantNpm": null,
+      "initialCompressionM": null,
+      "kineticFrictionCoefficient": 0,
+      "unattached": true,
+      "slidesAfterRelease": true
+    },
+    {
+      "kind": "projectile",
+      "dropHeightM": 0.8,
+      "end": { "kind": "tangent_to_next_arc" }
+    },
+    {
+      "kind": "vertical_arc",
+      "radiusM": 0.5,
+      "side": "inside",
+      "frictionless": true,
+      "startLabel": "A",
+      "endLabel": "C",
+      "path": {
+        "startAngleDeg": -53,
+        "direction": "positive",
+        "end": { "kind": "physical_endpoint", "sweepAngleDeg": 90 }
+      }
+    },
+    {
+      "kind": "incline_slide",
+      "direction": "up",
+      "angleDeg": 37,
+      "lengthM": null,
+      "kineticFrictionCoefficient": 0.5
+    }
+  ]
+}

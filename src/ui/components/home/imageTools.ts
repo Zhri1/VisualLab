@@ -22,6 +22,45 @@ export function checkImageFile(file: File): ImageCheck {
   return { ok: true };
 }
 
+/**
+ * 从标准 paste 事件的 clipboardData 中提取单个图片文件。
+ * 仅在存在 image/* 附件时返回 File；纯文字粘贴返回 null，由浏览器原生处理。
+ */
+export function extractClipboardImage(
+  data: {
+    items?: ArrayLike<{ type: string; getAsFile: () => File | null }>;
+    files?: ArrayLike<File>;
+  } | null | undefined,
+): File | null {
+  if (!data) return null;
+  let pasted: File | null = null;
+  if (data.items) {
+    for (let i = 0; i < data.items.length; i += 1) {
+      const entry = data.items[i];
+      if (entry?.type.startsWith("image/")) {
+        pasted = entry.getAsFile();
+        if (pasted) break;
+      }
+    }
+  }
+  if (!pasted && data.files) {
+    for (let i = 0; i < data.files.length; i += 1) {
+      const f = data.files[i];
+      if (f && f.type.startsWith("image/")) {
+        pasted = f;
+        break;
+      }
+    }
+  }
+  if (!pasted || !pasted.type.startsWith("image/")) return null;
+  if (pasted.name && pasted.name.trim()) return pasted;
+  const ext = pasted.type === "image/jpeg" ? "jpg" : pasted.type === "image/png" ? "png" : "img";
+  return new File([pasted], `粘贴图片.${ext}`, {
+    type: pasted.type,
+    lastModified: pasted.lastModified || Date.now(),
+  });
+}
+
 interface Decoded {
   source: CanvasImageSource;
   width: number;

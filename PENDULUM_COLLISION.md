@@ -101,12 +101,12 @@ primaryBodyId: string;
 }
 ```
 
-本增量仅用于该碰撞之后。两个物体各在一条轨道，不能遗漏/重复ID；粘连组合只能在同一轨道。摆轨道复用inherit分支且end为scene_end；目标轨道支持已有horizontal_slide的distance/stop及其实际离沿后projectile（固定landingPlaneYM）。并行内不嵌套并行或第二次碰撞，不支持任意规则图。粘连后只有一组运动时直接用顶层继承摆阶段，end=first_turn即可。
+本增量仅用于该碰撞之后。两个物体各在一条轨道，不能遗漏/重复ID；粘连组合只能在同一轨道。摆轨道复用inherit分支且end为scene_end；目标轨道支持已有horizontal_slide的distance/stop及其实际离沿后projectile（固定landingPlaneYM）。若目标在光滑面上持续运动，可用末段 `horizontal_slide` 的 `end: { kind: "scene_end" }`（`kineticFrictionCoefficient = 0`），由题定 `pendulum_turn` 决定共同终点。并行内不嵌套并行或第二次碰撞，不支持任意规则图。粘连后只有一组运动时直接用顶层继承摆阶段，end=first_turn即可。
 
 - 各轨道从碰撞时刻同时开始，内部阶段顺序接续。不把第二条轨道排在第一条结束后。轨道内水平距离从本段入口量起，方向取实际带符号速度；摩擦始终反向，停止后不反向。目标桌沿相对距离沿入射方向取正，世界x可向左；零速不能离桌。
 - `all_finite_tracks`取所有有限目标轨道完成时刻的最大值，scene_end摆为跟随轨道，积分到这个共同时间。至少要有一个有依据的有限目标；全部scene_end或目标已在入口静止而摆仍运动时，需明确播放结束条件，定位并行end，不猜任意观察时长。
 - **摆锤首个转折默认只是事件。**只要绳仍张紧，转折后反向继续取样到共同结束时间，不能截掉目标仍可计算的滑动/飞行，也不能让摆锤冻结在转折点。若题设明确“看到摆锤首个转折”，用并行end=pendulum_turn显式结束全场景，保留其他物体当时的真实状态。
-- 已真正静止的水平物体或平衡摆可以保持静止等待其他轨道完成。落地保留入射速度；本批没有落地后的碰撞/弹跳模型，不将这个瞬间状态当作仍在运动的持续轨道。两物体本批只有一个目标轨道，正常由其落地结束共同播放。若任何轨道先遇到真正的模型边界（例如再次张紧），结束共同可求范围并明确报告，不能拖长冻结该物体来凑另一路末点。
+- 已真正静止的水平物体或平衡摆可以保持静止等待其他轨道完成。落地保留入射速度；本批没有落地后的碰撞/弹跳模型，不将这个瞬间状态当作仍在运动的持续轨道。两物体本批只有一个目标轨道，首次落地与摆动首转折同刻时保留两项事件，以落地为终止事件。若任何轨道先遇到真正的模型边界（例如再次张紧），结束共同可求范围并明确报告，不能拖长冻结该物体来凑另一路末点。模型边界与落地同刻时保留两项事件，以模型边界为终止事件。
 - 新阶段事件`stageIndex`仍指顶层列表，另带`stagePath`定位嵌套模块，例如`/stages/2/tracks/1/stages/0`。顺序下标不是物体ID。只输出实际发生且有正时长的运动段；collision不生成segment。
 
 ## 3. 非线性摆、张力和松绳
@@ -293,3 +293,57 @@ bodyId本身只需满足唯一标识，不因用户命名为bob以外的字符�
 3. A同步`src/types/index.ts`、`src/adapters/stageMotionAdapter.ts`、编辑器、画布和字幕：按bodyId取同一sample，保留旧主物体投影，新增group/constraint/tension/MotionStatus；避免把turning或model_boundary显示成停止。播放器继续只有一个时钟和事件列表。
 4. C同步`src/api/stageTypes.ts`及生成的functions副本、Skill登记和图文mock入口；完整透传body/嵌套计划与草稿。模型只提取事实，B算tc、目标初位、碰后速度和张力。先验证两端共享校验、再验证真实图文；本契约阶段不部署。
 5. 下一增量为斜面末端直接斜抛；普通水平正碰与碰后接抛体复用本次body状态、事件及碰撞公式，之后按规划补齐首批与第二批。这里不提前承诺尚未实现的接触寻时或再次张紧冲量。
+
+## 9. 增量扩展：水平传送带入碰与同高侧向钉子变支点
+
+在现有双物体 `stage_plan`（`bodies`、`primaryBodyId`、`initial: { bodies }`、`collision_1d`、`parallel_motion`、`pendulum_swing`）基础上，增量支持**水平定长传送带 → 末端与静止悬球正碰 → 碰后物块在带面受摩擦运动与摆锤遇同高侧向钉子变支点同步播放**，全部复用既有 `solveConveyorBelt`、`collide1D` 与非线性摆求解器，不新增整题模板。
+
+### 9.1 阶段与字段增量
+
+1. **首段 `conveyor_belt`（双物体带上接近）**：
+   - `initial.bodies` 包含两个物体：带面滑块位于 `xM = 0`（或带另一端）、悬球静止于带末端 `xM = beltLengthM`（或 `0`）且带 `constraint: { kind: "pendulum_string", pivotXM, lengthM, initialStringState: "taut", pivotFixed: true, lightInextensibleString: true, airResistanceNegligible: true }`。
+   - `stages[0]` 为 `conveyor_belt`，新增 `bodyId: string`（或省略时自动绑定无绳约束的物体），必填有限 `beltLengthM > 0`、`initialBeltSpeedMps`、`kineticFrictionCoefficient >= 0`、`segments`（单段定长匀速可省略或 `durationSeconds: null`）。
+   - 求解器复用 `solveConveyorBelt`，计算物块到达悬球位置 `x_bob` 的首次碰撞时刻 `tc` 及碰前速度 `u1`。若物块未到达悬球即从另一端离带或提前停下，按实际结果报 `no_collision` / `range_end`，不虚构碰撞。
+
+2. **次段 `collision_1d`（支持题给碰后速度）**：
+   - `mode` 扩展支持 `"specified_post_velocity"`，并配对字段：
+     ```ts
+     knownPostVelocity?: { bodyId: string; vxMps: number };
+     ```
+   - `contact` 扩展支持 `{ kind: "conveyor_end"; conveyorStageIndex: 0 }`（同时兼容既有 `horizontal_meeting`）。
+   - 当 `mode === "specified_post_velocity"` 时，不擅设弹性；由水平动量守恒 $m_1 u_1 + m_2 u_2 = m_1 v_1 + m_2 v_2$ 反求另一物体碰后速度，并强制校验：
+     - 碰撞动能损失 $\Delta E = E_{\text{before}} - E_{\text{after}} \ge 0$（超弹性报 `PRECONDITION_CONFLICT`）；
+     - 碰后不互穿：$(v_1 - v_2)\cdot n \le 0$（穿模报 `PRECONDITION_CONFLICT`）。
+   - `calculations` 记录派生碰后速度与 `collision_energy_lost`（单位 `J`）。
+
+3. **末段 `parallel_motion`（双体同钟：带上受摩擦返程 + 摆锤碰钉变支点）**：
+   - **物块轨道**：支持 `{ kind: "conveyor_belt", inheritFromStageIndex: 0 }`，继承首段传送带的带速、动摩擦因数与带长，从碰撞位置和碰后速度继续在带面上受摩擦运动，直至离带（`conveyor_exit`）或随共同终点结束。**未给离带后地面时，严禁生成虚构落地（`land`）。**
+   - **摆锤轨道**：`pendulum_swing`（`inheritFromBodyId`）新增可选侧向同高钉子字段：
+     ```ts
+     peg?: {
+       side: "right" | "left";          // 相对悬点 O 的水平侧向
+       offsetXM: number | null;         // 钉子距 O 的水平距离 OP（0 < OP < L）；临界反求时填 null
+       criticalTopNonSlack?: true;      // 题设要求恰好通过钉子正上方最高点（绳不松弛）反求最小 OP 时为 true
+     };
+     ```
+   - `parallel_motion.end` 扩展支持 `{ kind: "pendulum_peg_top"; bodyId: string }`（在摆锤到达钉子正上方最高点结束；若中途提前松绳或转折，则在真实 `string_slack` / `pendulum_turn` 处诚实结束，绝不画到顶点）。
+
+### 9.2 碰钉物理规则与临界反求
+
+- 悬点 $O = (x_O, L)$，同高侧向钉子 $P = (x_O + s \cdot d, L)$（$s = +1$ 为右侧，$-1$ 为左侧，$0 < d < L$）。
+- 摆锤从最低点 $(x_O, 0)$ 以带符号切向速度 $q_0$ 上摆：
+  - 若 $q_0^2 \le 2 g L$，摆锤在到达水平位置前（或恰好于水平位置零速）转折（`pendulum_turn`），不发生绕钉运动；若同时要求 `criticalTopNonSlack: true`，报 `PRECONDITION_CONFLICT`。
+  - 若 $q_0^2 > 2 g L$ 且摆动方向与 `peg.side` 一致，绳摆至水平位置 $\theta = s \cdot 90^\circ$ 时碰钉（事件 `peg_contact`）：
+    - 碰钉瞬间速率 $v_{\text{peg}} = \sqrt{q_0^2 - 2 g L}$，**位置 $(x_O + sL, L)$ 与速度 $(0, +v_{\text{peg}})$ 保持连续**；
+    - 约束支点由 $O$ 切换为 $P$，有效摆长由 $L$ 切换为 $r = L - d$，张力由 $m v_{\text{peg}}^2 / L$ 突变至 $m v_{\text{peg}}^2 / r$。
+  - 若 `peg.criticalTopNonSlack === true` 且 `peg.offsetXM == null`，由物理库按钉子正上方最高点绳不松弛条件 $v_{\text{top}}^2 = v_{\text{peg}}^2 - 2 g r \ge g r$ 反求：
+    $$r_{\max} = \frac{v_{\text{peg}}^2}{3 g}, \qquad OP_{\min} = L - \frac{v_{\text{peg}}^2}{3 g}, \qquad v_{\text{top}} = \sqrt{g r_{\max}}, \qquad T_{\text{top}} = 0$$
+    并将 `peg_min_offset`、新半径与顶点速度写入 `calculations`；AI **不得**在识别阶段预填计算出的最小 $OP$。
+  - 若给定具体 `peg.offsetXM = d`：
+    - 当 $v_{\text{peg}}^2 \ge 3 g (L - d)$ 时，摆锤沿新半径 $r = L - d$ 无松弛到达钉子正上方最高点 $(x_P, L + r)$，发 `pendulum_top`；
+    - 当 $v_{\text{peg}}^2 < 3 g (L - d)$ 时，绳在到达顶点前于 $\sin u_{\text{slack}} = v_{\text{peg}}^2 / (3 g r)$ 处张力归零并松弛（发 `string_slack`），如实提前停止（或按 `slackContinuation` 自由飞行），**不得画到最高点**。
+
+### 9.3 画布与输出增量
+
+- `BodyGeometry` 新增可选 `conveyor?: ConveyorGeometry` 与 `pendulums[].peg?: { xM: number; yM: number; offsetXM: number; effectiveLengthM: number }`。
+- `StringState` 在碰钉前后实时反映当前有效 `pivot`（$O \to P$）、`lengthM`（$L \to L - OP$）与 `tensionN`；画布绘制传送带、悬点 $O$、钉子 $P$ 及当前有效轻绳，双物体共用单一播放时钟。

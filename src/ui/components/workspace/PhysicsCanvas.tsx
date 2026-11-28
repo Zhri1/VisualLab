@@ -36,6 +36,7 @@ interface Props {
   readouts?: boolean;
   forces?: boolean;
   decompose?: boolean;
+  annotationPaletteOpen?: boolean;
 }
 
 interface Transform {
@@ -92,13 +93,22 @@ function drawRich(
   x: number,
   y: number,
   px: number,
-  align: "left" | "center" | "right" = "center"
+  align: "left" | "center" | "right" = "center",
+  halo = false
 ) {
   const total = measureRich(ctx, segs, px);
   let cur = align === "center" ? x - total / 2 : align === "right" ? x - total : x;
   ctx.textAlign = "left";
   for (const s of segs) {
     ctx.font = fontOf(s, px);
+    if (halo) {
+      ctx.save();
+      ctx.lineJoin = "round";
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(251,251,249,0.9)";
+      ctx.strokeText(s.t, cur, y);
+      ctx.restore();
+    }
     ctx.fillText(s.t, cur, y);
     cur += ctx.measureText(s.t).width;
   }
@@ -510,17 +520,25 @@ function drawScene(
   }
   labelX = Math.min(W - insetX, Math.max(insetX, labelX));
   labelY = Math.min(H - 8, Math.max(insetTop, labelY));
-  ctx.fillStyle = PAPER;
-  ctx.fillRect(labelX - labelHalfWidth - 4, labelY - speedLabelPx - 2, 2 * labelHalfWidth + 8, speedLabelPx + 5);
+  // 去掉实色底块，保持默认黑色文字 + 纸色细描边光晕，不遮挡下方几何。
   ctx.fillStyle = INK;
   ctx.textBaseline = "bottom";
-  drawRich(ctx, speedLabel, labelX, labelY, speedLabelPx);
+  drawRich(ctx, speedLabel, labelX, labelY, speedLabelPx, "center", true);
 }
 
 export function PhysicsCanvas(props: Props) {
   if(props.motion?.primaryBodyId)return <MultiBodyPhysicsCanvas motion={props.motion} time={props.time} isPlaying={props.isPlaying} trackedBodyId={props.trackedBodyId} readouts={props.readouts} forces={props.forces} decompose={props.decompose}/>;
   if (props.motion?.stageGeometry) {
-    return <StagePhysicsCanvas motion={props.motion} time={props.time} isPlaying={props.isPlaying} forces={props.forces} decompose={props.decompose} />;
+    return (
+      <StagePhysicsCanvas
+        motion={props.motion}
+        time={props.time}
+        isPlaying={props.isPlaying}
+        forces={props.forces}
+        decompose={props.decompose}
+        annotationPaletteOpen={props.annotationPaletteOpen}
+      />
+    );
   }
   return <LegacyPhysicsCanvas {...props} />;
 }

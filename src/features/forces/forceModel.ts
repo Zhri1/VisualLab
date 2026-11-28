@@ -1,3 +1,4 @@
+import { inclineTrig } from "../../physics/uniformConstraints";
 /**
  * 受力矢量模型：由同一份 motion 采样 + 阶段计划解析出各力箭头，
  * 不引入新物理假设，只把引擎已算出的量（N、T、kx、μN）画出来。
@@ -35,7 +36,7 @@ export function forcesAt(motion: Motion, time: number, decompose = false): Force
   const plan = motion.stagePlan;
   const g = plan?.gravityMps2 ?? 10;
   const seg = segmentAt(motion.segments, time);
-  const stage = (plan?.stages?.[seg?.stageIndex ?? 0] ?? {}) as Record<string, unknown>;
+  const stage = (plan?.stages?.[sample.constraint?.stageIndex ?? seg?.stageIndex ?? 0] ?? {}) as Record<string, unknown>;
   const arrows: ForceArrow[] = [];
   const push = (a: Omit<ForceArrow, "color">) => arrows.push({ ...a, color: FORCE_COLORS[a.kind] });
 
@@ -50,10 +51,15 @@ export function forcesAt(motion: Motion, time: number, decompose = false): Force
     const kind = stage?.kind;
 
     if (kind === "magnetic_deflection") {
-      const mg = motion.stageGeometry?.magnetics?.[0] ?? motion.stageGeometry?.magnetic;
-      const q = Math.abs((stage.chargeC as number) ?? 0);
+      const rawQ = (stage.chargeC as number) ?? 0;
+      const q = Math.abs(rawQ);
       const B = (stage.magneticTeslaB as number) ?? 0;
-      const dir = mg ? norm(mg.center.xM - pos.x, mg.center.yM - pos.y) : norm(-vel.y, vel.x);
+      const fieldDirection = (stage.fieldDirection as string) ?? "into_page";
+      // x 向右、y 向上坐标系中，严格按 F = qv×B 计算洛伦兹力单位方向（与 magneticDeflection.ts 圆心方向一致）。
+      const spin = (rawQ >= 0 ? 1 : -1) * (fieldDirection === "out_of_page" ? -1 : 1);
+      const dir = speed > 1e-9
+        ? { x: spin * (-vel.y / speed), y: spin * (vel.x / speed) }
+        : { x: 0, y: 0 };
       push({ bodyId: body.id, label: "F洛", kind: "magnetic", from: pos, dir, magnitudeN: q * speed * B });
       continue;
     }
@@ -61,20 +67,22 @@ export function forcesAt(motion: Motion, time: number, decompose = false): Force
 
     if (kind === "incline_slide") {
       const theta = ((stage.angleDeg as number) ?? 37) * Math.PI / 180;
+      const dynamics = inclineTrig(stage as {angleDeg:number});
       const mu = (stage.kineticFrictionCoefficient as number) ?? 0;
+      const resistance = typeof stage.resistanceN === "number" ? stage.resistanceN : mu*mass*g*dynamics.cos;
       const nDir = { x: Math.sin(theta), y: Math.cos(theta) };
       const downDir = { x: Math.cos(theta), y: -Math.sin(theta) };
-      push({ bodyId: body.id, label: "N", kind: "normal", from: pos, dir: nDir, magnitudeN: mass * g * Math.cos(theta) });
-      if (speed > 1e-6 && mu > 0) {
-        push({ bodyId: body.id, label: "f", kind: "friction", from: pos, dir: { x: -vdir.x, y: -vdir.y }, magnitudeN: mu * mass * g * Math.cos(theta) });
+      push({ bodyId: body.id, label: "N", kind: "normal", from: pos, dir: nDir, magnitudeN: mass * g * dynamics.cos });
+      if (speed > 1e-6 && resistance > 0) {
+        push({ bodyId: body.id, label: typeof stage.resistanceN === "number" ? "阻力" : "f", kind: "friction", from: pos, dir: { x: -vdir.x, y: -vdir.y }, magnitudeN: resistance });
       } else if (speed <= 1e-6) {
-        push({ bodyId: body.id, label: "f静", kind: "friction", from: pos, dir: { x: -downDir.x, y: -downDir.y }, magnitudeN: mass * g * Math.sin(theta) });
+        push({ bodyId: body.id, label: "f静", kind: "friction", from: pos, dir: { x: -downDir.x, y: -downDir.y }, magnitudeN: mass * g * dynamics.sin });
       }
       if (decompose) {
-        push({ bodyId: body.id, label: "G∥", kind: "gravity", from: pos, dir: downDir, magnitudeN: mass * g * Math.sin(theta), dashed: true });
-        push({ bodyId: body.id, label: "G⊥", kind: "gravity", from: pos, dir: { x: -nDir.x, y: -nDir.y }, magnitudeN: mass * g * Math.cos(theta), dashed: true });
+        push({ bodyId: body.id, label: "G∥", kind: "gravity", from: pos, dir: downDir, magnitudeN: mass * g * dynamics.sin, dashed: true });
+        push({ bodyId: body.id, label: "G⊥", kind: "gravity", from: pos, dir: { x: -nDir.x, y: -nDir.y }, magnitudeN: mass * g * dynamics.cos, dashed: true });
       }
-    } else if (kind === "horizontal_slide" || kind === "spring_release" || kind === "conveyor_belt" || kind === "constant_force_1d") {
+    } else if (kind === "horizontal_slide" || kind === "conveyor_belt" || kind === "constant_force_1d") {
       push({ bodyId: body.id, label: "N", kind: "normal", from: pos, dir: { x: 0, y: 1 }, magnitudeN: mass * g });
       const mu = (stage.kineticFrictionCoefficient as number) ?? 0;
       let rel = speed;
@@ -112,5 +120,5 @@ export function forcesAt(motion: Motion, time: number, decompose = false): Force
       push({ bodyId: body.id, label: "T", kind: "tension", from: pos, dir, magnitudeN: c.tensionN });
     }
   }
-  return arrows.filter((a) => a.magnitudeN > 1e-6);
+  return arrows.filter((a) => (a.kind === "magnetic" ? a.magnitudeN > 0 : a.magnitudeN > 1e-9));
 }

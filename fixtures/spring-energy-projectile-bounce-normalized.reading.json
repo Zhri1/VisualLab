@@ -1,0 +1,27 @@
+{
+  "kind": "stage_plan",
+  "schemaVersion": 1,
+  "scaleMode": "normalized",
+  "gravityMps2": null,
+  "massKg": null,
+  "initial": { "speedMps": 0 },
+  "energy": { "stageIndex": 0, "elasticEnergyJ": null, "origin": "given" },
+  "stages": [
+    {
+      "kind": "spring_release",
+      "springConstantNpm": null,
+      "initialCompressionM": null,
+      "kineticFrictionCoefficient": 0,
+      "unattached": true,
+      "slidesAfterRelease": true
+    },
+    {
+      "kind": "projectile",
+      "bounce": {
+        "normalRestitution": 0.8,
+        "stopAt": "first_apex",
+        "apexHeightM": null
+      }
+    }
+  ]
+}

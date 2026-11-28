@@ -7,6 +7,8 @@ import type { EndReason, StageGeometry, ArcConstraint } from "../physics/stageMo
 export type { StageGeometry };
 import type { ResolvedStagePlan, StageKind, StagePlanDraft } from "../physics/stagePlan";
 import type { BodyState, StringState, MotionStatus } from '../physics/multiBodyTypes';
+import type { RagReference } from "../rag/types";
+export type { RagReference };
 
 export type TemplateId = "incline_spring";
 
@@ -111,7 +113,7 @@ export interface ResolvedConditions {
   springConstantNpm: number;
 }
 
-export type SegmentKind = "incline" | "horizontal" | "spring" | "projectile" | "vertical_arc" | 'pendulum' | 'movable_arc' | 'spring_pair';
+export type SegmentKind = "incline" | "horizontal" | "spring" | "projectile" | "vertical_arc" | 'pendulum' | 'movable_arc' | 'movable_semicircle' | 'spring_pair' | 'switchable_em' | 'circular_orbit';
 export type BodyMotionSample = Omit<BodyState,'xM'|'yM'|'vxMps'|'vyMps'> & {position:Vec2;velocity:Vec2};
 
 export interface MotionSegment {
@@ -142,6 +144,9 @@ export interface MotionEvent {
   id: EventId | string;
   /** 新计划保留原事件 kind 与执行顺序，避免同刻事件靠数组猜测。 */
   eventKind?: string;
+  conveyorExitEdge?: import("../physics/conveyorBelt").ConveyorEdge;
+  conveyorFrictionWorkJ?: number;
+  conveyorSlipDistanceM?: number;
   stageIndex?: number;
   order?: number;
   timeSeconds: number;
@@ -149,6 +154,7 @@ export interface MotionEvent {
   /** 与画面同步的一句原理说明 */
   caption: string;
   segment: SegmentKind;
+  impulseNs?: import("../physics/stageMotion").ImpulseNs;
   velocityBefore?: Vec2;
   velocityAfter?: Vec2;
   position?: Vec2;
@@ -170,6 +176,7 @@ export interface MotionSample {
 export interface Motion {
   primaryBodyId?:string; motionStatus?:MotionStatus;
   timing?: import("../physics").StageMotion["timing"];
+  playbackGaps?: import("../physics").StageMotion["playbackGaps"];
   calculations?: import("../physics").StageMotion["calculations"];
   /** 旧模板几何继续保留；新计划另带完整 StageGeometry 供专用画布使用。 */
   geometry: SceneGeometry;
@@ -186,7 +193,8 @@ export interface Motion {
   energyAt?(timeSeconds: number): import("../physics").EnergyReading | null;
   /** 与 sampleAt 同钟的传送带读数（带速、相对带面位移等）。 */
   conveyorAt?(timeSeconds: number): import("../physics").ConveyorReading | null;
-  movableArcAt?(timeSeconds: number): { grooveXM: number; grooveVX: number } | null;
+  movableArcAt?(timeSeconds: number): { grooveXM: number; grooveVX: number; normalForceN?: number; angleDeg?: number; relativeSpeedMps?: number } | null;
+  movableSemicircleAt?(timeSeconds: number): import("../physics/movableSemicircle").MovableSemicircleReading | null;
   springPairAt?(timeSeconds: number): { x2M: number; vx2Mps: number; compressionM: number } | null;
 }
 
@@ -234,8 +242,26 @@ export type PlanResponse =
 
 export type ChatRole = "user" | "assistant" | "system";
 
+export type ChatMode = "tutor" | "similar" | "socratic";
+export type TutorStyle = "tutor" | "socratic";
+
+export interface SimilarProblem {
+  id?: string;
+  title: string;
+  tags: string[];
+  difficulty?: string;
+  stem: string;
+  focus: string;
+  hint: string;
+}
+
 export interface ConditionChange {
-  key: ConditionKey;
+  key: ConditionKey | string;
+  /** 阶段计划参数修改时的展示名与单位 */
+  label?: string;
+  unit?: string;
+  /** 阶段计划中的参数路径，如 /massKg 或 /stages/0/radiusM */
+  path?: string;
   from: number | null;
   to: number | null;
 }
@@ -252,16 +278,29 @@ export interface ChatMessage {
     changes: ConditionChange[];
     applied: boolean;
     revisionId: string;
+    /** 阶段计划改参前的完整 reading，用于一键撤销 */
+    previousReading?: WorkspaceReading;
   };
   /** AI 回复内嵌的跳转入口 */
   action?: { type: "seek"; eventId: string; label: string };
   /** AI 这次计算采用的假设条目，来自识别回包 */
   assumptions?: string[];
+  /** 相似变式题推荐列表 */
+  similarProblems?: SimilarProblem[];
+  /** 领域物理 RAG 命中的参考母题条目 */
+  ragReferences?: RagReference[];
 }
 
 export type ChatIntent =
-  | { type: "answer"; text: string; action?: ChatMessage["action"] }
+  | {
+      type: "answer";
+      text: string;
+      action?: ChatMessage["action"];
+      similarProblems?: SimilarProblem[];
+      ragReferences?: RagReference[];
+    }
   | { type: "update_conditions"; changes: Partial<Record<ConditionKey, number>>; text: string }
+  | { type: "update_stage_plan"; nextReading: StagePlanDraft; changes: ConditionChange[]; text: string }
   | { type: "seek_event"; event: EventId | string; text?: string }
   | { type: "play" }
   | { type: "pause" }

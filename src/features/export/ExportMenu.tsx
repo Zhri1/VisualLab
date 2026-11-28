@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, Download, Film, FileText, Image as ImageIcon, Sparkles } from "lucide-react";
 import type { Motion } from "../../types";
 import { capturePng, downloadBlob, recordCanvasWebM } from "./capture";
 import { encodeGif, type GifFrame } from "./gifEncoder";
@@ -23,12 +24,30 @@ const blobToDataUrl = (blob: Blob) =>
     reader.readAsDataURL(blob);
   });
 
-/** 导出：PNG 关键帧 / WebM 全过程 / GIF 关键帧 / 打印讲义（PDF）。 */
+/** 导出下拉菜单：PNG 关键帧 / WebM 全过程 / GIF 关键帧 / 打印讲义（PDF）。 */
 export function ExportMenu({ getCanvas, motion, title, problemText, wallMs, onSeek }: Props) {
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [frames, setFrames] = useState<PrintFrame[]>([]);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
   const events = motion.events.slice(0, 6);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
 
   const scaled = (canvas: HTMLCanvasElement, width = 480) => {
     const off = document.createElement("canvas");
@@ -41,6 +60,7 @@ export function ExportMenu({ getCanvas, motion, title, problemText, wallMs, onSe
   };
 
   const run = async (key: string, fn: () => Promise<void>) => {
+    setOpen(false);
     setBusy(key);
     setError(null);
     try {
@@ -96,12 +116,47 @@ export function ExportMenu({ getCanvas, motion, title, problemText, wallMs, onSe
       window.print();
     });
 
+  const busyLabel =
+    busy === "webm" ? "录制中…" : busy === "gif" ? "生成 GIF…" : busy === "print" ? "准备讲义…" : busy ? "导出中…" : "导出";
+
   return (
-    <div className="export-menu" role="group" aria-label="导出与分享">
-      <button type="button" className="ghost-button" disabled={busy !== null} onClick={png}>存图</button>
-      <button type="button" className="ghost-button" disabled={busy !== null} onClick={webm}>{busy === "webm" ? "录制中…" : "录视频"}</button>
-      <button type="button" className="ghost-button" disabled={busy !== null} onClick={gif}>{busy === "gif" ? "生成中…" : "GIF"}</button>
-      <button type="button" className="ghost-button" disabled={busy !== null} onClick={print}>讲义</button>
+    <div className="export-menu" ref={wrapRef} role="group" aria-label="导出">
+      <button
+        type="button"
+        className="ghost-button export-trigger"
+        disabled={busy !== null}
+        aria-label={busyLabel}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => setOpen((v) => !v)}
+        title="导出截图、视频、GIF 或打印讲义"
+      >
+        <Download size={14} strokeWidth={1.8} />
+        <span className="btn-label">{busyLabel}</span>
+        <ChevronDown size={13} strokeWidth={2} className={open ? "export-chev is-open" : "export-chev"} />
+      </button>
+
+      {open && (
+        <div className="export-popover" role="menu" aria-label="导出格式">
+          <button type="button" role="menuitem" className="export-item" onClick={png}>
+            <ImageIcon size={14} strokeWidth={1.8} />
+            <span>保存 PNG 关键帧</span>
+          </button>
+          <button type="button" role="menuitem" className="export-item" onClick={webm}>
+            <Film size={14} strokeWidth={1.8} />
+            <span>录制 WebM 视频</span>
+          </button>
+          <button type="button" role="menuitem" className="export-item" onClick={gif}>
+            <Sparkles size={14} strokeWidth={1.8} />
+            <span>导出 GIF 动图</span>
+          </button>
+          <button type="button" role="menuitem" className="export-item" onClick={print}>
+            <FileText size={14} strokeWidth={1.8} />
+            <span>打印讲义（PDF）</span>
+          </button>
+        </div>
+      )}
+
       {error && <span className="export-error" role="alert">{error}</span>}
       <PrintSheet title={title} problemText={problemText} frames={frames} formulas={motion.segments.map((s) => s.formula).filter(Boolean)} />
     </div>

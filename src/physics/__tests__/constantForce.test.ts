@@ -81,7 +81,7 @@ describe("常力作用与分段匀变速：共享基准与变式", () => {
     expect(r2.ok).toBe(false);
     expect(r2.fieldErrors[0]).toMatchObject({ path: "/stages/1/end", code: "PRECONDITION_CONFLICT" });
 
-    // 反向/零速进入光滑弹簧或反向进入水平滑动均报 PRECONDITION_CONFLICT
+    // 反向/零速进入右侧弹簧仍报 PRECONDITION_CONFLICT
     const negToSpring: any = assembleScene({
       kind: "stage_plan", schemaVersion: 1, massKg: 2, initial: { speedMps: 2 },
       stages: [
@@ -92,6 +92,7 @@ describe("常力作用与分段匀变速：共享基准与变式", () => {
     expect(negToSpring.ok).toBe(false);
     expect(negToSpring.fieldErrors[0]).toMatchObject({ path: "/stages/1", code: "PRECONDITION_CONFLICT" });
 
+    // 反向进入水平滑动段现已支持向左匀减速停止（vx=-2, μ=0.2, g=10 → 再向左滑 1m 停在 x=-1m）
     const negToHoriz: any = assembleScene({
       kind: "stage_plan", schemaVersion: 1, massKg: 2, gravityMps2: 10, initial: { speedMps: 2 },
       stages: [
@@ -99,8 +100,11 @@ describe("常力作用与分段匀变速：共享基准与变式", () => {
         { kind: "horizontal_slide", kineticFrictionCoefficient: 0.2, end: { kind: "stop" } },
       ],
     });
-    expect(negToHoriz.ok).toBe(false);
-    expect(negToHoriz.fieldErrors[0]).toMatchObject({ path: "/stages/1", code: "PRECONDITION_CONFLICT" });
+    expect(negToHoriz.ok).toBe(true);
+    const negMotion = buildMotion(negToHoriz.scene).motion;
+    expect(negMotion.endReason).toBe("stopped");
+    expect(negMotion.sampleAt(negMotion.durationSeconds).xM).toBeCloseTo(-1, 6);
+    expect(negMotion.sampleAt(negMotion.durationSeconds).vxMps).toBe(0);
   });
 });
 

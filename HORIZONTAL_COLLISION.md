@@ -68,11 +68,11 @@ tracks恰好覆盖两个ID，μ有限非负且按题设分别给出，不默认�
 
 碰后沿用parallel_motion/tracks/end。弹性分离两个ID各一条轨道；粘连一条轨道bodyIds含两个ID，禁止拆成两个独立求解。无后缀时以collision_complete/range_end结束，保留碰后速度；不宣称全体停止。
 
-- horizontal_slide复用现有μ、distance/stop：距离沿该段实际速度方向取正，世界位置可以向左；摩擦反向、停止钳制。两ID粘连只使用该共同轨道的一项题给μ，不把两份μ相加。本增量不装配分区或随时间换面。同一物体在同一水平表面往返沿用其μ；不同物体可因接触材料不同而有不同μ。仅凭碰前/碰后两项μ不能证明换面，水平同面μ矛盾定位相应轨道为前提冲突，不暗加切换事实。路径不重合的已明确支撑变化可由supportBoundary或已有绳约束表示；其他分区/表面变化留待后续契约，不猜。
+- horizontal_slide复用现有μ、distance/stop：距离沿该段实际速度方向取正，世界位置可以向左；摩擦反向、停止钳制。两ID粘连只使用该共同轨道的一项题给μ，不把两份μ相加。碰后并行轨道的末段还可给 `end: { kind: "scene_end" }`，此时题面须明确光滑（`kineticFrictionCoefficient = 0`）。该物体沿碰后的实际速度等速运动直到共同终点，无需给停止时刻或位移。`scene_end` 不允许用在单物体顶层水平段或并行轨道中间，不生成停止或到达目标事件。本增量不装配分区或随时间换面。同一物体在同一水平表面往返沿用其μ；不同物体可因接触材料不同而有不同μ。仅凭碰前/碰后两项μ不能证明换面，水平同面μ矛盾定位相应轨道为前提冲突，不暗加切换事实。路径不重合的已明确支撑变化可由supportBoundary或已有绳约束表示；其他分区/表面变化留待后续契约，不猜。
 - 直接projectile使用固定landingPlaneYM，从实际接触位置和碰后(vx,0)发射；该轨道首段须额外给supportAbsentAtStart:true，确认题面明确碰撞处无支撑/位于檐口。未知为null并待补该字段，明确false与直接飞行冲突。同时提供supportBoundary:{edgeXM:number,supportedSide:"left"|"right"}，明确哪侧仍有支撑；实际接触点必须在该边缘，直接飞行体碰后速度指向无支撑侧，预碰轨迹不得经过无支撑区却仍按水平支撑计算。零速自由落体须题设明确失去支撑，不能仅由零速推定。此字段只用于新水平正碰的直接发射分支，不要求旧抛体补值。零水平速度也可在无支撑处自由落体，不能据此删除题给飞行。若先沿桌面再离沿，用水平定距→projectile，提前/恰停不飞行。不得用碰前速度发射。
 - pendulum_swing新增`inheritFromBodyId`分支，引用initial.bodies中题面已有的绳约束，与inheritFromStageIndex/显式摆定义互斥；end和slackContinuation沿用摆契约。最低点为(pivotXM,0)、支点(pivotXM,L)，引用位置必须相符，碰后真实水平速度就是最低点切向速度。可引用初态已经静止在最低点的摆锤等待来物，或t=0即碰撞的最低点初态；不允许给正速直线走了有限距离的物体声明一直受固定张紧绳约束。未知约束事实须补齐，不能为支持摆动临时造绳。
 - 粘连最多继承一根已有绳：用两质量之和算唯一张力，快照含两个ID共用constraintId，不能再对另一ID额外算一份张力。不支持两根绳的联立约束、碰后新挂接的冲量或支点突变。
-- all_finite_tracks在所有可求有限轨道结束时结束，已停止水平体保持静止等待；摆scene_end继续越过首转折。若任一物体先落地（无落地后模型）或先到再次张紧边界，全场只求到该首次边界，其他物体保留当时真实状态，不冻结入射速度等待另一个落地。此时分别为range_end或model_limit。全部停止才为complete；全部非有限且无摆转折等明确结束条件，待补并行end。
+- all_finite_tracks在所有可求有限轨道结束时结束，已停止水平体保持静止等待；摆scene_end继续越过首转折，光滑水平scene_end恒速跟随共同终点。若任一物体先落地（无落地后模型）或先到再次张紧边界，全场只求到该首次边界，其他物体保留当时真实状态，不冻结入射速度等待另一个落地。此时分别为range_end或model_limit。同刻保留各轨道事件，终止事件按绳约束边界、落地、距离目标或摆动转折的优先级选定。全部停止才为complete；全部非有限且无摆转折等明确结束条件，待补并行end。
 
 本增量仍只一次碰撞，不支持碰后两体再次相遇的冲量；若后续路径导致再次接近并接触，仅在首次碰撞之后重新分离过的独立轨道上，求实际位置相交且确实接近的下一接触。排除第一次接触同刻离开、粘连两ID持续共位置及相对速度为零的无冲击重合；水平/抛体必须同时核对x与y，不能只看x投影相交。全场在第二次接触的入射状态结束，motionStatus=model_limit、reason=second_contact_boundary，不默默穿透。无再次接触的样例正常走到已声明终点。
 
@@ -104,3 +104,16 @@ collision事件新增可选collision元数据：`{ mode, normalXM, momentumBefor
 独立脚本`node scripts/check-horizontal-collision-contract.mjs`只校对解析数值与输入，不导入生产求解器；不代表新入口已支持。实现阶段须新增标准npm test覆盖的公开入口用例，验收上述分支、镜像/交换ID、相向/追及、初位同点方向缺项、摩擦停止同刻接触、零相对速度、正负超界、第二次接触边界、落地先于另一轨道、已有约束与粘连唯一张力及缺项往返。碰撞±1e-7s用1e-10量级位置/速度绝对误差核对，碰撞精确帧另测原子状态。
 
 本契约先单独PR审核。随后B先实现分区求最早接触、collide1D复用及轨道装配，再接Adapter/画布/编辑器/Skill和Node/Qoder同源校验；正常图文handler可mock上游但须注明，工作区走正常首页与播放器。旧摆碰撞、圆弧、斜抛、预压与incline_spring全量回归。由规划会话合并，不部署。
+
+## 6. 增量扩展：底入可移动四分之一圆弧槽与上游预压弹簧接续
+
+- `parallel_motion` 碰后轨道新增 `movable_arc`（`entryMode: "bottom"`）阶段，与 `horizontal_slide`、`projectile`、`pendulum_swing` 并列，沿同一物理时钟同步取样。碰后接触位置、带符号水平速度和槽约束状态（`grooveXM`、`grooveVX`、`normalForceN`、`angleDeg`）直接由 `collision_1d` 传入。
+- 底入四分之一光滑圆弧槽（半径 $R$、槽质量 $M$、球质量 $m$、光滑水平地面）：
+  - 无量纲能量 $e = \frac{M}{m+M}\frac{v_0^2}{gR}$。
+  - 当 $e \le 2$ 时，球沿槽上升至最大角 $\phi_{\max} = 2\arcsin(\sqrt{e}/2) \le \pi/2$ 与槽共速 $v_{\text{cm}} = \frac{m}{m+M}v_0$（相对静止，事件 `movable_arc_top`），随后对称下滑返回槽底并分离（事件 `movable_arc_return_exit`）：球速 $v_{B2} = \frac{m-M}{m+M}v_0$，槽速 $v_{C2} = \frac{2m}{m+M}v_0$，返回槽底瞬间法向力 $N_{\text{bottom}} = mg + m\frac{v_0^2}{R}$。
+  - 临界条件 `criticalTopRelativeRest: true` 对应 $e = 2$，即 $v_0 = \sqrt{\frac{2(m+M)}{M}gR}$。
+- 上游预压弹簧（`horizontal_approach.upstreamSpring`）与槽底间距（`entryGapM`）：
+  - 若题面给出 `springConstantNpm`、`initialCompressionM`、初位以及明确的 `entryGapM`（`0` 表示碰撞即在槽底，正值表示已知自由滑行距离），则完整按同一物理时钟求解（并正常检查碰后二次接触边界）；
+  - 若题面未给弹簧劲度系数 $k$、初始压缩量 $x_0$、物体初位或碰撞点到槽底的水平间距（`entryGapM: null` 或在含未知上游弹簧的题中省略），但给出弹性正碰（静止靶球）及 `criticalTopRelativeRest: true`，则确定性反求 $v_{B1}$、碰前入射速 $v_{A0} = \frac{m_A+m_B}{2m_A}v_{B1}$ 及弹簧弹性势能 $E_p = \frac{1}{2}m_A v_{A0}^2$，并在规范化回包中保留 `entryGapM: null` 而不静默认作 `0`；
+  - 未知 `entryGapM` 时以 `playback.mode = "suffix"` 并在碰撞瞬时结果与底入圆弧槽之间输出显式 `playbackGaps` 播放时间缺口与 `movable_arc_gap` 事件：碰撞时刻保留两物体精确碰后速度，槽内后缀从 B 进入槽底起计时，另一物体 A 仅展示确定的匀速速度而不编造相对槽的实时坐标或后续二次相遇，API 规范化回包再次装配时该缺口与后缀说明保持不丢失。
+- **全符号归一化标度（`scaleMode: "normalized"`）**：当题面仅给出质量比（如 $2m:m:4m$）及符号半径 $R$、重力加速度 $g$ 而无具体 SI 数值时，支持顶层 `scaleMode: "normalized"`（默认标度 $m = R = g = 1$，保留真实质量比与 `entryGapM: null` 播放缺口）；`scaleMode` 随校验、API 回包、再次装配及画布/读数完整保留并显式标注，物理量数值即对应以 $m, R, g$ 为基准的无量纲系数（如 $E_p = \frac{45}{32}mgR = 1.40625$、返底压力 $N = 3.5mg = 3.5$）。

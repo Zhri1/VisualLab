@@ -1,6 +1,6 @@
 import { integrate } from './quadrature.ts';
 import { linearState } from './kinematics.ts';
-import type { PendulumEnd, BodyState } from './multiBodyTypes.ts';
+import type { PendulumEnd, BodyState, PegConfig } from './multiBodyTypes.ts';
 
 export type PendulumSample = {
   xM: number; yM: number; vxMps: number; vyMps: number; springCompressionM: number;
@@ -148,4 +148,244 @@ export function createPendulum(lengthM: number, gravity: number, mass: number, i
     return events.sort((a, b) => a.time - b.time);
   }
   return { initial: at(0), initiallySlack, equilibrium, limit, limitKind, lossTime, loss, firstTurn, firstLowest, endTime, at, eventsUntil };
+}
+
+export type PegPendulumResult = ReturnType<typeof createPendulum> & {
+  pegHitTime: number;
+  pegTopTime: number;
+  pegOffsetXM: number;
+  pegEffectiveLengthM: number;
+  pegSideSign: 1 | -1;
+  derivedPegOffsetXM?: number;
+  pegSpeedMps?: number;
+  pegTopSpeedMps?: number;
+  pegTopTensionN?: number;
+  pivotOffsetAt: (t: number) => number;
+  activeLengthAt: (t: number) => number;
+};
+
+/**
+ * 带单个同高水平侧向钉子的轻绳摆（从最低点 θ = 0 以带符号切向速度 initialQ 出发）：
+ * - 摆至水平位置（θ = ±90°）时碰钉，位置与速度保持连续，支点切至钉子 P、半径缩为 r = L - OP；
+ * - 若 peg.criticalTopNonSlack 为 true 且 offsetXM 为 null，反求恰好过钉子正上方最高点（T_top = 0）的最小 OP；
+ * - 若 OP 小于临界值，绳在到达顶点前于 sin(u) = v_peg²/(3gr) 处如实松弛（string_slack），绝不画到顶点。
+ */
+export function createPegPendulum(
+  lengthM: number,
+  gravity: number,
+  mass: number,
+  initialQ: number,
+  pegSpec: PegConfig,
+  continueSlack: boolean,
+): PegPendulumResult {
+  const L = lengthM, g = gravity;
+  const s: 1 | -1 = pegSpec.side === 'right' ? 1 : -1;
+  const scale = Math.sqrt(L / g), energySpeed = Math.sqrt(g * L);
+  if (![L, g, mass, initialQ, scale, energySpeed].every(Number.isFinite) || Math.min(L, g, mass, scale, energySpeed) <= 0) {
+    throw new RangeError('摆长、质量或重力数值量级无法表示。');
+  }
+  const ratio = (initialQ / energySpeed) ** 2;
+  const swingsTowardPeg = initialQ * s > 0;
+  const reachesHorizontal = swingsTowardPeg && ratio > 2 + 16 * Number.EPSILON;
+
+  // 若未朝向钉子或能量不足以到达水平位置（θ = ±90°），则不发生绕钉运动，退化为普通摆
+  if (!reachesHorizontal) {
+    if (pegSpec.criticalTopNonSlack && pegSpec.offsetXM == null) {
+      throw new Error('PENDULUM_CANNOT_REACH_PEG');
+    }
+    const base = createPendulum(L, g, mass, 0, initialQ, continueSlack);
+    const d = pegSpec.offsetXM ?? 0;
+    return {
+      ...base,
+      pegHitTime: Infinity,
+      pegTopTime: Infinity,
+      pegOffsetXM: d,
+      pegEffectiveLengthM: L - d,
+      pegSideSign: s,
+      pivotOffsetAt: () => 0,
+      activeLengthAt: () => L,
+    };
+  }
+
+  // 第一段：绕 O(0, L) 从 θ = 0 摆至 θ = s * π/2（绳水平）
+  const vPegSq = initialQ * initialQ - 2 * g * L;
+  const vPeg = Math.sqrt(vPegSq);
+  const preTable = integralTable(a => 1 / Math.sqrt(ratio - 4 * Math.sin(a / 2) ** 2), Math.PI / 2);
+  const pegHitTime = scale * preTable.total;
+
+  // 确定钉距 d = OP 与碰钉后有效摆长 r = L - d
+  let d: number;
+  let derivedPegOffsetXM: number | undefined;
+  if (pegSpec.offsetXM != null) {
+    d = pegSpec.offsetXM;
+    if (!(d > 0 && d < L)) throw new RangeError('钉距 OP 须满足 0 < OP < L。');
+    if (pegSpec.criticalTopNonSlack) {
+      const expected = L - vPegSq / (3 * g);
+      if (Math.abs(d - expected) > 1e-6 * Math.max(1, L)) {
+        throw new Error('PEG_OFFSET_CONFLICT');
+      }
+    }
+  } else {
+    const rMax = vPegSq / (3 * g);
+    if (!(rMax > 0 && rMax < L)) {
+      throw new Error(rMax >= L ? 'PEG_NOT_NEEDED' : 'PENDULUM_CANNOT_REACH_PEG');
+    }
+    d = L - rMax;
+    derivedPegOffsetXM = d;
+  }
+  const r = L - d;
+  const scaleR = Math.sqrt(r / g);
+  let rho = vPegSq / (g * r);
+  if (near(rho, 3)) rho = 3;
+
+  const preConstrained = (angle: number, q: number): PendulumSample => {
+    const { sin, cos } = trig(angle);
+    const force = mass * (q * q / L + g * cos);
+    return {
+      xM: L * sin,
+      yM: L * (1 - cos),
+      vxMps: q * cos || 0,
+      vyMps: q * sin || 0,
+      springCompressionM: 0,
+      stringState: 'taut',
+      tensionN: Math.max(0, force),
+      angleRad: angle,
+      angularVelocityRadps: q / L,
+      status: 'moving',
+    };
+  };
+
+  const postConstrained = (u: number): PendulumSample => {
+    const { sin: sinU, cos: cosU } = trig(u);
+    const qSq = Math.max(0, vPegSq - 2 * g * r * sinU);
+    const q = Math.sqrt(qSq);
+    const force = mass * (qSq / r - g * sinU);
+    return {
+      xM: s * d + s * r * cosU,
+      yM: L + r * sinU,
+      vxMps: -s * q * sinU || 0,
+      vyMps: q * cosU || 0,
+      springCompressionM: 0,
+      stringState: 'taut',
+      tensionN: Math.max(0, force),
+      angleRad: s * (Math.PI / 2 + u),
+      angularVelocityRadps: s * q / r,
+      status: 'moving',
+    };
+  };
+
+  const initial = preConstrained(0, initialQ);
+  const pegBefore = preConstrained(s * Math.PI / 2, s * vPeg);
+  const pegAfter = postConstrained(0);
+
+  let pegTopTime = Infinity;
+  let pegTopSpeedMps: number | undefined;
+  let pegTopTensionN: number | undefined;
+  let lossTime = Infinity;
+  let loss: PendulumSample = { ...pegAfter };
+  let limit = Infinity;
+  let limitKind: 'string_retaut_boundary' | 'string_slack' = continueSlack ? 'string_retaut_boundary' : 'string_slack';
+  let flightTime = Infinity;
+  let postAtConstrained: (tau: number) => PendulumSample;
+
+  if (rho >= 3) {
+    // 能量足够：无松弛通过钉子正上方最高点（u = π/2），之后可继续沿新半径 r 绕 P 旋转
+    const topTable = integralTable(u => 1 / Math.sqrt(rho - 2 * Math.sin(u)), Math.PI / 2);
+    const fullTable = integralTable(u => 1 / Math.sqrt(rho - 2 * Math.sin(u)), 2 * Math.PI);
+    pegTopTime = pegHitTime + scaleR * topTable.total;
+    const topSample = postConstrained(Math.PI / 2);
+    pegTopSpeedMps = Math.hypot(topSample.vxMps, topSample.vyMps);
+    pegTopTensionN = topSample.tensionN;
+    const postCycle = scaleR * fullTable.total;
+    postAtConstrained = (tau: number) => {
+      if (tau <= 0) return { ...pegAfter };
+      if (near(tau, pegTopTime - pegHitTime)) return postConstrained(Math.PI / 2);
+      const rem = tau % postCycle;
+      const u = fullTable.inverse(rem / scaleR);
+      return postConstrained(u);
+    };
+  } else {
+    // 能量不足（OP < OP_min）：在到达顶点前于 sin(uSlack) = rho/3 处张力归零并松弛
+    const uSlack = Math.asin(Math.min(1, Math.max(0, rho / 3)));
+    const slackTable = integralTable(u => 1 / Math.sqrt(rho - 2 * Math.sin(u)), uSlack);
+    lossTime = pegHitTime + scaleR * slackTable.total;
+    loss = { ...postConstrained(uSlack), tensionN: 0 };
+    flightTime = 4 * loss.vyMps / g;
+    limit = lossTime + (continueSlack ? flightTime : 0);
+    postAtConstrained = (tau: number) => {
+      if (tau <= 0) return { ...pegAfter };
+      if (tau >= lossTime - pegHitTime || near(tau, lossTime - pegHitTime)) return { ...loss };
+      const u = slackTable.inverse(tau / scaleR);
+      return postConstrained(u);
+    };
+  }
+
+  const at = (t: number): PendulumSample => {
+    t = Math.max(0, Math.min(limit, t));
+    if (t === 0) return { ...initial };
+    if (t < pegHitTime && !near(t, pegHitTime)) {
+      const a = preTable.inverse(t / scale);
+      const qNow = s * energySpeed * Math.sqrt(Math.max(0, ratio - 4 * Math.sin(a / 2) ** 2));
+      return preConstrained(s * a, qNow);
+    }
+    if (near(t, pegHitTime)) return { ...pegAfter };
+    if (t < lossTime || !Number.isFinite(lossTime)) {
+      return postAtConstrained(t - pegHitTime);
+    }
+    const elapsed = t - lossTime;
+    return {
+      ...linearState(loss.xM, loss.yM, loss.vxMps, loss.vyMps, 0, -g, elapsed),
+      stringState: 'slack',
+      tensionN: 0,
+      status: continueSlack && near(t, limit) ? 'model_boundary' : 'moving',
+    };
+  };
+
+  function eventsUntil(duration: number): PendulumEvent[] {
+    const events: PendulumEvent[] = [];
+    const add = (time: number, kind: string, before = at(time), after = at(time)) => {
+      if (time <= duration || near(time, duration)) events.push({ time, kind, before, after });
+    };
+    add(pegHitTime, 'peg_contact', pegBefore, pegAfter);
+    if (Number.isFinite(pegTopTime)) {
+      add(pegTopTime, 'pendulum_top', postConstrained(Math.PI / 2), postConstrained(Math.PI / 2));
+    }
+    if (Number.isFinite(lossTime)) {
+      const afterSlack: PendulumSample = { ...loss, stringState: 'slack', tensionN: 0, angleRad: undefined, angularVelocityRadps: undefined };
+      add(lossTime, 'string_slack', loss, afterSlack);
+      if (continueSlack) {
+        add(lossTime, 'projectile_launch', afterSlack, afterSlack);
+        const apex = loss.vyMps / g;
+        if (apex > 0 && apex < flightTime) add(lossTime + apex, 'apex');
+        add(limit, 'string_retaut_boundary');
+      }
+    }
+    return events.sort((a, b) => a.time - b.time);
+  }
+
+  return {
+    initial,
+    initiallySlack: false,
+    equilibrium: false,
+    limit,
+    limitKind,
+    lossTime,
+    loss,
+    firstTurn: Infinity,
+    firstLowest: 0,
+    pegHitTime,
+    pegTopTime,
+    pegOffsetXM: d,
+    pegEffectiveLengthM: r,
+    pegSideSign: s,
+    derivedPegOffsetXM,
+    pegSpeedMps: vPeg,
+    pegTopSpeedMps,
+    pegTopTensionN,
+    pivotOffsetAt: (t: number) => (t < pegHitTime && !near(t, pegHitTime) ? 0 : s * d),
+    activeLengthAt: (t: number) => (t < pegHitTime && !near(t, pegHitTime) ? L : r),
+    endTime: (kind: PendulumEnd) => Math.min(kind === 'lowest_point' ? 0 : Infinity, limit),
+    at,
+    eventsUntil,
+  };
 }

@@ -5,21 +5,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatErrors, motionLibrary } from "../adapters";
 import { mockChatService } from "../services/chatService";
-import { requestPlan, requestStageCommand } from "../services/imageRecognition";
+import { isAbortError, requestPlan, requestStageCommand } from "../services/imageRecognition";
 import type { StagePlanDraft } from "../physics/stagePlan";
 import { truncateStagePlan } from '../physics/truncateStagePlan';
-import { getSample } from "../data/samples";
-import { segmentAt } from "../ui/components/workspace/playback";
+import { getSample, SAMPLES } from "../data/samples";
+import { planSlowCurrentSegment } from "../ui/components/workspace/playback";
 import { decodeShareState, readShareFromLocation } from "../features/share/shareLink";
+import type { FavoriteEntry } from "../features/share/favorites";
 import { isStageReading } from "../types";
 import type {
   ChatMessage,
+  ChatMode,
   ConditionChange,
   Conditions,
   FieldError,
   Motion,
   MotionSegment,
+  PlanResponse,
   Reading,
+  TutorStyle,
   WorkspaceReading,
 } from "../types";
 
@@ -35,6 +39,25 @@ export interface Notice {
 
 let seq = 0;
 const uid = () => `m${++seq}`;
+
+/**
+ * 判断用户输入是否为明确的「阶段截断」指令。
+ * 包含疑问语义或物理提问关键词时绝不拦截，避免误杀「到坡底的速度怎么算」「前两段机械能守恒吗」等正常提问。
+ */
+export function isStageTruncateCommand(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (/为什么|怎么|多少|求|是否|吗|呢|什么|哪些|推导|解析|讲解|分析|守恒|速度|能量|受力|支持力|压力|张力|？|\?/.test(trimmed)) {
+    return false;
+  }
+  if (/^(?:请|帮我)?(?:只看|只算|只播|只显示|截断|截到|保留前|截取前)/.test(trimmed)) {
+    return true;
+  }
+  if (trimmed.length <= 14 && /(?:为止|停到|截到|到坡底|到桌沿|^前[一二两三四五六1-6]段$)/.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
 
 export function useWorkspace() {
   const [phase, setPhase] = useState<Phase>("home");
@@ -52,7 +75,12 @@ export function useWorkspace() {
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRecognizing, setIsRecognizing] = useState(false);
+  const [generatingSimilarId, setGeneratingSimilarId] = useState<string | null>(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [tutorStyle, setTutorStyle] = useState<TutorStyle>("tutor");
+  const recognizeAbortRef = useRef<AbortController | null>(null);
+  const phaseRef = useRef<Phase>(phase);
+  phaseRef.current = phase;
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -157,11 +185,51 @@ export function useWorkspace() {
 
   /* ---------------- 识别 ---------------- */
 
+  useEffect(() => {
+    return () => {
+      recognizeAbortRef.current?.abort();
+      recognizeAbortRef.current = null;
+    };
+  }, []);
+
+  const cancelRecognize = useCallback(() => {
+    const ctrl = recognizeAbortRef.current;
+    if (!ctrl) return;
+    recognizeAbortRef.current = null;
+    ctrl.abort();
+    setIsRecognizing(false);
+    setGeneratingSimilarId(null);
+    if (phaseRef.current === "workspace") {
+      setMessages((prev) => [
+        ...prev,
+        { id: uid(), role: "assistant", text: "已取消生成，当前动画与对话保持不变。" },
+      ]);
+    }
+  }, []);
+
   const recognize = useCallback(
-    async (input: { file?: File | null; text?: string; isSample?: boolean; sampleId?: string }) => {
+    async (input: {
+      file?: File | null;
+      text?: string;
+      isSample?: boolean;
+      sampleId?: string;
+      similarId?: string;
+    }) => {
+      if (recognizeAbortRef.current) {
+        recognizeAbortRef.current.abort();
+      }
+      const controller = new AbortController();
+      recognizeAbortRef.current = controller;
+
+      // 在工作台从相似题卡片点「生成动画试做」时，请求等待期间保留现有画布与对话，避免闪白
+      const isSimilarInWorkspace = Boolean(input.similarId && phaseRef.current === "workspace");
+
       setIsRecognizing(true);
-      setNotice(null);
-      setProblemText(null);
+      setGeneratingSimilarId(input.similarId ?? null);
+      if (!isSimilarInWorkspace) {
+        setNotice(null);
+        setProblemText(null);
+      }
 
       const revokeIfBlob = (url: string | null) => {
         if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
@@ -177,17 +245,53 @@ export function useWorkspace() {
         });
       }
 
-      const res = await requestPlan({
-        file: input.file,
-        text: input.text,
-        isSample: input.isSample,
-        sampleId: input.sampleId,
-      });
+      let res: PlanResponse;
+      try {
+        res = await requestPlan(
+          {
+            file: input.file,
+            text: input.text,
+            isSample: input.isSample,
+            sampleId: input.sampleId,
+          },
+          { signal: controller.signal }
+        );
+      } catch (err) {
+        if (controller.signal.aborted || isAbortError(err) || recognizeAbortRef.current !== controller) {
+          if (recognizeAbortRef.current === controller) {
+            recognizeAbortRef.current = null;
+            setIsRecognizing(false);
+            setGeneratingSimilarId(null);
+          }
+          return null;
+        }
+        res = { status: "error", message: "网络异常，请检查连接后重试" };
+      }
+
+      if (controller.signal.aborted || recognizeAbortRef.current !== controller) {
+        return null;
+      }
+
+      recognizeAbortRef.current = null;
       setIsRecognizing(false);
+      setGeneratingSimilarId(null);
 
       if (res.status === "ok") {
+        setNotice(null);
+        const applied = applyReading(res.reading);
+        if (isSimilarInWorkspace && !applied.ok) {
+          const message = formatErrors(applied.errors);
+          setMessages((prev) => [
+            ...prev,
+            { id: uid(), role: "assistant", text: `生成变式题动画失败：${message}`, error: true },
+          ]);
+          return { status: "error" as const, message };
+        }
         setPhase("workspace");
-        setProblemText(res.problemText ?? null);
+        setTutorStyle("tutor");
+        const nextProblemText =
+          res.problemText ?? (input.similarId && input.text?.trim() ? input.text.trim() : null);
+        setProblemText(nextProblemText);
         setSampleId(res.sampleId ?? null);
         setCompareOn(false);
         if (!input.file) {
@@ -198,7 +302,6 @@ export function useWorkspace() {
             return nextImageUrl ?? null;
           });
         }
-        applyReading(res.reading);
         // 假设不写在正文里重复：有假设时正文只报条数，条目交给对话胶囊；
         // 没有假设就退回回包 message（或通用开场白），离线 mock 与真实服务保持一致。
         const assumptions = res.assumptions ?? [];
@@ -212,19 +315,31 @@ export function useWorkspace() {
           text: `${summary}。可以直接提问，也可以让我修改条件，比如「把劲度系数改成 100 N/m」。`,
           assumptions,
         };
-        // 内置示例把完整题面放在对话首条，用户不用打开抽屉也能看到在算什么。
+        // 内置示例或相似变式题把完整题面放在对话首条，用户不用打开抽屉也能看到在算什么。
+        const headText = res.problemText
+          ? `【题目】\n${res.problemText}`
+          : input.similarId && input.text?.trim()
+            ? `【变式题】\n${input.text.trim()}`
+            : null;
         setMessages(
-          res.problemText
-            ? [
-                { id: uid(), role: "assistant", text: `【题目】\n${res.problemText}` },
-                summaryMessage,
-              ]
+          headText
+            ? [{ id: uid(), role: "assistant", text: headText }, summaryMessage]
             : [summaryMessage]
         );
         return res;
       }
 
       if (res.status === "needs_input") {
+        const hint =
+          res.message || (res.reading ? "还有条件需要补齐，补全后即可生成动画。" : "没能识别出全部信息，请补齐条件。");
+        if (isSimilarInWorkspace) {
+          setNotice({ kind: "info", text: hint });
+          setMessages((prev) => [
+            ...prev,
+            { id: uid(), role: "assistant", text: `变式题缺少可用条件：${hint}`, error: true },
+          ]);
+          return res;
+        }
         // 即使 reading 为 null，也给核对表一个可编辑的空壳，避免死路
         const shell: WorkspaceReading = res.reading ?? {
           templateId: "incline_spring",
@@ -247,12 +362,21 @@ export function useWorkspace() {
         };
 
         setPhase("workspace");
+        setTutorStyle("tutor");
+        setProblemText(input.similarId && input.text?.trim() ? input.text.trim() : null);
+        setSampleId(null);
+        setCompareOn(false);
+        if (!input.file) {
+          setImageFile(null);
+          setImageUrl((prev) => {
+            revokeIfBlob(prev);
+            return null;
+          });
+        }
         setReading(shell);
         setMotion(null);
         setAppliedReading(null);
         setMissingKeys(res.missingKeys.length ? res.missingKeys : ["templateId"]);
-        const hint =
-          res.message || (res.reading ? "还有条件需要补齐，补全后即可生成动画。" : "没能识别出全部信息，请补齐条件。");
         setNotice({ kind: "info", text: hint, fieldErrors: res.fieldErrors ?? [] });
         // 缺项助手消息也挂 assumptions：页面复用同一套假设胶囊，不必区分 ok/needs_input
         setMessages([
@@ -263,10 +387,22 @@ export function useWorkspace() {
 
       if (res.status === "unsupported") {
         setNotice({ kind: "info", text: res.message, showSample: true });
+        if (isSimilarInWorkspace) {
+          setMessages((prev) => [
+            ...prev,
+            { id: uid(), role: "assistant", text: `该变式题暂无法生成动画：${res.message}。当前动画与对话保持不变。`, error: true },
+          ]);
+        }
         return res;
       }
 
       setNotice({ kind: "error", text: res.message });
+      if (isSimilarInWorkspace) {
+        setMessages((prev) => [
+          ...prev,
+          { id: uid(), role: "assistant", text: `生成变式题动画失败：${res.message}。当前动画与对话保持不变。`, error: true },
+        ]);
+      }
       return res;
     },
     [applyReading]
@@ -288,6 +424,40 @@ export function useWorkspace() {
       applyReading(next);
     },
     [applyReading]
+  );
+
+  /**
+   * 从错题本恢复收藏：
+   * - 有已存 reading 时优先按快照恢复（内置示例同时保留原样例身份、原图与题面，不用默认值覆盖已改条件）；
+   * - 缺 reading 的旧内置示例收藏回退按 sampleId 加载样例。
+   */
+  const loadFavorite = useCallback(
+    (entry: FavoriteEntry) => {
+      const matchedSample = entry.sampleId ? SAMPLES.find((s) => s.id === entry.sampleId) : undefined;
+      if (entry.reading && typeof entry.reading === "object") {
+        const res = applyReading(entry.reading as WorkspaceReading);
+        if (!res.ok) return;
+        setSampleId(matchedSample ? matchedSample.id : null);
+        setCompareOn(false);
+        setImageFile(null);
+        setImageUrl(matchedSample ? matchedSample.imageUrl : null);
+        setProblemText(matchedSample ? matchedSample.problemText : entry.title);
+        setTutorStyle("tutor");
+        setPhase("workspace");
+        setMessages([
+          {
+            id: uid(),
+            role: "assistant",
+            text: `已从错题本恢复「${entry.title}」的题目条件。`,
+          },
+        ]);
+        return;
+      }
+      if (entry.sampleId) {
+        loadSample(entry.sampleId);
+      }
+    },
+    [applyReading, loadSample]
   );
 
   /** 题内对照：在示例的两组条件之间切换，保持同一道题的题面与上下文。 */
@@ -328,6 +498,13 @@ export function useWorkspace() {
   const restartHome = useCallback(() => {
     // 清掉分享/工作台 hash 载荷，回首页后刷新不再误复现分享状态。
     window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    if (recognizeAbortRef.current) {
+      recognizeAbortRef.current.abort();
+      recognizeAbortRef.current = null;
+    }
+    setIsRecognizing(false);
+    setGeneratingSimilarId(null);
+    setTutorStyle("tutor");
     setSegmentPlayback(null);
     setPhase("home");
     setMotion(null);
@@ -409,12 +586,11 @@ export function useWorkspace() {
 
   const slowCurrentSegment = useCallback(() => {
     if (!motion) return;
-    const segment = segmentAt(motion.segments, currentTime);
-    if (!segment) return;
-    setSegmentPlayback(segment);
+    const plan = planSlowCurrentSegment(motion.segments, currentTime);
+    if (!plan) return;
+    setSegmentPlayback(plan.segment);
     setPlaybackRate(0.25);
-    setCurrentTime(segment.startSeconds);
-    setIsPlaying(true);
+    setIsPlaying(plan.shouldPlay);
   }, [motion, currentTime]);
 
   const exitSegmentPlayback = useCallback(() => {
@@ -428,8 +604,17 @@ export function useWorkspace() {
     setMessages((prev) => [...prev, m]);
   }, []);
 
+  const pushAssistantMessage = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      pushMessage({ id: uid(), role: "assistant", text: trimmed });
+    },
+    [pushMessage]
+  );
+
   const sendChat = useCallback(
-    async (text: string) => {
+    async (text: string, opts?: { mode?: ChatMode }) => {
       const trimmed = text.trim();
       if (!trimmed || isChatLoading) return;
 
@@ -439,7 +624,8 @@ export function useWorkspace() {
       setIsChatLoading(true);
 
       const dropPending = () => setMessages((prev) => prev.filter((m) => m.id !== pendingId));
-      const isTruncateCommand = /只看|只算|只播|只显示|截断|截到|为止|停到|到坡底|到桌沿|前[一二两三四五六1-6]段/.test(trimmed);
+      const isTruncateCommand =
+        opts?.mode !== "similar" && opts?.mode !== "socratic" && isStageTruncateCommand(trimmed);
       if (isStageReading(reading) && isTruncateCommand) {
         const base = latestAppliedRef.current;
         if (!isStageReading(base)) {
@@ -481,13 +667,15 @@ export function useWorkspace() {
         )
         .slice(-8)
         .map((m) => ({ role: m.role, text: m.text }));
+      const activeReading = latestAppliedRef.current ?? reading;
       const intent = await mockChatService.send(trimmed, {
         motion,
-        reading: latestAppliedRef.current ?? reading,
+        reading: activeReading,
         problemText,
         currentTime,
         history,
-        conditions: (isStageReading(reading) ? {} : (reading?.conditions ?? {})) as Record<string, number | null>,
+        mode: opts?.mode,
+        conditions: (isStageReading(activeReading) ? {} : (activeReading?.conditions ?? {})) as Record<string, number | null>,
       });
 
       setIsChatLoading(false);
@@ -499,6 +687,8 @@ export function useWorkspace() {
           role: "assistant",
           text: intent.text,
           action: intent.action,
+          similarProblems: intent.similarProblems,
+          ragReferences: intent.ragReferences,
         });
         return;
       }
@@ -540,6 +730,47 @@ export function useWorkspace() {
         return;
       }
 
+      if (intent.type === "update_stage_plan") {
+        dropPending();
+        const base = latestAppliedRef.current;
+        if (!base || !isStageReading(base)) {
+          pushMessage({
+            id: uid(),
+            role: "assistant",
+            text: "当前还没有可修改的阶段计划题目，请先上传题目或选择内置示例。",
+          });
+          return;
+        }
+        const res = applyReading(intent.nextReading, { silent: true });
+        if (!res.ok) {
+          pushMessage({
+            id: uid(),
+            role: "assistant",
+            text: `这个修改无法应用：${formatErrors(res.errors)}。动画保持在原条件。`,
+            error: true,
+          });
+          return;
+        }
+        const revisionId = `r${++revRef.current}`;
+        pushMessage({
+          id: uid(),
+          role: "assistant",
+          text: "",
+          change: {
+            changes: intent.changes,
+            applied: true,
+            revisionId,
+            previousReading: base,
+          },
+        });
+        pushMessage({
+          id: uid(),
+          role: "assistant",
+          text: `${intent.text} 动画与时间轴已同步更新。`,
+        });
+        return;
+      }
+
       // update_conditions
       dropPending();
       const base = latestAppliedRef.current;
@@ -555,7 +786,7 @@ export function useWorkspace() {
         pushMessage({
           id: uid(),
           role: "assistant",
-          text: "阶段计划的数值请在「查看原题」中修改；对话截断可输入「只看斜面」。",
+          text: "请直接说明要修改的物理量与数值，例如「把质量改为 2 kg」「把半径改为 1 m」，或在「查看原题」中修改。",
         });
         return;
       }
@@ -602,17 +833,29 @@ export function useWorkspace() {
     [applyReading, currentTime, isChatLoading, messages, motion, problemText, pushMessage, reading, replay, seekEvent, isPlaying, togglePlay]
   );
 
-  /** 撤销某次参数修改：回到该次修改前的 conditions */
+  const recommendSimilar = useCallback(() => {
+    void sendChat("推荐几道与当前题目相似的变式题", { mode: "similar" });
+  }, [sendChat]);
+
+  /** 撤销某次参数修改：支持旧模板 conditions 与新版 stage_plan */
   const undoChange = useCallback(
     (messageId: string) => {
       const msg = messages.find((m) => m.id === messageId);
       const current = latestAppliedRef.current;
-      if (!msg?.change || !current || isStageReading(current)) return;
+      if (!msg?.change || !current) return;
 
-      // 撤销只回退这一张卡片改动的字段，其余保持当前值
-      const target = { ...current, conditions: { ...current.conditions } };
-      for (const ch of msg.change.changes) {
-        target.conditions[ch.key] = ch.from;
+      let target: WorkspaceReading;
+      if (msg.change.previousReading) {
+        target = msg.change.previousReading;
+      } else {
+        if (isStageReading(current)) return;
+        const nextConditions = { ...current.conditions };
+        for (const ch of msg.change.changes) {
+          if (ch.key in nextConditions) {
+            nextConditions[ch.key as keyof Conditions] = ch.from;
+          }
+        }
+        target = { ...current, conditions: nextConditions };
       }
 
       const res = applyReading(target, { silent: true, keepTime: true });
@@ -673,7 +916,9 @@ export function useWorkspace() {
       segmentPlayback,
       messages,
       isRecognizing,
+      generatingSimilarId,
       isChatLoading,
+      tutorStyle,
       imageUrl,
       imageFile,
       problemText,
@@ -684,7 +929,9 @@ export function useWorkspace() {
       compareOn,
       // actions
       recognize,
+      cancelRecognize,
       loadSample,
+      loadFavorite,
       applyReadingOverride,
       toggleSampleCompare,
       restartHome,
@@ -695,6 +942,9 @@ export function useWorkspace() {
       replay,
       setIsPlaying,
       sendChat,
+      setTutorStyle,
+      pushAssistantMessage,
+      recommendSimilar,
       undoChange,
       applyConditions,
       setNotice,
@@ -706,9 +956,9 @@ export function useWorkspace() {
     }),
     [
       phase, reading, appliedReading, motion, currentTime, isPlaying, playbackRate, autoPauseEvents, segmentPlayback, messages,
-      isRecognizing, isChatLoading, imageUrl, imageFile, problemText, notice, missingKeys, sampleId, sampleCompare, compareOn,
-      recognize, loadSample, applyReadingOverride, toggleSampleCompare, restartHome, seek, seekEvent, nextEvent, togglePlay,
-      replay, sendChat, undoChange, applyConditions, slowCurrentSegment, exitSegmentPlayback,
+      isRecognizing, generatingSimilarId, isChatLoading, tutorStyle, imageUrl, imageFile, problemText, notice, missingKeys, sampleId, sampleCompare, compareOn,
+      recognize, cancelRecognize, loadSample, loadFavorite, applyReadingOverride, toggleSampleCompare, restartHome, seek, seekEvent, nextEvent, togglePlay,
+      replay, sendChat, pushAssistantMessage, recommendSimilar, undoChange, applyConditions, slowCurrentSegment, exitSegmentPlayback,
     ]
   );
 }

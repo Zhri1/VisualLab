@@ -18,11 +18,54 @@ export interface AnnotationLayerProps {
   color?: string;
 }
 
-const COLOR_OPTIONS = [
+export const ANNOTATION_COLOR_OPTIONS = [
   { value: '#ff3b30', label: '红色' },
   { value: '#0a84ff', label: '蓝色' },
   { value: '#000000', label: '黑色' },
 ] as const;
+
+export interface AnnotationPaletteProps {
+  mode: AnnotationMode;
+  color: string;
+  onColorChange: (color: string) => void;
+  onClear: () => void;
+  canClear?: boolean;
+}
+
+/** 画布外标注调色与清除操作条：仅在绘图模式（mode === 'draw'）可见，避免遮挡画布读数或误触画笔。 */
+export function AnnotationPalette({
+  mode,
+  color,
+  onColorChange,
+  onClear,
+  canClear = true,
+}: AnnotationPaletteProps) {
+  if (mode !== 'draw') return null;
+  return (
+    <div className="annotation-palette" role="group" aria-label="标注画笔颜色与清除">
+      {ANNOTATION_COLOR_OPTIONS.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          className="annotation-color"
+          aria-label={option.label}
+          aria-pressed={color === option.value}
+          onClick={() => onColorChange(option.value)}
+          style={{ backgroundColor: option.value }}
+        />
+      ))}
+      <button
+        type="button"
+        className="annotation-clear"
+        aria-label="清除标注"
+        disabled={!canClear}
+        onClick={onClear}
+      >
+        清除
+      </button>
+    </div>
+  );
+}
 
 const LASER_RGB = '255,59,48';
 
@@ -60,7 +103,7 @@ export function AnnotationLayer({
   timeRef.current = time;
 
   const [selectedColor, setSelectedColor] = useState<string>(
-    color ?? COLOR_OPTIONS[0].value,
+    color ?? ANNOTATION_COLOR_OPTIONS[0].value,
   );
   useEffect(() => {
     if (color) setSelectedColor(color);
@@ -201,57 +244,6 @@ export function AnnotationLayer({
         onPointerUp={endStroke}
         onPointerCancel={endStroke}
       />
-      {interactive && (
-      <div
-        style={{
-          position: 'absolute',
-          top: 8,
-          right: 8,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          pointerEvents: 'auto',
-        }}
-      >
-        {COLOR_OPTIONS.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            className="annotation-color"
-            aria-label={option.label}
-            aria-pressed={selectedColor === option.value}
-            disabled={!interactive}
-            onClick={() => setSelectedColor(option.value)}
-            style={{
-              width: 20,
-              height: 20,
-              borderRadius: '50%',
-              padding: 0,
-              cursor: 'pointer',
-              backgroundColor: option.value,
-              border:
-                selectedColor === option.value
-                  ? '2px solid #ffffff'
-                  : '1px solid rgba(0,0,0,0.35)',
-              boxShadow: '0 0 0 1px rgba(0,0,0,0.2)',
-            }}
-          />
-        ))}
-        <button
-          type="button"
-          className="annotation-clear"
-          aria-label="清除标注"
-          disabled={!interactive}
-          onClick={() => {
-            activeIdRef.current = null;
-            onChange([]);
-          }}
-          style={{ cursor: 'pointer' }}
-        >
-          清除
-        </button>
-      </div>
-      )}
     </div>
   );
 }

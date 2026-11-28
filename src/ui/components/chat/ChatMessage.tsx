@@ -1,10 +1,20 @@
 /**
- * 单条消息。支持极简 Markdown 子集（段落、**粗体**、`代码`、$公式$）
- * 与内嵌操作入口，不引入第三方解析库。
+ * 单条消息。支持极简 Markdown 子集（段落、**粗体**、`代码`、$公式$）、
+ * 参数修改卡片、相似变式题卡片与内嵌操作入口，不引入第三方解析库。
  */
-import type { ReactNode } from "react";
-import { ArrowRight, ChevronRight, CornerDownRight, Sparkles } from "lucide-react";
-import type { ChatMessage as ChatMessageType } from "../../../types";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  ArrowRight,
+  ChevronDown,
+  ChevronRight,
+  CornerDownRight,
+  Lightbulb,
+  Loader2,
+  Play,
+  Sparkles,
+  X,
+} from "lucide-react";
+import type { ChatMessage as ChatMessageType, RagReference, SimilarProblem } from "../../../types";
 import { ParameterChangeCard } from "./ParameterChangeCard";
 import { CONDITION_META } from "../../../types";
 
@@ -12,6 +22,10 @@ interface Props {
   message: ChatMessageType;
   onUndo: (id: string) => void;
   onSeekEvent: (eventId: string) => void;
+  onTrySimilar?: (stem: string, similarId: string) => void;
+  generatingSimilarId?: string | null;
+  isRecognizing?: boolean;
+  onCancelGenerate?: () => void;
 }
 
 /** 把 **x**、`x`、$x$ 转成 React 节点 */
@@ -129,7 +143,176 @@ function AssumptionChip({ items }: { items: string[] }) {
   );
 }
 
-export function ChatMessageRow({ message, onUndo, onSeekEvent }: Props) {
+/** 物理母题知识库引用胶囊：复用 .assumption 极简折叠样式 */
+function RagReferencesChip({ items }: { items: RagReference[] }) {
+  return (
+    <details className="assumption">
+      <summary>
+        <span>📚 参考母题知识库 {items.length} 条</span>
+        <ChevronRight className="chev" size={12} strokeWidth={2} />
+      </summary>
+      <ul className="assumption-list">
+        {items.map((ref) => (
+          <li key={ref.id}>
+            <strong>{ref.title}</strong>
+            {ref.source ? `（${ref.source} · ${ref.difficulty}）` : ""}
+            {ref.matchedReasons.length > 0 ? ` — ${ref.matchedReasons.join("；")}` : ""}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+function SimilarProblemCard({
+  cardId,
+  item,
+  onTrySimilar,
+  generatingSimilarId,
+  isRecognizing,
+  onCancelGenerate,
+}: {
+  cardId: string;
+  item: SimilarProblem;
+  onTrySimilar?: (stem: string, similarId: string) => void;
+  generatingSimilarId?: string | null;
+  isRecognizing?: boolean;
+  onCancelGenerate?: () => void;
+}) {
+  const [hintOpen, setHintOpen] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [canShowCancel, setCanShowCancel] = useState(false);
+  const delayTimerRef = useRef<number | null>(null);
+
+  const isCurrentGenerating = Boolean(isRecognizing && generatingSimilarId === cardId);
+  const isOtherGenerating = Boolean(isRecognizing && generatingSimilarId !== cardId);
+  const showCancel = isCurrentGenerating && isHovered && canShowCancel;
+
+  useEffect(() => {
+    if (isCurrentGenerating) {
+      setCanShowCancel(false);
+      delayTimerRef.current = window.setTimeout(() => {
+        setCanShowCancel(true);
+        delayTimerRef.current = null;
+      }, 400);
+      return () => {
+        if (delayTimerRef.current !== null) {
+          window.clearTimeout(delayTimerRef.current);
+          delayTimerRef.current = null;
+        }
+      };
+    }
+    setCanShowCancel(false);
+    if (delayTimerRef.current !== null) {
+      window.clearTimeout(delayTimerRef.current);
+      delayTimerRef.current = null;
+    }
+  }, [isCurrentGenerating]);
+
+  useEffect(() => {
+    if (isOtherGenerating) {
+      setIsHovered(false);
+    }
+  }, [isOtherGenerating]);
+
+  const primaryClassName =
+    "similar-btn similar-btn-primary" +
+    (showCancel ? " is-cancelable" : isCurrentGenerating ? " is-generating" : "");
+
+  return (
+    <div className="similar-card">
+      <div className="similar-head">
+        <span className="similar-title">{item.title}</span>
+        {item.difficulty && <span className="similar-diff">{item.difficulty}</span>}
+      </div>
+
+      {item.tags.length > 0 && (
+        <div className="similar-tags">
+          {item.tags.map((tag) => (
+            <span className="similar-tag" key={tag}>
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <p className="similar-stem">{item.stem}</p>
+      <p className="similar-focus">
+        <span>变式亮点：</span>
+        {item.focus}
+      </p>
+
+      <div className="similar-actions">
+        {onTrySimilar && (
+          <button
+            type="button"
+            className={primaryClassName}
+            disabled={isOtherGenerating}
+            aria-busy={isCurrentGenerating}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => {
+              setIsHovered(false);
+              if (isCurrentGenerating) setCanShowCancel(true);
+            }}
+            onClick={() => {
+              if (isCurrentGenerating) {
+                if (showCancel) onCancelGenerate?.();
+                return;
+              }
+              onTrySimilar(item.stem, cardId);
+            }}
+          >
+            {showCancel ? (
+              <>
+                <X size={13} strokeWidth={2.2} />
+                取消生成
+              </>
+            ) : isCurrentGenerating ? (
+              <>
+                <Loader2 size={13} strokeWidth={2.2} className="similar-btn-spinner" />
+                生成中…
+              </>
+            ) : (
+              <>
+                <Play size={12} strokeWidth={2.2} />
+                生成动画试做
+              </>
+            )}
+          </button>
+        )}
+        <button
+          type="button"
+          className="similar-btn"
+          onClick={() => setHintOpen((prev) => !prev)}
+          aria-expanded={hintOpen}
+        >
+          <Lightbulb size={12} strokeWidth={2} />
+          {hintOpen ? "收起思路" : "看思路"}
+          <ChevronDown
+            size={12}
+            strokeWidth={2}
+            style={{
+              transform: hintOpen ? "rotate(180deg)" : "none",
+              transition: "transform 0.16s ease",
+            }}
+          />
+        </button>
+      </div>
+
+      {hintOpen && <div className="similar-hint">{renderText(item.hint)}</div>}
+    </div>
+  );
+}
+
+export function ChatMessageRow({
+  message,
+  onUndo,
+  onSeekEvent,
+  onTrySimilar,
+  generatingSimilarId,
+  isRecognizing,
+  onCancelGenerate,
+}: Props) {
   if (message.role === "user") {
     return (
       <div className="msg user">
@@ -157,16 +340,41 @@ export function ChatMessageRow({ message, onUndo, onSeekEvent }: Props) {
           <ParameterChangeCard
             messageId={message.id}
             change={message.change}
-            label={(key) =>
-              CONDITION_META.find((m) => m.key === key)?.label ?? String(key)
-            }
-            unit={(key) => CONDITION_META.find((m) => m.key === key)?.unit ?? ""}
+            label={(key) => {
+              const found = message.change?.changes.find((c) => c.key === key);
+              if (found?.label) return found.label;
+              return CONDITION_META.find((m) => m.key === key)?.label ?? String(key);
+            }}
+            unit={(key) => {
+              const found = message.change?.changes.find((c) => c.key === key);
+              if (found?.unit !== undefined) return found.unit;
+              return CONDITION_META.find((m) => m.key === key)?.unit ?? "";
+            }}
             onUndo={onUndo}
           />
         ) : (
           <>
             {message.text ? renderText(message.text) : null}
             {message.assumptions?.length ? <AssumptionChip items={message.assumptions} /> : null}
+            {message.similarProblems?.length ? (
+              <div className="similar-list">
+                {message.similarProblems.map((item, idx) => {
+                  const cardId = item.id ?? `${message.id}-similar-${idx}`;
+                  return (
+                    <SimilarProblemCard
+                      key={cardId}
+                      cardId={cardId}
+                      item={item}
+                      onTrySimilar={onTrySimilar}
+                      generatingSimilarId={generatingSimilarId}
+                      isRecognizing={isRecognizing}
+                      onCancelGenerate={onCancelGenerate}
+                    />
+                  );
+                })}
+              </div>
+            ) : null}
+            {message.ragReferences?.length ? <RagReferencesChip items={message.ragReferences} /> : null}
             {message.action?.type === "seek" && (
               <div className="msg-action">
                 <button onClick={() => onSeekEvent(message.action!.eventId)}>

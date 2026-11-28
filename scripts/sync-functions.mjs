@@ -10,7 +10,7 @@
  *
  * 用法：node scripts/sync-functions.mjs
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,6 +19,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 /** 源文件 → 云函数文件。顺序即依赖顺序，便于阅读。 */
 const FILES = [
   { from: "src/physics/arcTypes.ts", to: "functions/arcTypes.ts" },
+  { from: "src/physics/criticalRodArc.ts", to: "functions/criticalRodArc.ts" },
   { from: "src/physics/circularArc.ts", to: "functions/circularArc.ts" },
   { from: "src/physics/bodyPlanError.ts", to: "functions/bodyPlanError.ts" },
   { from: "src/physics/horizontalKinematics.ts", to: "functions/horizontalKinematics.ts" },
@@ -44,12 +45,20 @@ const FILES = [
   { from: "src/physics/conveyorBelt.ts", to: "functions/conveyorBelt.ts" },
   { from: "src/physics/gaokaoConstraints.ts", to: "functions/gaokaoConstraints.ts" },
   { from: "src/physics/magneticDeflection.ts", to: "functions/magneticDeflection.ts" },
+  { from: "src/physics/switchableEMCollision.ts", to: "functions/switchableEMCollision.ts" },
+  { from: "src/physics/magneticReencounter.ts", to: "functions/magneticReencounter.ts" },
   { from: "src/physics/movableArc.ts", to: "functions/movableArc.ts" },
+  { from: "src/physics/circularOrbit.ts", to: "functions/circularOrbit.ts" },
+  { from: "src/physics/movableSemicircle.ts", to: "functions/movableSemicircle.ts" },
   { from: "src/physics/springPair.ts", to: "functions/springPair.ts" },
+  { from: "src/physics/uniformConstraints.ts", to: "functions/uniformConstraints.ts" },
   { from: "src/physics/stagePlan.ts", to: "functions/stagePlan.ts" },
   { from: "src/api/stageTypes.ts", to: "functions/stageTypes.ts" },
   { from: "src/api/stageStatus.ts", to: "functions/stageStatus.ts" },
   { from: "src/api/legacyBridge.ts", to: "functions/legacyBridge.ts" },
+  { from: "src/rag/types.ts", to: "functions/rag/types.ts" },
+  { from: "src/rag/corpus.ts", to: "functions/rag/corpus.ts" },
+  { from: "src/rag/retriever.ts", to: "functions/rag/retriever.ts" },
 ];
 
 /** Deno 要求相对导入带显式扩展名；src 里走 TS 解析，可以省略。 */
@@ -70,7 +79,9 @@ for (const { from, to } of FILES) {
     "",
   ].join("\n");
   const output = header + withDenoExtensions(source);
-  writeFileSync(join(root, to), output, "utf8");
+  const targetPath = join(root, to);
+  mkdirSync(dirname(targetPath), { recursive: true });
+  writeFileSync(targetPath, output, "utf8");
   total += 1;
   console.log(`${to} ← ${from}`);
 }

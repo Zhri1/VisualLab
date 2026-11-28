@@ -247,8 +247,9 @@ export const SAMPLES: Sample[] = [
           {
             ...(conveyorAccel.stages[0] as object),
             initialBeltSpeedMps: 4,
-            segments: [{ accelerationMps2: 0, durationSeconds: 2 }],
+            segments: [{ accelerationMps2: 0, durationSeconds: null }],
             beltLengthM: 2,
+            continuationExitEdge: "end",
           },
           { kind: "projectile", dropHeightM: 1.25 },
         ],
@@ -259,8 +260,9 @@ export const SAMPLES: Sample[] = [
       stages: [
         {
           ...(conveyorAccel.stages[0] as object),
-          segments: [{ accelerationMps2: 0, durationSeconds: 2 }],
+          segments: [{ accelerationMps2: 0, durationSeconds: null }],
           beltLengthM: 2,
+          continuationExitEdge: "end",
         },
         { kind: "projectile", dropHeightM: 1.25 },
       ],

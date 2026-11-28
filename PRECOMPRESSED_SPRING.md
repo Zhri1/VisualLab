@@ -202,3 +202,30 @@ state_only保留计划轨道时放在 schematic.verticalArc，绝不生成实际
 3. A同步共享类型/适配器、释放几何、schematic与timing；显式区分全程、B起后缀和已知状态。编辑AB保留energy及其原basis，更新世界B/C，并提示较短距离的释放前提待确认。补入可确定的k/c后走同一入口切到全程，不能再同时保留一份错位旧后缀。
 4. C只提取题设和明确条件，不解k/c/E或猜起动；通过共享validateStagePlan取得规范化reading，并使用现有脚本同步Qoder副本。新字段须在Node/Qoder/API与浏览器往返中保留；通过模拟模型入口后再安排真实图文验收。
 5. 本项实现通过后依次做定轴摆与碰撞、斜面末端直接斜抛。多物体和后续学科保持各自里程碑。
+
+## 8. 增量扩展：光滑桌面能量发射直连平抛与首次落地反弹
+
+本节扩展 `spring_release → projectile` 的无摩擦能量后缀与 `projectile` 可选的首次落地反弹（`bounce`），保留前述粗糙面、圆弧临界约束及无反弹首次落地的所有既有口径。
+
+### 8.1 光滑桌面能量发射直连平抛（后缀播放）
+
+- 当 `stages[0]` 为光滑面预压释放（`kind: "spring_release"`, `kineticFrictionCoefficient: 0`, `unattached: true`, `slidesAfterRelease: true`）、`k` 与 `c` 均未知（`null`）、且已知初始弹性势能 `energy`（`origin: "given" | "user"`）并直接接 `stages[1]`（`kind: "projectile"`）时：
+  - 由于桌面光滑且球在离桌前已与弹簧脱离，桌缘水平出射速率由能量唯一确定 `vₓ = √(2Eₚ/m)`，**无需索要或虚构 `releaseCompleteByM`、`k`、`c` 或桌面水平距离**。
+  - 返回 `playback: { mode: "suffix", startStageIndex: 1, unresolvedKeys: ["/stages/0/springConstantNpm", "/stages/0/initialCompressionM"], xM: 0, vxMps }`。动画以桌缘 `(0, 0)` 为起点计时播放抛体及反弹后缀，`timing.absoluteStartSeconds = null`，`excludedStageIndices: [0]`，画布与说明明确标注前段未计时、不伪造压缩过程或总时长。
+- 顶层可选 `scaleMode?: "normalized" | "si"`：当题设全程仅给符号基准（如 `m、Eₚ、h、g`）而未给数值时设 `"normalized"`，未填数值的正标度（`massKg`、`gravityMps2`、`energy.elasticEnergyJ`、`bounce.apexHeightM` 或无反弹时的 `dropHeightM`）按 `1` 归一化演示；显式给出的数值仍按原值计算。画布与编辑器须明确标注归一化标度与可确定播放范围。
+
+### 8.2 抛体可选首次落地反弹（`projectile.bounce`）
+
+```ts
+type ProjectileBounce = {
+  normalRestitution: number; // 竖直恢复系数 e ∈ [0, 1]：vx+ = vx−，vy+ = −e·vy−
+  stopAt: "first_apex";      // 仅追踪首次反弹至最高点
+  apexHeightM?: number | null; // 可选：首次反弹后的最大高度 h（相对地面，有限正数）
+};
+```
+
+- 无 `bounce` 字段时完全保持原有首次落地行为（`endReason: "landed"`）。
+- `normalRestitution` 须在 `[0, 1]` 内。当题面只给反弹最大高度 `apexHeightM = h` 而未直接给 `dropHeightM` / `landingPlaneYM` 时：
+  - `e > 0`：反求桌缘落差 `H = h / e²`，并记入 `calculations`；首次落点距桌缘水平距离 `x₁ = (2/e)√(Eₚh/(mg))`，首个反弹顶点距地面高度 `h`。
+  - `e === 0`：竖直方向不反弹（`vy+ = 0`），若同时给出 `apexHeightM > 0` 返回 `PRECONDITION_CONFLICT`（不能反推非零 `h`）；无 `apexHeightM` 时在首次落地处终止（`landed`，`vy+ = 0`）。
+- 反弹瞬间（`ground_bounce`）前后位置严格连续，`vx+ = vx−`、`vy+ = −e·vy−`，随后仅在重力下运动至首个反弹最高点（`bounce_apex`，`vy = 0`，结束原因 `bounce_apex`）。

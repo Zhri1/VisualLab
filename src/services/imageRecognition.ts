@@ -120,31 +120,74 @@ export function mockPlan(hasImage: boolean, isSample = false, sampleId?: string)
   };
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+function createAbortError(): Error {
+  if (typeof DOMException !== "undefined") {
+    return new DOMException("The operation was aborted.", "AbortError");
+  }
+  const err = new Error("The operation was aborted.");
+  err.name = "AbortError";
+  return err;
+}
+
+export function isAbortError(err: unknown): boolean {
+  return (
+    err != null &&
+    typeof err === "object" &&
+    "name" in err &&
+    (err as { name?: unknown }).name === "AbortError"
+  );
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(createAbortError());
+  }
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(createAbortError());
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
 
 /**
  * 上传题图或提交文字，换取 reading。
- * 永不抛异常：所有失败都归一成 { status: "error" }。
+ * 若传入的 AbortSignal 触发取消，抛出 AbortError 由调用方静默处理；
+ * 其余失败都归一成 { status: "error" }。
  */
-export async function requestPlan(input: {
-  file?: File | null;
-  text?: string;
-  /** 内置示例：跳过所有模拟失败 */
-  isSample?: boolean;
-  /** 内置示例 id；缺省用第一道。 */
-  sampleId?: string;
-}): Promise<PlanResponse> {
+export async function requestPlan(
+  input: {
+    file?: File | null;
+    text?: string;
+    /** 内置示例：跳过所有模拟失败 */
+    isSample?: boolean;
+    /** 内置示例 id；缺省用第一道。 */
+    sampleId?: string;
+    signal?: AbortSignal;
+  },
+  opts?: { signal?: AbortSignal }
+): Promise<PlanResponse> {
+  const signal = opts?.signal ?? input.signal;
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
+
   // 内置示例是兜底路径：不打网络，也不受联调开关影响。
   // 线上 VITE_USE_MOCK_API=false 时，示例若走 fetch 就会被网关拦截，整页演示失败。
   if (input.isSample) {
     const [lo, hi] = MOCK_LATENCY_MS;
-    await sleep((lo + Math.random() * (hi - lo)) * 0.35);
+    await sleep((lo + Math.random() * (hi - lo)) * 0.35, signal);
     return mockPlan(Boolean(input.file), true, input.sampleId);
   }
 
   if (USE_MOCK_API) {
     const [lo, hi] = MOCK_LATENCY_MS;
-    await sleep(lo + Math.random() * (hi - lo));
+    await sleep(lo + Math.random() * (hi - lo), signal);
     return mockPlan(Boolean(input.file), false);
   }
 
@@ -153,8 +196,14 @@ export async function requestPlan(input: {
   if (input.text) form.append("text", input.text);
 
   try {
-    const res = await fetch(ENDPOINT, { method: "POST", body: form });
+    const res = await fetch(
+      ENDPOINT,
+      signal ? { method: "POST", body: form, signal } : { method: "POST", body: form }
+    );
     const body = await res.json().catch(() => ({}));
+    if (signal?.aborted) {
+      throw createAbortError();
+    }
 
     if (res.ok && body?.status === "ok" && body.reading) {
       return {
@@ -188,10 +237,16 @@ export async function requestPlan(input: {
             ? "识别超时，请重试"
             : "识别服务异常，请稍后重试";
     return { status: "error", httpStatus: res.status, message: body?.message ?? fallback };
-  } catch {
+  } catch (err) {
+    if (signal?.aborted || isAbortError(err)) {
+      throw isAbortError(err) ? err : createAbortError();
+    }
     return { status: "error", message: "网络异常，请检查连接后重试" };
   }
 }
+
+/** 语义别名，与 requestPlan 指向同一识别实现 */
+export const recognizeProblem = requestPlan;
 
 export type StageCommandResponse = CommandResult | { status: "error"; message: string; httpStatus?: number };
 

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { advancePlayback, computeDefaultPace, formatPace, formatSpeed, segmentAt } from "./playback";
+import { advancePlayback, computeDefaultPace, formatPace, formatSpeed, planSlowCurrentSegment, segmentAt } from "./playback";
 import { computeWorldBounds, fitViewport } from "./canvasViewport";
+import { computeRatePopoverLayout, PLAYBACK_RATES } from "./PlaybackControls";
+import { buildCurrentStageBadge } from "./WorkspaceLayout";
+import { PRESSABLE_BUTTON_SELECTOR } from "../../interactions/buttonPress";
 import type { MotionSegment } from "../../../types";
 import fixture from "../../../../fixtures/incline-spring.reading.json";
 import { motionLibrary } from "../../../adapters";
@@ -65,6 +68,36 @@ describe("速度和阶段边界", () => {
     expect(segmentAt(segments, 2)?.kind).toBe("horizontal");
     expect(segmentAt(segments, 4)?.kind).toBe("spring");
   });
+
+  it("慢放本段从当前帧就地继续，不回跳段首；首帧/交界正常推进，末帧保持原地暂停", () => {
+    const segments = [
+      { kind: "incline", startSeconds: 0, endSeconds: 2 },
+      { kind: "horizontal", startSeconds: 2, endSeconds: 3 },
+      { kind: "spring", startSeconds: 3, endSeconds: 4 },
+    ] as MotionSegment[];
+
+    // 首帧
+    const atStart = planSlowCurrentSegment(segments, 0);
+    expect(atStart).toEqual({ segment: segments[0], shouldPlay: true });
+
+    // 段中就地继续，不回跳至 startSeconds=3，并以 0.25× 推进至段末 4 暂停
+    const midTime = 3.5;
+    const atMid = planSlowCurrentSegment(segments, midTime);
+    expect(atMid).toEqual({ segment: segments[2], shouldPlay: true });
+    const nextStep = advancePlayback(midTime, 0.2, 0.25, atMid!.segment.endSeconds, []);
+    expect(nextStep.time).toBeCloseTo(3.55, 6);
+    expect(nextStep.pause).toBe(false);
+    const toEnd = advancePlayback(3.95, 0.5, 0.25, atMid!.segment.endSeconds, []);
+    expect(toEnd).toEqual({ time: 4, pause: true });
+
+    // 阶段精确交界：进入下一段就地慢放
+    const atBoundary = planSlowCurrentSegment(segments, 2);
+    expect(atBoundary).toEqual({ segment: segments[1], shouldPlay: true });
+
+    // 已结束末帧：保持末帧不回跳且不继续播放
+    const atEnd = planSlowCurrentSegment(segments, 4);
+    expect(atEnd).toEqual({ segment: segments[2], shouldPlay: false });
+  });
 });
 
 describe("默认观看节奏与统一取景", () => {
@@ -110,6 +143,24 @@ describe("默认观看节奏与统一取景", () => {
     expect(s.bodies?.one.position.x).toBeCloseTo(s.bodies!.two.position.x, 9);
   });
 
+  it("圆周轨道（5544.86 s 低轨卫星）默认时间加速至约 12 s/圈，保持真实物理周期与速率不变", () => {
+    const motion = load("circular-orbit.reading.json");
+    const pace = computeDefaultPace(motion);
+    expect(motion.durationSeconds).toBeCloseTo(5544.858, 2);
+    expect(pace).toBe(462);
+    const watchSeconds = motion.durationSeconds / pace;
+    expect(watchSeconds).toBeGreaterThanOrEqual(10);
+    expect(watchSeconds).toBeLessThanOrEqual(15);
+    expect(formatPace(pace)).toBe("462");
+    // 真实播放推进：6 s 现实时间越过半周事件（2772.43 s），12.1 s 到达整圈终点
+    const half = advancePlayback(0, 6.5, 1 * pace, motion.durationSeconds, motion.events);
+    expect(half.pause).toBe(true);
+    expect(half.time).toBeCloseTo(motion.durationSeconds / 2, 2);
+    const done = advancePlayback(half.time, 6.5, 1 * pace, motion.durationSeconds, motion.events);
+    expect(done.pause).toBe(true);
+    expect(done.time).toBeCloseTo(motion.durationSeconds, 2);
+  });
+
   it("fitViewport：横长 1D 场景占足横向宽度不受虚高限制，静止点与 2D 场景等比居中", () => {
     const horiz = fitViewport(900, 360, computeWorldBounds([{ x: 0, y: 0 }, { x: 12, y: 0 }]), { top: 40, right: 50, bottom: 40, left: 50 });
     expect(horiz.X(0)).toBeCloseTo(50, 6);
@@ -125,5 +176,77 @@ describe("默认观看节奏与统一取景", () => {
     expect(box2d.S).toBeCloseTo(320 / 2, 6);
     expect(box2d.Y(2)).toBeCloseTo(40, 6);
     expect(box2d.Y(0)).toBeCloseTo(360, 6);
+  });
+});
+
+describe("播放倍率浮层定位与按压接入", () => {
+  it("保留 0.25× / 0.5× / 1× / 2× 四档且倍率胶囊命中统一按压选择器", () => {
+    expect(PLAYBACK_RATES).toEqual([0.25, 0.5, 1, 2]);
+    expect(PRESSABLE_BUTTON_SELECTOR).toContain("button.transport-pill");
+  });
+
+  it("桌面底部空间不足时自动向上展开，空间充足时向下展开", () => {
+    const nearBottom = computeRatePopoverLayout({ left: 140, top: 690, bottom: 718, width: 68 }, 1280, 800);
+    expect(nearBottom.placement).toBe("top");
+    expect(nearBottom.bottom).toBe(800 - 690 + 6);
+    expect(nearBottom.top).toBeUndefined();
+    expect(nearBottom.left).toBe(140);
+    expect(nearBottom.minWidth).toBe(96);
+
+    const midScreen = computeRatePopoverLayout({ left: 140, top: 320, bottom: 348, width: 68 }, 1280, 800);
+    expect(midScreen.placement).toBe("bottom");
+    expect(midScreen.top).toBe(348 + 6);
+    expect(midScreen.bottom).toBeUndefined();
+  });
+
+  it("移动端优先向上展开并做视口左右夹紧，避免贴边裁切", () => {
+    const mobile = computeRatePopoverLayout({ left: 2, top: 520, bottom: 556, width: 74 }, 390, 844);
+    expect(mobile.placement).toBe("top");
+    expect(mobile.left).toBe(8);
+    expect(mobile.bottom).toBe(844 - 520 + 6);
+
+    const nearRight = computeRatePopoverLayout({ left: 340, top: 520, bottom: 556, width: 74 }, 390, 844);
+    expect(nearRight.placement).toBe("top");
+    expect(nearRight.left).toBe(390 - 96 - 8);
+  });
+});
+
+describe("单条当前路段状态徽标 buildCurrentStageBadge", () => {
+  it("多阶段题仅输出当前段编号、名称与有值时的 μ；无摩擦段不显示 μ", () => {
+    const plan = {
+      stages: [
+        { kind: "spring_release", kineticFrictionCoefficient: 0.1 },
+        { kind: "horizontal_slide", kineticFrictionCoefficient: 0.1 },
+        { kind: "vertical_arc" },
+        { kind: "projectile" },
+        { kind: "incline_slide", kineticFrictionCoefficient: 0.2 },
+      ],
+    };
+    const seg5 = { kind: "incline", name: "斜面下滑", stageIndex: 4, startSeconds: 1.63, endSeconds: 2.12 } as MotionSegment;
+    expect(buildCurrentStageBadge(seg5, plan, null)).toEqual({
+      code: "05",
+      name: "斜面下滑",
+      frictionText: "μ = 0.20",
+      fullLabel: "05 斜面下滑 · μ = 0.20",
+    });
+
+    const seg3 = { kind: "vertical_arc", name: "竖直圆弧", stageIndex: 2, startSeconds: 0.46, endSeconds: 0.72 } as unknown as MotionSegment;
+    expect(buildCurrentStageBadge(seg3, plan, null)).toEqual({
+      code: "03",
+      name: "竖直圆弧",
+      frictionText: null,
+      fullLabel: "03 竖直圆弧",
+    });
+  });
+
+  it("旧版固定 incline_spring 模型按实际段区分斜面、水平面与弹簧，不把弹簧错标成水平面", () => {
+    const inc = { kind: "incline", name: "斜面下滑", startSeconds: 0, endSeconds: 2 } as MotionSegment;
+    const hor = { kind: "horizontal", name: "水平滑动", startSeconds: 2, endSeconds: 3 } as MotionSegment;
+    const spr = { kind: "spring", name: "弹簧压缩与反弹", startSeconds: 3, endSeconds: 4 } as MotionSegment;
+
+    expect(buildCurrentStageBadge(inc, null, 0.5)?.fullLabel).toBe("AB 斜面 · μ = 0.50");
+    expect(buildCurrentStageBadge(hor, null, 0.5)?.fullLabel).toBe("BC 水平面 · μ = 0");
+    expect(buildCurrentStageBadge(spr, null, 0.5)?.fullLabel).toBe("CD 弹簧压缩与反弹");
+    expect(buildCurrentStageBadge(undefined, null, 0.5)).toBeNull();
   });
 });
