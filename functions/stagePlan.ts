@@ -595,9 +595,43 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
       else stage.exitKind = source.exitKind;
     }
     if (source.kind === "movable_arc") {
-      if (source.exitDirection == null) stage.exitDirection = -1;
-      else if (source.exitDirection !== -1 && source.exitDirection !== 1) issue(path + "/exitDirection", "UNSUPPORTED", "离槽方向仅支持 -1（向左）或 1（向右）。");
-      else stage.exitDirection = source.exitDirection;
+      const entryMode = source.entryMode ?? "top";
+      if (entryMode !== "top" && entryMode !== "bottom") {
+        issue(path + "/entryMode", "UNSUPPORTED", "movable_arc 入槽方式仅支持 top（槽顶静止释放）或 bottom（槽底切向进入）。");
+      } else {
+        if (source.entryMode != null) stage.entryMode = entryMode;
+      }
+      if (entryMode === "bottom") {
+        if (source.entryDirection == null) stage.entryDirection = 1;
+        else if (source.entryDirection !== -1 && source.entryDirection !== 1) issue(path + "/entryDirection", "UNSUPPORTED", "底入方向仅支持 1（向右）或 -1（向左）。");
+        else stage.entryDirection = source.entryDirection;
+        if (source.criticalTopRelativeRest != null) {
+          if (source.criticalTopRelativeRest !== true) issue(path + "/criticalTopRelativeRest", "UNSUPPORTED", "criticalTopRelativeRest 仅支持 true。");
+          else stage.criticalTopRelativeRest = true;
+        }
+        if (source.entryGapM != null) numberField(source, stage, "entryGapM", path + "/entryGapM", nonnegative);
+        if (i === 0) {
+          if (source.criticalTopRelativeRest === true && normalizedInitial.speedMps == null
+            && typeof draft.massKg === "number" && draft.massKg > 0
+            && typeof draft.gravityMps2 === "number" && draft.gravityMps2 > 0
+            && typeof stage.radiusM === "number" && stage.radiusM > 0
+            && typeof stage.grooveMassKg === "number" && stage.grooveMassKg > 0) {
+            const critSpeed = Math.sqrt((2 * (draft.massKg + stage.grooveMassKg) * draft.gravityMps2 * stage.radiusM) / stage.grooveMassKg);
+            normalizedInitial.speedMps = critSpeed;
+            const idx = missingKeys.indexOf("/initial/speedMps");
+            if (idx >= 0) missingKeys.splice(idx, 1);
+          } else if (typeof normalizedInitial.speedMps === "number" && normalizedInitial.speedMps <= 0) {
+            issue("/initial/speedMps", "RANGE", "从槽底切向进入可移动圆弧槽时，入射速率须大于 0。");
+          }
+        }
+      } else {
+        if (source.exitDirection == null) stage.exitDirection = -1;
+        else if (source.exitDirection !== -1 && source.exitDirection !== 1) issue(path + "/exitDirection", "UNSUPPORTED", "离槽方向仅支持 -1（向左）或 1（向右）。");
+        else stage.exitDirection = source.exitDirection;
+        if (i === 0 && typeof normalizedInitial.speedMps === "number" && normalizedInitial.speedMps !== 0) {
+          issue("/initial/speedMps", "PRECONDITION_CONFLICT", "可移动圆弧槽从槽顶静止释放时，初速度须为 0。");
+        }
+      }
     }
     if (source.kind === "movable_semicircle") {
       fact(stage, "frictionless", path + "/frictionless");
@@ -652,14 +686,14 @@ function validateSingleBodyPlan(input: unknown, bodyTrack = false): StagePlanVal
     const permitted = i === 0 ? source.kind !== "lossless_turn"
       : previous == null ? true
       : previous === "incline_slide" ? source.kind === "lossless_turn" || source.kind === "projectile" || source.kind === "conveyor_belt" || (source.kind === "vertical_arc" && Object.prototype.hasOwnProperty.call(source, "path"))
-      : previous === "lossless_turn" ? ["horizontal_slide", "spring_contact", "vertical_arc", "constant_force_1d", "conveyor_belt", "spring_pair", "incline_slide"].includes(source.kind)
-      : previous === "horizontal_slide" ? ["spring_contact", "projectile", "vertical_arc", "constant_force_1d", "magnetic_deflection", "conveyor_belt", "spring_pair", "lossless_turn", "incline_slide"].includes(source.kind)
+      : previous === "lossless_turn" ? ["horizontal_slide", "spring_contact", "vertical_arc", "constant_force_1d", "conveyor_belt", "spring_pair", "incline_slide"].includes(source.kind) || (source.kind === "movable_arc" && source.entryMode === "bottom")
+      : previous === "horizontal_slide" ? ["spring_contact", "projectile", "vertical_arc", "constant_force_1d", "magnetic_deflection", "conveyor_belt", "spring_pair", "lossless_turn", "incline_slide"].includes(source.kind) || (source.kind === "movable_arc" && source.entryMode === "bottom")
       : previous === "constant_force_1d" ? ["constant_force_1d", "horizontal_slide", "spring_contact", "projectile", "vertical_arc", "conveyor_belt", "spring_pair", "lossless_turn"].includes(source.kind)
       : previous === "vertical_arc" ? ["projectile", "horizontal_slide", "incline_slide", "spring_contact", "constant_force_1d", "vertical_arc", "conveyor_belt", "spring_pair", "lossless_turn"].includes(source.kind)
       : previous === "projectile" ? source.kind === "vertical_arc" || source.kind === "incline_slide"
-      : previous === "spring_release" ? ["horizontal_slide", "spring_contact", "vertical_arc", "projectile", "constant_force_1d", "conveyor_belt", "spring_pair", "lossless_turn", "incline_slide"].includes(source.kind)
+      : previous === "spring_release" ? ["horizontal_slide", "spring_contact", "vertical_arc", "projectile", "constant_force_1d", "conveyor_belt", "spring_pair", "lossless_turn", "incline_slide"].includes(source.kind) || (source.kind === "movable_arc" && source.entryMode === "bottom")
       : previous === "spring_contact" ? ["horizontal_slide", "lossless_turn", "incline_slide", "vertical_arc", "conveyor_belt", "projectile"].includes(source.kind)
-      : previous === "conveyor_belt" ? ["projectile", "horizontal_slide", "spring_contact", "vertical_arc", "constant_force_1d", "incline_slide", "spring_pair", "lossless_turn", "movable_semicircle"].includes(source.kind)
+      : previous === "conveyor_belt" ? ["projectile", "horizontal_slide", "spring_contact", "vertical_arc", "constant_force_1d", "incline_slide", "spring_pair", "lossless_turn", "movable_semicircle"].includes(source.kind) || (source.kind === "movable_arc" && source.entryMode === "bottom")
       : previous === "magnetic_deflection" ? ["projectile", "horizontal_slide", "constant_force_1d", "conveyor_belt"].includes(source.kind)
       : previous === "movable_arc" ? ["spring_pair", "horizontal_slide", "spring_contact", "vertical_arc", "projectile", "conveyor_belt"].includes(source.kind)
       : previous === "spring_pair" ? ["horizontal_slide", "projectile", "vertical_arc"].includes(source.kind)

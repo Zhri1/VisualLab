@@ -18,6 +18,15 @@ function drawingData(motion:Motion){
   for(const p of motion.stageGeometry?.pendulums??[]){points.push({x:p.pivot.xM,y:p.pivot.yM},{x:p.lowestPoint.xM,y:p.lowestPoint.yM});if(p.peg)points.push({x:p.peg.xM,y:p.peg.yM},{x:p.peg.xM,y:p.peg.yM+p.peg.effectiveLengthM});}
   if(motion.stageGeometry?.conveyor){const cv=motion.stageGeometry.conveyor;points.push({x:cv.minXM,y:0},{x:cv.maxXM,y:0});}
   if(motion.stageGeometry?.pulley){const pl=motion.stageGeometry.pulley;points.push({x:pl.pulley.xM,y:pl.pulley.yM},{x:pl.body1Start.xM,y:pl.body1Start.yM},{x:pl.body2Start.xM,y:pl.body2Start.yM});if(pl.groundYM!=null)points.push({x:pl.body2Start.xM,y:pl.groundYM});}
+  if(motion.stageGeometry?.multiBodyMovableArc){
+    const ma=motion.stageGeometry.multiBodyMovableArc;
+    const d=ma.entryDirection,R=ma.radiusM;
+    points.push({x:ma.entryXM,y:ma.entryYM},{x:ma.entryXM+d*R*1.15,y:ma.entryYM+R},{x:ma.exitGrooveXM,y:ma.entryYM},{x:ma.exitGrooveXM+d*R*1.15,y:ma.entryYM+R});
+  }
+  if(motion.stageGeometry?.upstreamSpring){
+    const us=motion.stageGeometry.upstreamSpring;
+    points.push({x:us.xM-0.7,y:0},{x:us.xM,y:0});
+  }
   if(motion.stageGeometry?.switchableEM){const em=motion.stageGeometry.switchableEM;for(const c of em.circles){points.push({x:c.center.xM-c.radiusM,y:c.center.yM-c.radiusM},{x:c.center.xM+c.radiusM,y:c.center.yM+c.radiusM});}points.push({x:em.tangency.xM,y:em.tangency.yM},{x:em.switchOffX,y:0});for(const lm of motion.stageGeometry.landmarks??[])points.push({x:lm.position.xM,y:lm.position.yM});}
   if(motion.stageGeometry?.magneticReencounter){const mr=motion.stageGeometry.magneticReencounter;for(const c of mr.circles){points.push({x:c.center.xM-c.radiusM,y:c.center.yM-c.radiusM},{x:c.center.xM+c.radiusM,y:c.center.yM+c.radiusM});}points.push({x:mr.contact.xM,y:mr.contact.yM});for(const lm of motion.stageGeometry.landmarks??[])points.push({x:lm.position.xM,y:lm.position.yM});}
   for(const tr of motion.stageGeometry?.bodyTracks??[]){if(tr.horizontal){points.push({x:tr.horizontal.start.xM,y:tr.horizontal.start.yM});if(tr.horizontal.plannedEnd)points.push({x:tr.horizontal.plannedEnd.xM,y:tr.horizontal.plannedEnd.yM});}if(tr.projectile?.landingPlane)points.push({x:tr.projectile.launch.xM,y:tr.projectile.landingPlane.yM});}
@@ -235,6 +244,49 @@ export function drawMultiBodyScene(ctx:CanvasRenderingContext2D,W:number,H:numbe
       reqs.push({text:'O',color:SOFT,cx:X(p.lowestPoint.xM)+13,by:Y(p.lowestPoint.yM)+18,dir:1});
     }
   }
+  if(motion.stageGeometry?.upstreamSpring){
+    const us=motion.stageGeometry.upstreamSpring;
+    const y0=Y(0),tipX=X(us.xM)-6,wallX=Math.max(12,tipX-Math.max(32,Math.min(54,0.45*S)));
+    ctx.save();
+    ctx.strokeStyle=us.schematic?SOFT:INK;ctx.lineWidth=1.4;
+    if(us.schematic)ctx.setLineDash([4,3]);
+    // 左侧固定墙与预压弹簧示意
+    ctx.beginPath();ctx.moveTo(wallX,y0-24);ctx.lineTo(wallX,y0+4);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(wallX,y0-6);
+    for(let i=1;i<=10;i++)ctx.lineTo(wallX+(tipX-wallX)*i/10,y0-6+(i%2?-4.5:4.5));
+    ctx.lineTo(tipX,y0-6);ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+    const label=us.elasticEnergyJ!=null?`预压弹簧${us.schematic?'（示意）':''} Ep=${us.elasticEnergyJ.toFixed(2)} J`:'预压弹簧（示意）';
+    reqs.push({text:label,color:SOFT,cx:(wallX+tipX)/2,by:y0-28,dir:-1});
+  }
+  if(motion.stageGeometry?.multiBodyMovableArc){
+    const ma=motion.stageGeometry.multiBodyMovableArc;
+    const gs=motion.movableArcAt?.(time)??{grooveXM:ma.entryXM,grooveVX:0,normalForceN:0};
+    const d=ma.entryDirection,R=ma.radiusM,cx=gs.grooveXM,y0=ma.entryYM;
+    const backX=cx+d*R*1.12;
+    ctx.save();
+    // 光滑水平地面
+    ctx.strokeStyle=INK;ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(gx1,Y(y0));ctx.lineTo(gx2,Y(y0));ctx.stroke();
+    ctx.strokeStyle=HAIR;ctx.lineWidth=1;
+    for(let hx=gx1+8;hx<gx2;hx+=14){ctx.beginPath();ctx.moveTo(hx,Y(y0));ctx.lineTo(hx-5,Y(y0)+5);ctx.stroke();}
+    // 可移动四分之一圆弧槽实体块（随 cx 整体平动）
+    ctx.beginPath();
+    ctx.moveTo(X(cx),Y(y0));
+    for(let i=0;i<=28;i++){
+      const phi=(Math.PI/2)*(i/28);
+      ctx.lineTo(X(cx+d*R*Math.sin(phi)),Y(y0+R*(1-Math.cos(phi))));
+    }
+    ctx.lineTo(X(backX),Y(y0+R));
+    ctx.lineTo(X(backX),Y(y0));
+    ctx.closePath();
+    ctx.fillStyle='#efefeb';ctx.fill();
+    ctx.strokeStyle=INK;ctx.lineWidth=1.8;ctx.stroke();
+    ctx.restore();
+    occupied.push({x:Math.min(X(cx),X(backX)),y:Y(y0+R),w:Math.abs(X(backX)-X(cx)),h:Math.abs(Y(y0)-Y(y0+R))});
+    reqs.push({text:`槽 C (M=${ma.grooveMassKg} kg · v=${signed(gs.grooveVX)} m/s)`,color:SOFT,cx:X(cx+d*R*0.65),by:Y(y0)+18,dir:1});
+  }
   if(motion.stageGeometry?.plank){
     const pg=motion.stageGeometry.plank,pb=snapshot.bodies?.[pg.plankBodyId];
     if(pb){
@@ -412,6 +464,7 @@ export function MultiBodyReadouts({motion,time,isPlaying=false}:{motion:Motion;t
     {ids.map((id,i)=>{const b=sample.bodies![id];return <span className="body-body-value" key={id} data-body-id={id}><i className="body-swatch" style={{background:i===0?INK:TARGET}}/>{id}：v = {formatSpeed(Math.hypot(b.velocity.x,b.velocity.y))} m/s；{bodyStatusText[b.status]}{b.groupId?' · 粘连':''}{(horizontal||!!em||!!mr)&&<><br/>x = {signed(b.position.x)}，y = {signed(b.position.y)} m<br/>vₓ = {signed(b.velocity.x)}，vᵧ = {signed(b.velocity.y)} m/s</>}</span>;})}
     {emStatus&&<span className="body-constraint">场区状态：{emStatus}{em?.scaleMode==='normalized'?' · 归一化标度（m=q=L=v₀=1）':''}</span>}
     {mr&&<span className="body-constraint">匀强磁场（{mr.fieldDirection==='into_page'?'垂直纸面向里':'垂直纸面向外'}）· 共 {mr.collisionCount} 次正碰{mr.scaleMode==='normalized'?' · 归一化标度（m=q=B=a=1）':''}</span>}
+    {motion.stageGeometry?.multiBodyMovableArc&&(()=>{const ma=motion.stageGeometry!.multiBodyMovableArc!,gs=motion.movableArcAt?.(time);return <span className="body-constraint">可移动圆弧槽 C（M = {ma.grooveMassKg} kg，R = {ma.radiusM} m）：x = {signed(gs?.grooveXM??ma.entryXM)} m，v = {signed(gs?.grooveVX??0)} m/s{gs?.normalForceN!=null&&gs.normalForceN>0?`，支持力 N = ${gs.normalForceN.toFixed(2)} N`:''}{ma.bottomReturnNormalForceN!=null?`（返回槽底 N = ${ma.bottomReturnNormalForceN.toFixed(2)} N）`:''}</span>;})()}
     {Object.values(sample.constraints??{}).map(c=>{
       const pendGeo=motion.stageGeometry?.pendulums?.find(p=>p.constraintId===c.constraintId);
       const pegActive=pendGeo?.peg&&Math.abs(c.pivot.xM-pendGeo.pivot.xM)>1e-6;

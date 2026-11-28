@@ -627,28 +627,50 @@ export function drawStageScene(
   }
   if (g.movableArc) {
     const ma = g.movableArc;
-    const gs = motion.movableArcAt?.(time) ?? { grooveXM: ma.entryXM + ma.exitDirection * ma.radiusM, grooveVX: 0 };
-    // grooveXM 为槽圆心横坐标：初始圆心 = entryXM + s·R。
-    const d = gs.grooveXM - (ma.entryXM + ma.exitDirection * ma.radiusM);
-    const cx = ma.entryXM + ma.exitDirection * ma.radiusM + d;
+    const isBottom = ma.entryMode === "bottom";
+    const gs = motion.movableArcAt?.(time) ?? { grooveXM: isBottom ? ma.entryXM : ma.entryXM + ma.exitDirection * ma.radiusM, grooveVX: 0 };
     ctx.strokeStyle = INK; ctx.lineWidth = 1.6;
     ctx.beginPath(); ctx.moveTo(X(worldBounds.minX), Y(0)); ctx.lineTo(X(worldBounds.maxX), Y(0)); ctx.stroke();
     ctx.strokeStyle = HAIR; ctx.lineWidth = 1;
     for (let x = worldBounds.minX + 0.15; x < worldBounds.maxX; x += 0.25) {
       ctx.beginPath(); ctx.moveTo(X(x), Y(0)); ctx.lineTo(X(x - 0.12), Y(0) + 6); ctx.stroke();
     }
-    ctx.strokeStyle = INK; ctx.lineWidth = 2;
-    ctx.beginPath();
-    for (let i = 0; i <= 24; i += 1) {
-      const th = (Math.PI / 2) * (i / 24);
-      const px = cx - ma.exitDirection * ma.radiusM * Math.cos(th);
-      const py = ma.entryYM - ma.radiusM * Math.sin(th);
-      if (i === 0) ctx.moveTo(X(px), Y(py)); else ctx.lineTo(X(px), Y(py));
+    if (isBottom) {
+      const dir = ma.entryDirection ?? 1;
+      const cx = gs.grooveXM;
+      const y0 = ma.entryYM;
+      const R = ma.radiusM;
+      const backX = cx + dir * R * 1.12;
+      ctx.beginPath();
+      ctx.moveTo(X(cx), Y(y0));
+      for (let i = 0; i <= 28; i += 1) {
+        const phi = (Math.PI / 2) * (i / 28);
+        ctx.lineTo(X(cx + dir * R * Math.sin(phi)), Y(y0 + R * (1 - Math.cos(phi))));
+      }
+      ctx.lineTo(X(backX), Y(y0 + R));
+      ctx.lineTo(X(backX), Y(y0));
+      ctx.closePath();
+      ctx.fillStyle = FILL; ctx.fill();
+      ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = SOFT; ctx.font = `500 12px ${SANS}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+      ctx.fillText(`M = ${ma.grooveMassKg} kg`, X(cx + dir * R * 0.55), Y(0) - 6);
+    } else {
+      // grooveXM 为槽圆心横坐标：初始圆心 = entryXM + s·R。
+      const d = gs.grooveXM - (ma.entryXM + ma.exitDirection * ma.radiusM);
+      const cx = ma.entryXM + ma.exitDirection * ma.radiusM + d;
+      ctx.strokeStyle = INK; ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i <= 24; i += 1) {
+        const th = (Math.PI / 2) * (i / 24);
+        const px = cx - ma.exitDirection * ma.radiusM * Math.cos(th);
+        const py = ma.entryYM - ma.radiusM * Math.sin(th);
+        if (i === 0) ctx.moveTo(X(px), Y(py)); else ctx.lineTo(X(px), Y(py));
+      }
+      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(X(cx - ma.exitDirection * ma.radiusM), Y(ma.entryYM)); ctx.lineTo(X(cx - ma.exitDirection * ma.radiusM), Y(0)); ctx.stroke();
+      ctx.fillStyle = SOFT; ctx.font = `500 12px ${SANS}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+      ctx.fillText(`M = ${ma.grooveMassKg} kg`, X(cx - ma.exitDirection * ma.radiusM * 0.4), Y(0) - 6);
     }
-    ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(X(cx - ma.exitDirection * ma.radiusM), Y(ma.entryYM)); ctx.lineTo(X(cx - ma.exitDirection * ma.radiusM), Y(0)); ctx.stroke();
-    ctx.fillStyle = SOFT; ctx.font = `500 12px ${SANS}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-    ctx.fillText(`M = ${ma.grooveMassKg} kg`, X(cx - ma.exitDirection * ma.radiusM * 0.4), Y(0) - 6);
   }
   if (g.springPair) {
     const pair = g.springPair;

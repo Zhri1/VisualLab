@@ -104,3 +104,14 @@ collision事件新增可选collision元数据：`{ mode, normalXM, momentumBefor
 独立脚本`node scripts/check-horizontal-collision-contract.mjs`只校对解析数值与输入，不导入生产求解器；不代表新入口已支持。实现阶段须新增标准npm test覆盖的公开入口用例，验收上述分支、镜像/交换ID、相向/追及、初位同点方向缺项、摩擦停止同刻接触、零相对速度、正负超界、第二次接触边界、落地先于另一轨道、已有约束与粘连唯一张力及缺项往返。碰撞±1e-7s用1e-10量级位置/速度绝对误差核对，碰撞精确帧另测原子状态。
 
 本契约先单独PR审核。随后B先实现分区求最早接触、collide1D复用及轨道装配，再接Adapter/画布/编辑器/Skill和Node/Qoder同源校验；正常图文handler可mock上游但须注明，工作区走正常首页与播放器。旧摆碰撞、圆弧、斜抛、预压与incline_spring全量回归。由规划会话合并，不部署。
+
+## 6. 增量扩展：底入可移动四分之一圆弧槽与上游预压弹簧接续
+
+- `parallel_motion` 碰后轨道新增 `movable_arc`（`entryMode: "bottom"`）阶段，与 `horizontal_slide`、`projectile`、`pendulum_swing` 并列，沿同一物理时钟同步取样。碰后接触位置、带符号水平速度和槽约束状态（`grooveXM`、`grooveVX`、`normalForceN`、`angleDeg`）直接由 `collision_1d` 传入。
+- 底入四分之一光滑圆弧槽（半径 $R$、槽质量 $M$、球质量 $m$、光滑水平地面）：
+  - 无量纲能量 $e = \frac{M}{m+M}\frac{v_0^2}{gR}$。
+  - 当 $e \le 2$ 时，球沿槽上升至最大角 $\phi_{\max} = 2\arcsin(\sqrt{e}/2) \le \pi/2$ 与槽共速 $v_{\text{cm}} = \frac{m}{m+M}v_0$（相对静止，事件 `movable_arc_top`），随后对称下滑返回槽底并分离（事件 `movable_arc_return_exit`）：球速 $v_{B2} = \frac{m-M}{m+M}v_0$，槽速 $v_{C2} = \frac{2m}{m+M}v_0$，返回槽底瞬间法向力 $N_{\text{bottom}} = mg + m\frac{v_0^2}{R}$。
+  - 临界条件 `criticalTopRelativeRest: true` 对应 $e = 2$，即 $v_0 = \sqrt{\frac{2(m+M)}{M}gR}$。
+- 上游预压弹簧（`horizontal_approach.upstreamSpring`）：
+  - 若题面给出 `springConstantNpm` 与 `initialCompressionM` 及初位，则完整求解；
+  - 若题面未给弹簧劲度系数 $k$、初始压缩量 $x_0$ 或物体间水平间距，但给出弹性正碰（静止靶球）及 `criticalTopRelativeRest: true`，则确定性反求 $v_{B1}$、碰前入射速 $v_{A0} = \frac{m_A+m_B}{2m_A}v_{B1}$ 及弹簧弹性势能 $E_p = \frac{1}{2}m_A v_{A0}^2$，并以 `playback.mode = "suffix"` 仅播放从碰撞与滑上圆弧槽开始的已知后缀，上游弹簧仅作示意，不编造未知前段时长或后续二次相遇。

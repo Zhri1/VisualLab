@@ -3,7 +3,7 @@ import {computeBlockPlankMotion} from './blockPlankMotion.ts';
 import {computePulleyMotion} from './pulleyMotion.ts';
 import {linearBodyTrack} from './bodyTrack.ts';
 import {BodyPlanError as PlanError} from './bodyPlanError.ts';
-import type { ResolvedStagePlan, StagePlanDraft, StagePlanFailure, StageKind } from './stagePlan.ts';
+import type { ResolvedStagePlan, StagePlanDraft, StagePlanFailure, StageKind, PlaybackScope } from './stagePlan.ts';
 import type { StageMotion, StageEvent, EndReason } from './stageMotion.ts';
 import type { BodyState, BodySnapshot, BodyDefinition, StringState, MotionStatus, PendulumStage, CollisionStage, ParallelStage, BodyTrackStage } from './multiBodyTypes.ts';
 import { createPendulum } from './pendulum.ts';
@@ -26,10 +26,10 @@ const text: Record<string,[string,string]> = {
   reach_target:['到达目标','按实际位移到达题设距离目标。'],leave_table:['离开桌沿','以实际非零水平速度离桌，另一物体继续按同一时钟取样。'],land:['落地','首次到达题定地面，保留接地瞬间的入射速度。'],
 };
 
-export function computeMultiBodyMotion(plan: ResolvedStagePlan): StageMotion | StagePlanFailure {
+export function computeMultiBodyMotion(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | StagePlanFailure {
   if (plan.stages[0]?.kind === 'block_plank') return computeBlockPlankMotion(plan);
   if (plan.stages[0]?.kind === 'pulley_system') return computePulleyMotion(plan);
-  try { return 'bodies'in plan.initial ? computeHorizontalMotion(plan) : solve(plan); } catch(error) {
+  try { return 'bodies'in plan.initial ? computeHorizontalMotion(plan, scope) : solve(plan); } catch(error) {
     if(!(error instanceof PlanError)&&!(error instanceof RangeError))throw error;
     const path=error instanceof PlanError?error.path:'/initial', missing=error instanceof PlanError&&error.missing;
     return {ok:false,code:missing?'NEEDS_INPUT':'INCONSISTENT_CONDITIONS',reading:plan as StagePlanDraft,message:error.message,missingKeys:missing?[path]:[],fieldErrors:missing?[]:[{path,code:error instanceof RangeError?'RANGE':'PRECONDITION_CONFLICT',message:error.message}]};

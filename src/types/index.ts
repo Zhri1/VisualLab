@@ -192,7 +192,7 @@ export interface Motion {
   energyAt?(timeSeconds: number): import("../physics").EnergyReading | null;
   /** 与 sampleAt 同钟的传送带读数（带速、相对带面位移等）。 */
   conveyorAt?(timeSeconds: number): import("../physics").ConveyorReading | null;
-  movableArcAt?(timeSeconds: number): { grooveXM: number; grooveVX: number } | null;
+  movableArcAt?(timeSeconds: number): { grooveXM: number; grooveVX: number; normalForceN?: number; angleDeg?: number; relativeSpeedMps?: number } | null;
   movableSemicircleAt?(timeSeconds: number): import("../physics/movableSemicircle").MovableSemicircleReading | null;
   springPairAt?(timeSeconds: number): { x2M: number; vx2Mps: number; compressionM: number } | null;
 }

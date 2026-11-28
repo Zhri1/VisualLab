@@ -395,6 +395,10 @@ V1 只支持下列接续，**顺序不能乱、不能跳段**：
 - 例如光滑桌面右檐x=5，初位(0,4)、初速(5,1)，两质量(1,3)：保留真实初态；题面若要求一体仍在桌面向左，另一体从右檐飞向y=-1.25，其直接projectile写supportBoundary:{edgeXM:5,supportedSide:"left"}。不要把反向来物从桌沿外的无支撑侧画成沿桌面接近。
 - 已有绳只在对应initial.bodies条目写constraint:{kind:"pendulum_string",pivotXM,lengthM,pivotFixed:true,lightInextensibleString:true,airResistanceNegligible:true,initialStringState:"taut"}。水平等待的已有绳物体须静止在最低点；非零水平初速仅能在t=0立即碰撞，不把绷紧摆误画成碰前直线运动。碰后pendulum_swing用inheritFromBodyId引用它，不能临时造绳或绕过张紧绳直接飞行；实际松绳由B判定。
 - 相遇/追及、先停后被追上、无碰撞、共速无冲击或再次相遇均由B按实际轨迹判定。不填写这些答案，不为未发生的后段输出假时间；当前只求一次冲击，再次接触保留入射边界。
+- 碰后底入可移动四分之一圆弧槽（如「弹簧弹射 A → 弹性正碰 B → B 从槽底滑上可移动 1/4 圆弧槽 C 恰好在槽顶相对静止」）：
+  - 在 `stages[2].tracks` 中将进入圆弧槽的物体轨道设为 `{"kind":"movable_arc","entryMode":"bottom","radiusM":R,"grooveMassKg":M,"entryDirection":1,"criticalTopRelativeRest":true}`（若非临界则省略 `criticalTopRelativeRest`）；另一物体在光滑水平面上用 `horizontal_slide`（`kineticFrictionCoefficient: 0, end: { kind: "scene_end" }`）。
+  - 若题面有上游预压弹簧但未给劲度系数 $k$、初始压缩量 $x_0$ 或物体间水平间距，在 `stages[0]` 写 `upstreamSpring: { bodyId, springConstantNpm: null, initialCompressionM: null, frictionless: true, unattached: true }`，并将未知的 `xM`/`vxMps` 置 `null`，由物理库反求 $v_A, v_{B1}, E_p$ 并以已知后缀播放，不代算答案也不猜测间距。
+  - 独立顶入可移动圆弧槽（`entryMode: "top"` 或省略）从槽顶静止释放，`initial.speedMps` 必须为 `0`。
 
 ## 11. 完整内轨与非最低点切向入弧
 

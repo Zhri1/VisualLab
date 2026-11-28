@@ -4,7 +4,19 @@ import type { BodyDefinition, BodySnapshot, BodyGeometry, BodyTrackStage, Parall
 import type { ConveyorBeltStage } from './conveyorBelt.ts';
 export type InitialBody = { bodyId: string; xM: number; vxMps: number; constraint?: {kind:'pendulum_string';pivotXM:number;lengthM:number;pivotFixed:true;lightInextensibleString:true;airResistanceNegligible:true;initialStringState:'taut'} };
 export type HorizontalInitial = { bodies: InitialBody[] };
-export type HorizontalApproach = {kind:'horizontal_approach';tracks:{bodyId:string;kineticFrictionCoefficient:number}[];end:{kind:'contact_or_rest'}|{kind:'time_limit';durationSeconds:number}};
+export type UpstreamSpring = {
+  bodyId: string;
+  springConstantNpm: number | null;
+  initialCompressionM: number | null;
+  frictionless: true;
+  unattached: true;
+};
+export type HorizontalApproach = {
+  kind:'horizontal_approach';
+  upstreamSpring?: UpstreamSpring;
+  tracks:{bodyId:string;kineticFrictionCoefficient:number}[];
+  end:{kind:'contact_or_rest'}|{kind:'time_limit';durationSeconds:number};
+};
 export type ConveyorApproach = ConveyorBeltStage & { bodyId?: string };
 export type HorizontalCollision = {
   kind:'collision_1d';

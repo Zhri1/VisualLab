@@ -1,7 +1,8 @@
 import type { HorizontalPlan } from './horizontalTypes.ts';
 import { solveHorizontal } from './horizontalDynamics.ts';
 import { BodyPlanError } from './bodyPlanError.ts';
-import type { StagePlanValidation } from './stagePlan.ts';
+import { movableArcCriticalEntrySpeed } from './movableArc.ts';
+import type { StagePlanValidation, PlaybackScope } from './stagePlan.ts';
 type Obj=Record<string,unknown>;
 const obj=(x:unknown):x is Obj=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 export type HorizontalValidationContext={
@@ -13,6 +14,7 @@ export type HorizontalValidationContext={
  block:(o:Obj,k:string,p:string)=>Obj|null;
  ref:(value:unknown,path:string)=>void;
  bodyList:(o:Obj,k:string,p:string,required?:boolean)=>string[];
+ setPlayback?:(p:PlaybackScope)=>void;
 };
 // 复用多物体入口的数值、类型、事实和ID检查器；叶阶段继续调用既有单物体校验。
 export function validateHorizontalFields(draft:Obj,c:HorizontalValidationContext,legacy:(input:unknown)=>StagePlanValidation){
@@ -65,6 +67,16 @@ export function validateHorizontalFields(draft:Obj,c:HorizontalValidationContext
      if(constrained&&typeof constrained.xM==='number'&&Math.abs(constrained.xM)>1e-9&&Math.abs(constrained.xM-s.beltLengthM)>1e-9)issue('/initial/bodies','PRECONDITION_CONFLICT','悬球须位于传送带端点（0 或 beltLengthM）。');
     }
    }else{
+    if('upstreamSpring'in s&&s.upstreamSpring!=null){
+     const us=block(s,'upstreamSpring',p+'/upstreamSpring');
+     if(us){
+      ref(us.bodyId,p+'/upstreamSpring/bodyId');
+      fact(us,'frictionless',p+'/upstreamSpring/frictionless');
+      fact(us,'unattached',p+'/upstreamSpring/unattached');
+      num(us,'springConstantNpm',p+'/upstreamSpring/springConstantNpm',v=>v>0,false);
+      num(us,'initialCompressionM',p+'/upstreamSpring/initialCompressionM',v=>v>0,false);
+     }
+    }
     if(!Array.isArray(s.tracks)){if(s.tracks==null){s.tracks=null;missing.push(p+'/tracks');}else issue(p+'/tracks','TYPE','接近轨道须为数组。');}
     else{const owners:unknown[]=[];s.tracks.forEach((tr,j)=>{const tp=p+`/tracks/${j}`;if(!obj(tr)){issue(tp,'TYPE','轨道须为对象。');return;}ref(tr.bodyId,tp+'/bodyId');owners.push(tr.bodyId);num(tr,'kineticFrictionCoefficient',tp+'/kineticFrictionCoefficient',v=>v>=0);});if(owners.length!==2||new Set(owners).size!==2||ids.some(id=>!owners.includes(id)))issue(p+'/tracks','PRECONDITION_CONFLICT','接近轨道须精确覆盖两物体。');}
     const end=block(s,'end',p+'/end');if(end){choice(end,'kind',p+'/end/kind',['contact_or_rest','time_limit']);if(end.kind==='time_limit')num(end,'durationSeconds',p+'/end/durationSeconds',v=>v>0);}
@@ -133,6 +145,16 @@ export function validateHorizontalFields(draft:Obj,c:HorizontalValidationContext
       if(!isConveyorFirst)issue(hp+'/kind','PRECONDITION_CONFLICT','继承传送带轨道要求首段为传送带。');
       if(tr.stages.length!==1)issue(tp+'/stages','UNSUPPORTED','碰后传送带轨道不自动续接未给地面的后续段。');
       num(head,'inheritFromStageIndex',hp+'/inheritFromStageIndex',v=>v===0);
+     }else if(obj(head)&&head.kind==='movable_arc'){
+      const hp=tp+'/stages/0';
+      if(tr.stages.length!==1)issue(tp+'/stages','UNSUPPORTED','碰后底入可移动圆弧槽阶段暂不自动续接后段。');
+      if(head.entryMode==null)head.entryMode='bottom';
+      else if(head.entryMode!=='bottom')issue(hp+'/entryMode','PRECONDITION_CONFLICT','碰后并行轨道中的可移动圆弧槽仅支持底入模式（entryMode="bottom"）。');
+      num(head,'radiusM',hp+'/radiusM',v=>v>0);
+      num(head,'grooveMassKg',hp+'/grooveMassKg',v=>v>0);
+      if('entryDirection'in head&&head.entryDirection!=null)choice(head,'entryDirection',hp+'/entryDirection',[1,-1]);
+      if('criticalTopRelativeRest'in head&&head.criticalTopRelativeRest!=null&&head.criticalTopRelativeRest!==true)issue(hp+'/criticalTopRelativeRest','UNSUPPORTED','criticalTopRelativeRest 仅支持 true。');
+      if('entryGapM'in head&&head.entryGapM!=null)num(head,'entryGapM',hp+'/entryGapM',v=>v>=0);
      }else{
       const checked=legacy({kind:'stage_plan',schemaVersion:1,gravityMps2:draft.gravityMps2,initial:obj(head)&&head.kind==='projectile'?{vxMps:1,vyMps:0}:{speedMps:1},stages:tr.stages});
       if(!checked.ok){for(const m of checked.missingKeys)missing.push(m.replace(/^\/stages\//,tp+'/stages/'));for(const e of checked.fieldErrors){if(e.path==='/stages/0/end'&&obj(head)&&head.kineticFrictionCoefficient===0)continue;errors.push({...e,path:e.path.replace(/^\/stages\//,tp+'/stages/')});}}
@@ -163,8 +185,52 @@ export function validateHorizontalFields(draft:Obj,c:HorizontalValidationContext
    }
   }
  }
+ // 上游预压弹簧 + 弹性正碰 + 底入可移动圆弧槽临界到顶相对静止：确定性反求入射速度与弹簧弹性势能，未知前段以 suffix 播放。
+ let derivedPlayback:PlaybackScope|undefined;
+ const s0=obj(stages[0])?stages[0]:null,s1=obj(stages[1])?stages[1]:null,s2=obj(stages[2])?stages[2]:null;
+ if(s0?.kind==='horizontal_approach'&&s1?.kind==='collision_1d'&&s1.mode==='elastic'&&s2?.kind==='parallel_motion'&&Array.isArray(s2.tracks)&&typeof draft.gravityMps2==='number'&&draft.gravityMps2>0){
+  const arcTrack=s2.tracks.find(tr=>obj(tr)&&Array.isArray(tr.stages)&&obj(tr.stages[0])&&tr.stages[0].kind==='movable_arc'&&tr.stages[0].criticalTopRelativeRest===true) as (Obj&{bodyIds:string[];stages:Obj[]})|undefined;
+  const us=obj(s0.upstreamSpring)?s0.upstreamSpring:null;
+  if(arcTrack&&Array.isArray(arcTrack.bodyIds)&&arcTrack.bodyIds.length===1){
+   const arcStage=arcTrack.stages[0],arcBodyId=arcTrack.bodyIds[0];
+   const otherBodyId=ids.find(id=>id!==arcBodyId);
+   const mArc=bodies.find(b=>obj(b)&&b.bodyId===arcBodyId)?.massKg;
+   const mOther=bodies.find(b=>obj(b)&&b.bodyId===otherBodyId)?.massKg;
+   if(typeof mArc==='number'&&mArc>0&&typeof mOther==='number'&&mOther>0&&typeof arcStage.radiusM==='number'&&arcStage.radiusM>0&&typeof arcStage.grooveMassKg==='number'&&arcStage.grooveMassKg>0&&otherBodyId){
+    const dir=(arcStage.entryDirection===1||arcStage.entryDirection===-1?arcStage.entryDirection:s1.normalXM===1||s1.normalXM===-1?s1.normalXM:1) as 1|-1;
+    const vCrit=movableArcCriticalEntrySpeed(arcStage.radiusM,mArc,arcStage.grooveMassKg,draft.gravityMps2);
+    const aIdx=initials.findIndex(b=>b.bodyId===otherBodyId),bIdx=initials.findIndex(b=>b.bodyId===arcBodyId);
+    const aInit=aIdx>=0?initials[aIdx]:null,bInit=bIdx>=0?initials[bIdx]:null;
+    const dropMissing=(path:string)=>{const idx=missing.indexOf(path);if(idx>=0)missing.splice(idx,1);};
+    if(aInit&&bInit&&bInit.vxMps===0){
+     const unresolved:string[]=[];
+     if(us){
+      if(us.springConstantNpm==null)unresolved.push('/stages/0/upstreamSpring/springConstantNpm');
+      if(us.initialCompressionM==null)unresolved.push('/stages/0/upstreamSpring/initialCompressionM');
+     }
+     if(aInit.xM==null||bInit.xM==null){
+      if(aInit.xM==null){aInit.xM=0;dropMissing(`/initial/bodies/${aIdx}/xM`);}
+      if(bInit.xM==null){bInit.xM=0;dropMissing(`/initial/bodies/${bIdx}/xM`);}
+      if(s1.normalXM==null){s1.normalXM=dir;dropMissing('/stages/1/normalXM');}
+      unresolved.push('/initial/bodies');
+     }
+     if(aInit.vxMps==null){
+      const vA0=us&&typeof us.springConstantNpm==='number'&&typeof us.initialCompressionM==='number'
+       ?dir*us.initialCompressionM*Math.sqrt(us.springConstantNpm/mOther)
+       :dir*((mOther+mArc)/(2*mOther))*vCrit;
+      aInit.vxMps=vA0;
+      dropMissing(`/initial/bodies/${aIdx}/vxMps`);
+     }
+     if(unresolved.length>0){
+      derivedPlayback={mode:'suffix',startStageIndex:1,unresolvedKeys:unresolved,reason:'题面未给出弹簧劲度系数、初始压缩量或水平间距，仅播放碰撞与底入可移动圆弧槽的已知后缀，上游弹簧仅作示意且不猜测后续二次相遇。'};
+      c.setPlayback?.(derivedPlayback);
+     }
+    }
+   }
+  }
+ }
  if(!missing.length&&!errors.length)try{
-  const plan=draft as unknown as HorizontalPlan,solved=solveHorizontal(plan),tc=solved.events.find(e=>e.kind==='contact')?.timeSeconds;
+  const plan=draft as unknown as HorizontalPlan,solved=solveHorizontal(plan,derivedPlayback),tc=solved.events.find(e=>e.kind==='contact')?.timeSeconds;
   for(const [i,b]of plan.initial.bodies.entries())if(b.constraint&&b.vxMps!==0&&tc!==0)issue(`/initial/bodies/${i}/constraint`,'PRECONDITION_CONFLICT','固定张紧绳的物体不能先走一段水平直线。');
   const post=plan.stages[2];if(post&&tc!==undefined&&solved.events.some(e=>e.kind==='collision'))for(const [j,tr]of post.tracks.entries()){
    const h=tr.stages[0],p=`/stages/2/tracks/${j}/stages/0`;

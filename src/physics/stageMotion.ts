@@ -13,7 +13,7 @@ import { landingTime, linearState, springMetrics, springState } from "./kinemati
 import { solveRoughSpring, type RoughSpring, type RoughSpringConflict } from "./roughSpring.ts";
 import { solveConveyorBelt, type ConveyorEdge, type ConveyorGeometry, type ConveyorReading } from "./conveyorBelt.ts";
 import { solveMagneticDeflection, type MagneticGeometry } from "./magneticDeflection.ts";
-import { solveMovableArc } from "./movableArc.ts";
+import { solveMovableArc, solveMovableArcBottom } from "./movableArc.ts";
 import { solveMovableSemicircle, type MovableSemicircleReading } from "./movableSemicircle.ts";
 import { solveSpringPair } from "./springPair.ts";
 
@@ -29,7 +29,7 @@ export type StageGeometry = BodyGeometry & {
   switchableEM?: SwitchableEMGeometry;
   magneticReencounter?: MagneticReencounterGeometry;
   magnetics?: MagneticGeometry[];
-  movableArc?: { stageIndex: number; radiusM: number; grooveMassKg: number; exitDirection: -1 | 1; entryXM: number; entryYM: number; exitTimeSeconds: number; exitGrooveXM: number; exitGrooveVX: number };
+  movableArc?: { stageIndex: number; radiusM: number; grooveMassKg: number; entryMode?: "top" | "bottom"; exitDirection: -1 | 1; entryDirection?: -1 | 1; entryXM: number; entryYM: number; exitTimeSeconds: number; exitGrooveXM: number; exitGrooveVX: number; bottomReturnNormalForceN?: number | null };
   movableSemicircle?: {
     stageIndex: number; entry: Point; radiusM: number; grooveMassKg: number;
     direction: "right" | "left"; startLabel?: string; endLabel?: string;
@@ -48,7 +48,7 @@ export type StageGeometry = BodyGeometry & {
   blockSizeM: number;
   positionReference: "front_bottom" | "particle";
 };
-export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "bounce_apex" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'pendulum_peg_top' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit' | 'magnetic_exit' | 'movable_arc_exit' | 'movable_semicircle_top' | 'movable_semicircle_turn' | 'spring_pair_separate';
+export type EndReason = "stop_before_target" | "stop_at_target" | "stopped" | "landed" | "bounce_apex" | "spring_detached" | "prefix_end" | "arc_detached" | "returned_to_entry" | "spring_released" | "spring_stopped_before_release" | "spring_stopped_at_release" | 'pendulum_first_turn' | 'pendulum_peg_top' | 'collision_complete' | 'string_slack' | 'string_retaut_boundary' | 'no_collision' | 'approach_range_end' | 'contact_without_impact' | 'second_contact_boundary' | 'plank_edge_leave' | 'conveyor_exit' | 'magnetic_exit' | 'movable_arc_exit' | 'movable_arc_return_exit' | 'movable_arc_top_exit' | 'movable_semicircle_top' | 'movable_semicircle_turn' | 'spring_pair_separate';
 export type StageEvent = {
   collision?: import('./horizontalTypes.ts').CollisionValues;
   bodyIds?: string[]; stagePath?: string;
@@ -77,8 +77,8 @@ export type StageMotion = {
   energyAt?(timeSeconds: number): EnergyReading | null;
   /** 与 sampleAt 同一时钟的传送带读数（带速、相对带面位移等）。 */
   conveyorAt?(timeSeconds: number): ConveyorReading | null;
-  /** 与 sampleAt 同一时钟的可移动槽读数（槽位置/速度）；离槽后按匀速外推。 */
-  movableArcAt?(timeSeconds: number): { grooveXM: number; grooveVX: number } | null;
+  /** 与 sampleAt 同一时钟的可移动槽读数（槽位置/速度及可选法向力/角度）；离槽后按匀速外推。 */
+  movableArcAt?(timeSeconds: number): { grooveXM: number; grooveVX: number; normalForceN?: number; angleDeg?: number; relativeSpeedMps?: number } | null;
   movableSemicircleAt?(timeSeconds: number): MovableSemicircleReading | null;
   /** 与 sampleAt 同一时钟的弹簧双球读数（靶球位置/速度、压缩量）。 */
   springPairAt?(timeSeconds: number): { x2M: number; vx2Mps: number; compressionM: number } | null;
@@ -537,12 +537,18 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
   const first = plan.stages[0];
   if (first?.kind === 'switchable_em_collision') return computeSwitchableEMMotion(first);
   if (first?.kind === 'magnetic_reencounter') return computeMagneticReencounterMotion(first);
-  if (plan.bodies) return computeMultiBodyMotion(plan);
+  if (plan.bodies) return computeMultiBodyMotion(plan, scope);
   const geometry: StageGeometry = { blockSizeM: 0.3, positionReference: plan.stages.some((stage, i) => stage.kind === "vertical_arc" || stage.kind === "spring_release" || stage.kind === "magnetic_deflection" || stage.kind === "movable_arc" || stage.kind === "movable_semicircle" || stage.kind === "spring_pair"
     || stage.kind === "incline_slide" && plan.stages[i + 1]?.kind === "projectile") ? "particle" : "front_bottom", ...(plan.scaleMode ? { scaleMode: plan.scaleMode } : {}) };
   let state = "speedMps" in plan.initial ? moving(0, 0, plan.initial.speedMps) : "vxMps" in plan.initial ? moving(0, 0, plan.initial.vxMps, "vyMps" in plan.initial ? plan.initial.vyMps : 0) : moving(0,0,"tangentialSpeedMps" in plan.initial ? plan.initial.tangentialSpeedMps : 0);
-  // 可移动槽的槽顶比地面高 R：初态抬到槽顶，离槽时恰好落回地面 y=0。
-  if (first?.kind === "movable_arc") state = { ...state, yM: state.yM + first.radiusM };
+  // 可移动槽顶入时槽顶比地面高 R：初态抬到槽顶，离槽时恰好落回地面 y=0；底入时从地面切向入槽。
+  if (first?.kind === "movable_arc") {
+    if (first.entryMode === "bottom") {
+      if (first.entryDirection === -1) state = { ...state, vxMps: -Math.abs(state.vxMps) };
+    } else {
+      state = { ...state, yM: state.yM + first.radiusM };
+    }
+  }
   if (first.kind === "movable_semicircle" && first.direction === "left") state.vxMps = -state.vxMps;
   if(first.kind==='vertical_arc'&&first.path)state=circularEntry({...first,path:first.path},Math.hypot(state.vxMps,state.vyMps),plan.gravityMps2!,plan.massKg!,0);
   if (first.kind === "spring_release" && scope?.mode === "full") state.springCompressionM = first.initialCompressionM!;
@@ -834,26 +840,42 @@ function compute(plan: ResolvedStagePlan, scope?: PlaybackScope): StageMotion | 
         break;
       }
       case "movable_arc": {
-        const solved = solveMovableArc(stage, { xM: state.xM, yM: state.yM }, plan.massKg!, plan.gravityMps2!);
+        const isBottom = stage.entryMode === "bottom";
+        if (isBottom && (state.vyMps !== 0 || state.vxMps === 0)) {
+          return failure("底入可移动圆弧槽需要非零水平速度入口。", "/stages/" + index, "PRECONDITION_CONFLICT");
+        }
+        const solved = isBottom
+          ? solveMovableArcBottom(stage, { xM: state.xM, yM: state.yM }, state.vxMps, plan.massKg!, plan.gravityMps2!)
+          : solveMovableArc(stage, { xM: state.xM, yM: state.yM }, plan.massKg!, plan.gravityMps2!);
         lastMovableArcGrooveVX = solved.exit.grooveVX;
         const startTime = time;
         geometry.movableArc = { stageIndex: index, ...solved.geometry, exitTimeSeconds: startTime + solved.durationSeconds, exitGrooveXM: solved.exit.grooveXM, exitGrooveVX: solved.exit.grooveVX };
         movableArcEval = (q) => {
+          if (q < startTime) {
+            const r0 = solved.at(0);
+            return { grooveXM: r0.grooveXM, grooveVX: 0, normalForceN: 0, angleDeg: 0, relativeSpeedMps: 0 };
+          }
           if (q >= startTime + solved.durationSeconds) {
             const dt = q - (startTime + solved.durationSeconds);
-            return { grooveXM: solved.exit.grooveXM + solved.exit.grooveVX * dt, grooveVX: solved.exit.grooveVX };
+            return { grooveXM: solved.exit.grooveXM + solved.exit.grooveVX * dt, grooveVX: solved.exit.grooveVX, normalForceN: 0, angleDeg: solved.exit.angleDeg, relativeSpeedMps: 0 };
           }
           const r = solved.at(Math.max(0, q - startTime));
-          return { grooveXM: r.grooveXM, grooveVX: r.grooveVX };
+          return { grooveXM: r.grooveXM, grooveVX: r.grooveVX, normalForceN: r.normalForceN, angleDeg: r.angleDeg, relativeSpeedMps: r.relativeSpeedMps };
         };
         const endSample = moving(solved.exit.xM, solved.exit.yM, solved.exit.vxMps, solved.exit.vyMps);
+        const endReason: EndReason = !isBottom ? "movable_arc_exit" : solved.outcome === "top_exit" ? "movable_arc_top_exit" : "movable_arc_return_exit";
         run = {
           duration: solved.durationSeconds,
           end: endSample,
-          reason: index + 1 >= plan.stages.length ? "movable_arc_exit" : undefined,
+          reason: index + 1 >= plan.stages.length ? endReason : undefined,
           events: solved.events.map((ev) => {
             const st = moving(ev.xM, ev.yM, ev.vxMps, ev.vyMps);
-            return event(ev.kind, ev.timeSeconds, st, st, ev.label, ev.explanation);
+            return {
+              ...event(ev.kind, ev.timeSeconds, st, st, ev.label, ev.explanation),
+              position: { xM: ev.xM, yM: ev.yM },
+              ...(ev.normalForceBeforeN !== undefined ? { normalForceBeforeN: ev.normalForceBeforeN } : {}),
+              ...(ev.normalForceAfterN !== undefined ? { normalForceAfterN: ev.normalForceAfterN } : {}),
+            };
           }),
           sampleAt: (dt) => {
             const r = solved.at(dt);
